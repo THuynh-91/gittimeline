@@ -36,9 +36,30 @@ The viewer can override it: zooming or dragging enters free look, and pressing `
 
 Sound is on by default, is never required to understand anything, and **nothing drones**: every voice is a struck or bowed gesture with an envelope that ends.
 
-A small synthetic orchestra plays the same event plan as the visuals. Strings carry the harmony, entering on each chord change with a bowed swell and receding before the next. Basses take one deep root per chord. Woodwind carries the melody on the main line; harp answers above it on side threads. Brass and timpani mark merges, weighted by how many commits converged, and a cymbal shimmer marks tags and the largest merges. A short convolution hall ties the sections together.
+**A piano piece is the primary layer.** It is not triggered by the data; it is sequenced on the performance's own beat grid (`seekGrid` places the cursor after a seek, `playBar` renders one beat), reading beat lengths from the same `tempoMap` the choreography uses. Because the grid *is* the performance's grid, the piece accelerates through a busy year and eases into a merge with the picture, and it survives seeking without drifting. Left hand takes the chord root on the downbeat and the fifth on beat three; a rolling figure appears once activity passes a threshold and an off-beat is added above it, but only when the tempo is slow enough for eighths to be heard apart. The right hand sings on strong beats, walking the chord by step. How much of that texture is played follows the repository's own intensity, so the music thins and thickens with the history rather than looping.
 
-A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds. Both melodic voices *walk* that chord by step, holding or moving one place at a time, rather than indexing a pitch from a thread's lane — that difference is what makes the line read as a tune instead of as leaps wherever the graph happens to branch. Two notes closer than an eighth of a second never sound together: the later one is dropped, because below that gap the ear stops separating them. Dynamics follow the activity curve, and a compressor guarantees headroom.
+Around it, a small synthetic orchestra plays the event plan. Strings carry the harmony, entering on each chord change with a bowed swell. Basses take one deep root per chord. Harp puts a touch of light on each commit, brighter on the main line, and rolls a short arpeggio for an aggregated run. Woodwind answers a divergence with a rising pair. Brass and timpani mark merges, weighted by how many commits converged, and a cymbal shimmer marks tags and the largest merges. A short convolution hall ties the sections together.
+
+A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds. The melodic voices *walk* that chord by step, holding or moving one place at a time, rather than indexing a pitch from a thread's lane — that difference is what makes the line read as a tune instead of as leaps wherever the graph happens to branch.
+
+### Spacing
+
+The piece has right of way. `takeVoice` rejects an accent that would land within `MIN_NOTE_GAP` (0.13 s) of the previous accent *or* of any beat the piano has already scheduled, which the engine tracks in `pianoAt` and prunes behind the playhead. A single monotone cursor is not enough here: accepting an accent must not pull the cursor back behind notes the piano has already committed to, or the next accent slips underneath one of them.
+
+Gestures that occupy time reserve it. An aggregated run rolls **forward** from its landing, never backward — scheduling behind `ctx.currentTime` clamps every note to *now* and turns a roll into one smeared flam — and the roll is only as long as the span the run actually owns, so a dense history gets a single note where a spacious one gets four.
+
+The result across the fixture corpus, measured by instrumenting oscillator starts in a real browser:
+
+| Fixture | Attacks/s | Median gap | Longest silence |
+|---|---|---|---|
+| Built-in demo | 2.3 | 337 ms | 1171 ms |
+| 05 long-running side thread | 1.5 | 628 ms | 1585 ms |
+| 07 octopus merge | 1.4 | 523 ms | 1942 ms |
+| 11 dense linear burst | 3.7 | 292 ms | 919 ms |
+| 12 merge storm | 1.9 | 394 ms | 1903 ms |
+| 19 million-node synthetic | 3.8 | 205 ms | 796 ms |
+
+Dynamics follow the activity curve, and a compressor guarantees headroom.
 
 ## Reduced motion
 

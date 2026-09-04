@@ -114,19 +114,24 @@ The length follows the history rather than a fixed target: a handful of commits 
 
 ## Sound
 
-A small synthetic orchestra, written from the same event plan as the visuals. Nothing is sampled and nothing drones: every sound is a struck or bowed gesture that ends.
+A piano piece plays continuously, and a small synthetic orchestra answers it. Nothing is sampled and nothing drones: every sound is a struck or bowed gesture that ends.
+
+The piano is the piece, not a reaction to the data. It is sequenced on the performance's own beat grid, so it speeds up and eases exactly where the choreography does, and a bar always resolves where a phrase resolves. Its texture follows the repository's activity: a dormant year is a bare root in the left hand, a busy one fills in the rolling figure and the melody above it. Everything the repository does is an accent over that piece.
 
 | Section | Carries |
 |---|---|
+| Piano | the piece itself: left-hand root and fifth, a rolling figure, a melody on the strong beats |
 | Strings | the harmony, swelling in on each chord change and receding before the next |
 | Basses | one deep root per chord, giving the harmony a floor |
-| Woodwind | the melody, carried by the main line, moving by step through the chord |
-| Harp | side threads answering above the melody |
+| Harp | a touch of light on each commit, brighter on the main line |
+| Woodwind | a rising pair where a branch diverges |
 | Brass | merges, weighted by how many commits converged |
 | Timpani | the impact under a merge, pitched to the chord root |
 | Cymbal | tags and the largest merges |
 
-A four-chord progression in A minor turns over underneath, and both melodic voices walk it by step rather than leaping to whatever pitch a lane indexes, so the line reads as a tune. Notes closer together than an eighth of a second are dropped rather than stacked, because below that the ear stops hearing them separately. Dynamics follow the repository's own activity curve, and a short synthetic hall ties the sections together.
+A four-chord progression in A minor turns over underneath, and the melody walks it by step rather than leaping to whatever pitch a lane indexes, so the line reads as a tune.
+
+**The piano has right of way.** An accent is dropped, never stacked, if it would land within an eighth of a second of the previous accent or of a note the piano has already committed to. On a busy history most commits therefore pass without a sound of their own, which is what keeps a dense repository from becoming a wash. Measured across the corpus, attacks land between 1.4 and 3.8 per second with median gaps from 205 ms to 630 ms. Dynamics follow the repository's own activity curve, and a short synthetic hall ties the sections together.
 
 ## Documentation
 

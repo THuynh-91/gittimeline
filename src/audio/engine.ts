@@ -8,16 +8,20 @@ import { hash01 } from '@/model/prng';
  *
  * The sections, and what each is for:
  *
- *   strings    the harmony. Enters on each chord change with a bowed swell and
- *              recedes before the next, so the score breathes in phrases rather
- *              than sitting on a held tone.
- *   basses     one deep root at each chord change, giving the harmony a floor.
- *   woodwind   the melody, carried by the main line. Moves by step through the
- *              sounding chord so it reads as a tune rather than as lookups.
- *   harp       side threads, answering above the melody.
+ *   piano      the piece itself. A left hand walking the chord and a right hand
+ *              singing over it, played continuously on the performance's own
+ *              beat grid, so the music has a pulse of its own rather than
+ *              existing only where commits happen to land.
+ *   strings    the harmony underneath, swelling in on each chord change and
+ *              receding before the next.
+ *   basses     one deep root per chord, giving the harmony a floor.
  *   brass      merges, weighted by how many commits actually converged.
  *   timpani    the impact under a merge, pitched to the chord root.
  *   cymbal     tags and the largest merges, as a filtered shimmer.
+ *   harp       a light touch on branch events, sitting above the piano.
+ *
+ * Everything the repository does is an accent *over* the piece, deliberately
+ * quiet: the music carries the room and the events colour it.
  *
  * Dynamics follow the repository's own activity curve, so a quiet era plays
  * quietly and a busy one opens up. Nothing is conveyed by sound alone.
@@ -62,10 +66,15 @@ export class AudioEngine {
   private approaches: ChoreographyEvent[] = [];
   private intensity = 0;
   private lastNoteAt = -Infinity;
+  /** Beat onsets already committed to the piano, so accents can dodge them. */
+  private pianoAt: number[] = [];
   private lastChordIndex = -1;
   /** Where each melodic voice currently sits within the sounding chord. */
   private leadIdx = 2;
   private counterIdx = 4;
+  /** Beat-grid cursor for the piano piece. */
+  private nextBeat = 0;
+  private nextBeatTime = 0;
 
   levels: AudioLevels = { master: 0.7, effects: 0.7, muted: false };
   dynamics: 'quiet' | 'standard' | 'dramatic' = 'dramatic';
@@ -133,6 +142,7 @@ export class AudioEngine {
     this.scheduledUntil = -1;
     this.lastT = -1;
     this.lastNoteAt = -Infinity;
+    this.pianoAt = [];
     this.lastChordIndex = -1;
   }
 
@@ -143,6 +153,7 @@ export class AudioEngine {
     this.eventPtr = 0;
     this.approachPtr = 0;
     this.lastNoteAt = -Infinity;
+    this.pianoAt = [];
     this.lastChordIndex = -1;
   }
 
@@ -174,7 +185,11 @@ export class AudioEngine {
       this.approachPtr = idx < 0 ? this.approaches.length : idx;
       this.scheduledUntil = t;
       this.lastChordIndex = Math.floor(Math.max(0, t) / CHORD_SECONDS);
+      this.seekGrid(p.tempoMap, t);
+      this.pianoAt = [];
     }
+    // Only beats still near the playhead can collide with anything.
+    while (this.pianoAt.length && this.pianoAt[0]! < t - 1) this.pianoAt.shift();
     const until = t + lookahead;
 
     // The harmony turns over: strings re-voice and the basses take the new root.
@@ -184,10 +199,24 @@ export class AudioEngine {
       const chord = chordAt(t);
       const when = ctx.currentTime + 0.02;
       const len = (CHORD_SECONDS * 0.92) / Math.max(0.05, rate);
-      this.send(strings(ctx, out, when, chord, 0.05 + 0.09 * this.intensity, len));
-      this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.075 + 0.03 * this.intensity, len * 0.7));
+      this.send(strings(ctx, out, when, chord, 0.026 + 0.05 * this.intensity, len));
+      this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.045 + 0.02 * this.intensity, len * 0.7));
       this.leadIdx = 2;
       this.counterIdx = 4;
+    }
+
+    // The piece itself: walk the beat grid and play the piano up to the
+    // lookahead horizon. This is what gives the score a pulse of its own.
+    let guard = 0;
+    while (this.nextBeatTime <= until && guard++ < 64) {
+      const beatTime = this.nextBeatTime;
+      const beat = this.nextBeat;
+      const len = beatLengthAt(p.tempoMap, beatTime);
+      this.nextBeat += 1;
+      this.nextBeatTime = beatTime + len;
+      if (beatTime < t - 0.05) continue;
+      const when = ctx.currentTime + Math.max(0, (beatTime - t) / Math.max(0.05, rate));
+      this.playBar(ctx, out, when, beatTime, beat, len / Math.max(0.05, rate));
     }
 
     // Merge approaches are scheduled by their start so the crescendo rises first.
@@ -196,7 +225,7 @@ export class AudioEngine {
       if (ev.performanceStart <= this.scheduledUntil && this.scheduledUntil > t) continue;
       const len = Math.max(0.35, Math.min(2.6, ev.performanceImpact - ev.performanceStart)) / Math.max(0.05, rate);
       const when = ctx.currentTime + Math.max(0, (ev.performanceStart - t) / Math.max(0.05, rate));
-      this.send(crescendo(ctx, out, when, chordAt(ev.performanceImpact), len, (0.05 + 0.1 * ev.salience) * ev.effectBudget));
+      this.send(crescendo(ctx, out, when, chordAt(ev.performanceImpact), len, (0.03 + 0.06 * ev.salience) * ev.effectBudget));
     }
 
     const events = p.events;
@@ -210,10 +239,79 @@ export class AudioEngine {
     this.lastT = t;
   }
 
-  /** Notes need air: anything closer than MIN_NOTE_GAP is dropped, not stacked. */
-  private takeVoice(at: number): boolean {
+  /** Re-place the beat cursor after a seek, walking the tempo map from zero. */
+  private seekGrid(tempoMap: Array<[number, number]>, t: number) {
+    let time = 0;
+    let beat = 0;
+    let guard = 0;
+    while (time < t && guard++ < 200000) {
+      time += beatLengthAt(tempoMap, time);
+      beat++;
+    }
+    this.nextBeat = beat;
+    this.nextBeatTime = time;
+  }
+
+  /**
+   * One beat of the piano piece.
+   *
+   * Left hand walks the chord in a rolling figure; right hand sings over it,
+   * moving by step. How much of the texture is played follows the repository's
+   * own activity, so a dormant year is a bare root and a busy one is the full
+   * pattern — the music thins and thickens with the history rather than
+   * repeating a loop.
+   */
+  private playBar(ctx: AudioContext, out: AudioNode, when: number, beatTime: number, beat: number, beatLen: number) {
+    const chord = chordAt(beatTime);
+    const inBar = beat % 4;
+    const bar = Math.floor(beat / 4);
+    const energy = Math.max(0, Math.min(1, this.intensity));
+    const vel = 0.9 + 0.18 * (inBar === 0 ? 1 : inBar === 2 ? 0.4 : 0);
+
+    // The piece has right of way: an accent that would land on top of a piano
+    // note is dropped rather than blurring into it.
+    this.pianoAt.push(beatTime);
+
+    // Left hand: the root on the downbeat, the fifth halfway through the bar.
+    if (inBar === 0) this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.5), 0.062 * vel, 3.4));
+    else if (inBar === 2) this.send(piano(ctx, out, when, noteHz(chord[2]!, 0.5), 0.042, 2.6));
+
+    // Rolling figure, which only appears once there is something happening.
+    if (energy > 0.22) {
+      const tone = chord[(beat + 1) % 4]!;
+      this.send(piano(ctx, out, when, noteHz(tone, 1), 0.03 + 0.016 * energy, 1.5));
+    }
+    // The off-beat only when there is room for it. At a fast tempo the eighths
+    // would run into each other and the figure would stop reading as a figure.
+    if (energy > 0.62 && beatLen > 0.42) {
+      const tone = chord[(beat * 2 + 3) % chord.length]!;
+      this.send(piano(ctx, out, when + beatLen * 0.5, noteHz(tone, 1), 0.022 + 0.012 * energy, 1.1));
+      this.pianoAt.push(beatTime + beatLen * 0.5);
+    }
+
+    // Right hand: a phrase on the strong beats, stepping through the chord.
+    const sings = inBar === 0 || (inBar === 2 && energy > 0.3) || (inBar === 3 && energy > 0.72);
+    if (sings && hash01(`melody:${bar}:${inBar}`) > 0.18) {
+      const pitch = this.step(chord, `bar:${bar}:${inBar}`, true);
+      this.send(piano(ctx, out, when, noteHz(pitch, 2), (0.036 + 0.02 * energy) * vel, 2.4));
+    }
+  }
+
+  /**
+   * Notes need air. An accent is dropped, never stacked, if it would land
+   * within MIN_NOTE_GAP of the previous accent or of any note the piano has
+   * already committed to. The piece has right of way: on a busy history most
+   * commits pass without a sound of their own rather than blurring the pulse.
+   *
+   * `span` reserves a gesture that occupies time, such as a rolled cluster.
+   */
+  private takeVoice(at: number, span = 0): boolean {
     if (at - this.lastNoteAt < MIN_NOTE_GAP) return false;
-    this.lastNoteAt = at;
+    for (const beat of this.pianoAt) {
+      if (beat > at + span + MIN_NOTE_GAP) break;
+      if (beat > at - MIN_NOTE_GAP) return false;
+    }
+    this.lastNoteAt = at + span;
     return true;
   }
 
@@ -242,34 +340,42 @@ export class AudioEngine {
     switch (ev.type) {
       case 'COMMIT_STEP': {
         if (!this.takeVoice(ev.performanceImpact)) break;
-        // The main line is the tune, given to the winds; side threads answer
-        // above it on the harp. Both move by step through the sounding chord.
+        // A commit is a touch of light over the piece, not a note of it. The
+        // piano is already playing; this only says "something happened here".
         const lead = !!node?.isSpine;
-        const pitch = this.step(chord, ev.id, lead);
-        if (lead) this.send(woodwind(ctx, out, when, noteHz(pitch, 1), 0.075 + 0.03 * ev.salience, 0.75 + 0.5 * colour));
-        else this.send(harp(ctx, out, when, noteHz(pitch, 2), 0.05 + 0.02 * ev.salience, 1.5, colour));
+        this.send(harp(ctx, out, when, noteHz(chord[lead ? 2 : 4]!, lead ? 2 : 4), (lead ? 0.026 : 0.018) + 0.008 * ev.salience, lead ? 1 : 0.7, colour));
         break;
       }
       case 'COMMIT_CLUSTER': {
-        if (!this.takeVoice(ev.performanceImpact)) break;
-        const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
-        for (let i = 0; i < 4; i++) this.send(harp(ctx, out, when - (span * (4 - i)) / 4, noteHz(chord[i % chord.length]!, 2), 0.03, 0.8, colour));
+        // A run of commits is rolled forward from its landing, not backward
+        // into the past — scheduling behind the clock clamps every note to
+        // 'now' and turns the roll into a single smeared flam.
+        //
+        // The roll is only as long as the time the run actually owns. On a
+        // dense history a cluster gets a single note; a run that holds the
+        // stage for a second gets the full four. Rolling regardless of span
+        // is what turns a busy repository into a continuous wash.
+        const span = Math.max(0, ev.performanceEnd - ev.performanceStart);
+        const count = Math.max(1, Math.min(4, Math.floor(span / 0.16)));
+        const step = count > 1 ? Math.max(0.12, span / count) : 0;
+        if (!this.takeVoice(ev.performanceImpact, step * (count - 1))) break;
+        for (let i = 0; i < count; i++) this.send(harp(ctx, out, when + step * i, noteHz(chord[i % chord.length]!, 3), 0.014 + 0.006 * ev.salience, 0.6, colour));
         break;
       }
       case 'DIVERGENCE': {
-        if (!this.takeVoice(ev.performanceImpact)) break;
-        // A rising figure in the winds: the branch asks a question.
-        this.send(woodwind(ctx, out, when - 0.11, noteHz(chord[1]!, 2), 0.05 * budget, 0.5));
-        this.send(woodwind(ctx, out, when, noteHz(chord[3]!, 2), 0.07 * budget, 0.9));
+        if (!this.takeVoice(ev.performanceImpact, 0.16)) break;
+        // A rising pair in the winds: the branch asks a question, quietly.
+        this.send(woodwind(ctx, out, when, noteHz(chord[1]!, 2), 0.028 * budget, 0.45));
+        this.send(woodwind(ctx, out, when + 0.16, noteHz(chord[3]!, 2), 0.038 * budget, 0.8));
         break;
       }
       case 'THREAD_ACTIVATE':
         if (!this.takeVoice(ev.performanceImpact)) break;
-        this.send(harp(ctx, out, when, noteHz(chord[2]!, 2), 0.05, 1.3, colour));
+        this.send(harp(ctx, out, when, noteHz(chord[2]!, 3), 0.024, 1, colour));
         break;
       case 'CONTRIBUTOR_ENTER':
         if (!this.takeVoice(ev.performanceImpact)) break;
-        this.send(harp(ctx, out, when, noteHz(chord[chord.length - 1]!, 2), 0.035, 1.1, colour));
+        this.send(harp(ctx, out, when, noteHz(chord[chord.length - 1]!, 3), 0.02, 0.9, colour));
         break;
       case 'MERGE_APPROACH':
         break; // scheduled by start, above
@@ -281,15 +387,19 @@ export class AudioEngine {
         // Weight follows the work absorbed: a two-commit merge is a footstep,
         // a twenty-commit one is the downbeat of the phrase.
         const weight = Math.min(1, 0.22 + Math.log2(1 + vol) * 0.2);
-        this.send(timpani(ctx, out, when, (big ? 0.4 : 0.24) * weight * budget, noteHz(chord[0]!, 0.5)));
-        this.send(brass(ctx, out, when, chord, (0.045 + 0.075 * weight) * budget, 0.9 + 1.6 * weight));
+        this.send(timpani(ctx, out, when, (big ? 0.3 : 0.17) * weight * budget, noteHz(chord[0]!, 0.5)));
+        this.send(brass(ctx, out, when, chord, (0.03 + 0.055 * weight) * budget, 0.9 + 1.6 * weight));
+        // The piano takes the downbeat with both hands.
+        this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.5), 0.05 * weight, 3.6));
+        this.send(piano(ctx, out, when + 0.04, noteHz(chord[2]!, 1), 0.038 * weight, 2.6));
         if (big && weight > 0.6) this.send(cymbal(ctx, out, when, 0.05 * weight * budget, 1.6));
         break;
       }
       case 'TAG_LANDMARK':
         // A cadence: brass on the root, with a shimmer over it.
-        this.send(brass(ctx, out, when, [chord[0]!, chord[2]!, chord[0]! + 12], 0.075 * budget, 1.8));
-        this.send(cymbal(ctx, out, when, 0.045 * budget, 2));
+        this.send(brass(ctx, out, when, [chord[0]!, chord[2]!, chord[0]! + 12], 0.05 * budget, 1.8));
+        this.send(cymbal(ctx, out, when, 0.03 * budget, 2));
+        this.send(piano(ctx, out, when, noteHz(chord[0]!, 2), 0.04 * budget, 3));
         break;
       case 'ERA_TRANSITION': {
         const next = chordAt(ev.performanceImpact + CHORD_SECONDS);
@@ -299,15 +409,16 @@ export class AudioEngine {
       }
       case 'REPO_BIRTH':
       case 'MULTI_ROOT_REVEAL':
-        this.send(strings(ctx, out, when, chord, 0.06, 3));
-        this.send(woodwind(ctx, out, when + 0.25, noteHz(chord[0]!, 1), 0.075, 1.4));
+        this.send(strings(ctx, out, when, chord, 0.045, 3));
+        this.send(piano(ctx, out, when + 0.25, noteHz(chord[0]!, 1), 0.055, 3));
         break;
       case 'REPO_PRESENT':
         // Tutti, home to the tonic, and let it ring.
-        this.send(strings(ctx, out, when, PROGRESSION[0]!, 0.1, 4));
-        this.send(brass(ctx, out, when + 0.15, PROGRESSION[0]!, 0.07, 3));
-        this.send(timpani(ctx, out, when, 0.22, noteHz(0, 0.5)));
-        this.send(cymbal(ctx, out, when, 0.05, 3));
+        this.send(strings(ctx, out, when, PROGRESSION[0]!, 0.08, 4.5));
+        this.send(brass(ctx, out, when + 0.15, PROGRESSION[0]!, 0.05, 3));
+        this.send(timpani(ctx, out, when, 0.18, noteHz(0, 0.5)));
+        this.send(cymbal(ctx, out, when, 0.035, 3));
+        for (let i = 0; i < 4; i++) this.send(piano(ctx, out, when + i * 0.07, noteHz(PROGRESSION[0]![i]!, i < 2 ? 0.5 : 1), 0.05, 4.5));
         break;
       default:
         break;
@@ -437,6 +548,73 @@ function woodwind(ctx: AudioContext, out: AudioNode, when: number, freq: number,
   ng.connect(bus);
   n.start(t0);
   n.stop(t0 + 0.2);
+  return bus;
+}
+
+/** Beat length in seconds at a given performance time. */
+function beatLengthAt(tempoMap: Array<[number, number]>, t: number): number {
+  let bpm = tempoMap[0]?.[1] ?? 90;
+  for (const [start, b] of tempoMap) {
+    if (start <= t) bpm = b;
+    else break;
+  }
+  return 60 / Math.max(20, bpm);
+}
+
+/**
+ * Piano. Struck strings with slightly stretched partials, each dying away
+ * faster than the one below it, a felt hammer transient and a long tail — the
+ * difference between a piano and a sine with an envelope is almost entirely in
+ * those decay rates.
+ */
+function piano(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, decay: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const bus = ctx.createGain();
+  bus.gain.value = 1;
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(Math.min(11000, freq * 10), t0);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(400, freq * 2.4), t0 + decay * 0.7);
+  bus.connect(tone);
+  tone.connect(out);
+  const B = 0.00035; // string inharmonicity
+  for (const [ratio, amp, ds] of [
+    [1, 1, 1],
+    [2, 0.44, 0.62],
+    [3, 0.24, 0.44],
+    [4, 0.13, 0.32],
+    [5, 0.07, 0.24],
+    [6, 0.04, 0.18],
+  ] as const) {
+    const f = freq * ratio * Math.sqrt(1 + B * ratio * ratio);
+    if (f > 13000) continue;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    const d = Math.max(0.12, decay * ds);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * amp), t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.connect(g);
+    g.connect(bus);
+    o.start(t0);
+    o.stop(t0 + d + 0.05);
+  }
+  // Felt: a very short filtered knock at the attack.
+  const n = noise(ctx);
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'bandpass';
+  nf.frequency.value = Math.min(7000, freq * 3.2);
+  nf.Q.value = 0.8;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(Math.max(0.0002, gain * 0.42), t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045);
+  n.connect(nf);
+  nf.connect(ng);
+  ng.connect(bus);
+  n.start(t0);
+  n.stop(t0 + 0.08);
   return bus;
 }
 
