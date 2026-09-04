@@ -11,6 +11,15 @@ import { flattenCubic, sCurve, type Pt } from './paths';
  *  - side choice balances composition and is seeded/stable.
  */
 export const LANE_GAP = 54;
+/**
+ * The most lanes a side of the spine will ever use. A project that merges a
+ * pull request per change can have thousands of overlapping short-lived
+ * threads; giving each its own lane pushes the graph tens of thousands of units
+ * tall and the camera has no choice but to squash the whole thing into an
+ * illegible band. Past this many, short threads share outer lanes instead.
+ * Every edge is still drawn exactly; only the lane is reused.
+ */
+export const MAX_LANES = 12;
 export const X_PER_SECOND = 96; // world units per natural second
 
 export interface ThreadLayoutInput {
@@ -113,7 +122,12 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
       minLane = 1;
     }
     let lane = minLane;
-    while (!isFree(side, lane, lay.xStart - margin, lay.xEnd + margin)) lane++;
+    while (lane < MAX_LANES && !isFree(side, lane, lay.xStart - margin, lay.xEnd + margin)) lane++;
+    if (lane >= MAX_LANES) {
+      // Everything is busy: take a deterministic outer lane and accept that a
+      // very dense era looks dense.
+      lane = minLane + (Math.floor(hash01(`${seed}:lane:${t.id}`) * (MAX_LANES - minLane)) % Math.max(1, MAX_LANES - minLane));
+    }
     lay.side = side;
     lay.lane = lane;
     occupy(side, lane, lay.xStart - margin, lay.xEnd + margin);

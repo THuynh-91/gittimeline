@@ -817,6 +817,10 @@ export function installDebugHook() {
     get stats() {
       return store.perf.value?.stats ?? null;
     },
+    get source() {
+      const s = store.perf.value?.source;
+      return s ? { provider: s.provider, slug: `${s.owner}/${s.name}` } : null;
+    },
     get planHash() {
       return store.perf.value?.planHash ?? null;
     },

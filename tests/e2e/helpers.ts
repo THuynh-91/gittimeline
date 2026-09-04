@@ -11,6 +11,7 @@ declare global {
       duration: number;
       stats: { commits: number; threads: number; merges: number; maxConcurrentThreads: number; boundaries: number; roots: number } | null;
       planHash: string | null;
+      source: { provider: string; slug: string } | null;
       camera: { x: number; y: number; w: number; h: number; state: string; punch: number } | null;
       manualCamera: boolean;
       zoomLocked: boolean;

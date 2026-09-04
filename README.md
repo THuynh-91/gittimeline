@@ -57,13 +57,15 @@ For a large open-source project, supply a **free fine-grained token** with read-
 
 Measured end to end with a token:
 
-| Repository | Commits | Requests | Show | Visible nodes |
-|---|---:|---:|---:|---:|
-| ripgrep | 2,299 | 34 | 97s | 349 |
-| vite | 9,670 | 108 | 112s | 402 |
-| React | 22,345 | 232 | 180s | 6,193 |
+Measured by driving the real interface (`scripts/usertest.mjs`), not by simulation:
 
-Aggregation collapses long linear runs into counted ribbons, so the show stays watchable rather than becoming a queue of identical dots. A project that merges a pull request for every change is the hard case: its thousands of merge junctions cannot be collapsed without hiding topology, so those performances run to the three-minute ceiling and are genuinely dense.
+| Repository | Commits | Requests | Load | Show |
+|---|---:|---:|---:|---:|
+| ripgrep | 2,299 | 34 | 9s | 97s |
+| vite | 9,670 | 108 | 47s | 112s |
+| React | 22,345 | 244 | ~2 min | 180s (ceiling) |
+
+React's entire history loads with a token, at exact coverage. Aggregation collapses long linear runs into counted ribbons so the show stays watchable, and three things keep a very dense project legible rather than a smear: lanes are capped so thousands of short-lived pull-request branches share outer lanes instead of pushing the graph tens of thousands of units tall, the camera will not pull back past a fixed bound and instead stays with the front of the work, and thread names are budgeted so a named branch is labelled while thousands of anonymous ones are not.
 
 ## Truth model
 

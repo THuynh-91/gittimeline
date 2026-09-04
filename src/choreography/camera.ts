@@ -20,6 +20,16 @@ export interface CameraPlanInput {
 }
 
 export const CAMERA_STEP = 0.05;
+/**
+ * Hard limits on how far the camera will ever pull back. In a project with
+ * thousands of simultaneous pull-request branches, "frame everything currently
+ * moving" means framing years of history at once, and the performance becomes
+ * an invisible thread. Past these bounds the camera stays with the front of the
+ * work and lets the rest run off the edges, which is what makes a dense era
+ * read as dense rather than as nothing at all.
+ */
+const MAX_FRAME_W = 2600;
+const MAX_FRAME_H = 1500;
 const LOOK_AHEAD = 1.15;
 const MERGE_ANTICIPATION = 2.6;
 
@@ -187,16 +197,17 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     const padY = state === 'intimate' ? 90 : state === 'overview' ? 130 : 110;
     const minW = state === 'intimate' ? 420 : state === 'overview' ? 720 : 560;
     const minH = state === 'intimate' ? 230 : state === 'overview' ? 380 : 300;
-    let tw = Math.max(minW * growth * eraWiden, maxX - minX + padX * 2);
-    let th = Math.max(minH * (1 + (growth - 1) * 0.15) * eraWiden, maxY - minY + padY * 2);
+    let tw = Math.min(MAX_FRAME_W, Math.max(minW * growth * eraWiden, maxX - minX + padX * 2));
+    let th = Math.min(MAX_FRAME_H, Math.max(minH * (1 + (growth - 1) * 0.15) * eraWiden, maxY - minY + padY * 2));
     if (inTail) {
+      // The closing tableau is the one moment worth showing everything at once.
       tw = Math.max(minW, (maxX - minX) * 1.12 + 80);
       th = Math.max(minH, (maxY - minY) * 1.25 + 80);
     }
     // Horizontal: ride the dolly track, nudged only enough to keep the action framed.
     const dolly = dollyAt(t) + tw * 0.06;
     const bboxCentre = (minX + maxX) / 2;
-    const tx = inTail ? bboxCentre : dolly + Math.max(-tw * 0.18, Math.min(tw * 0.18, bboxCentre - dolly)) * 0.35;
+    const tx = inTail ? bboxCentre : dolly + Math.max(-tw * 0.15, Math.min(tw * 0.15, bboxCentre - dolly)) * 0.3;
     // Vertical: the straight spine is the centre line of the stage, full stop.
     // Threads spreading unevenly widen the frame instead of pushing main off-centre.
     const ty = inTail ? (minY + maxY) / 2 : 0;
@@ -220,8 +231,8 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     if (Number.isFinite(minX) && !inTail) {
       const w = Math.exp(lw);
       const h = Math.exp(lh);
-      const needW = Math.max(maxX - cx, cx - minX) * 2 + padX * 0.8;
-      const needH = Math.max(maxY - cy, cy - minY) * 2 + padY * 0.8;
+      const needW = Math.min(MAX_FRAME_W, Math.max(maxX - cx, cx - minX) * 2 + padX * 0.8);
+      const needH = Math.min(MAX_FRAME_H, Math.max(maxY - cy, cy - minY) * 2 + padY * 0.8);
       if (needW > w) lw = Math.log(needW);
       if (needH > h) lh = Math.log(needH);
     }

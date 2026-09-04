@@ -19,7 +19,7 @@ public GitHub URL
            analysis/aggregate.ts   exact aggregation of plain linear runs (protected landmarks never collapse)
            analysis/activity.ts    repository-relative intensity, smoothing, eras
            choreography/clock.ts   time-warp, tempo regions, beat grid, causal/approach reserves
-           layout/layout.ts        lanes, spine baseline, splines (natural-time x axis)
+           layout/layout.ts        lanes (capped), straight spine axis, splines (natural-time x)
            choreography/events.ts  event grammar, effect budget, landmarks, transcript
            choreography/camera.ts  shot planning with look-ahead + critically damped spring
       ↓  CompiledPerformance (typed arrays transferred back to the main thread)

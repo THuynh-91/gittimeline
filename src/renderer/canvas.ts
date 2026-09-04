@@ -937,29 +937,37 @@ export class StageRenderer {
       ctx.fillStyle = rgba(color, alpha);
       ctx.fillText(text, x, y);
     };
-    // Every thread that has started carries its name with it, pinned to the
-    // newest commit it has landed. Two branches running side by side are then
-    // never a guess, which matters most when the older history is missing.
-    for (const th of p.threads) {
-      if (th.role === 'primary') continue;
-      const ids = th.nodeIdxs;
-      const first = p.nodes[ids[0]!];
-      if (!first || first.impact > t) continue;
-      let latest = first;
-      for (const id of ids) {
-        const nd = p.nodes[id]!;
-        if (nd.impact <= t) latest = nd;
-        else break;
+    // Thread names, budgeted. A project with thousands of short-lived pull
+    // request branches would otherwise bury the stage in "thread 1617" labels
+    // that say nothing. Named branches come first, the nearest to the playhead
+    // win, and anonymous threads are only named when there are few enough for
+    // the name to be worth reading.
+    if (labels !== 'minimal') {
+      const nameAnonymous = p.threads.length <= 40;
+      const candidates: Array<{ th: (typeof p.threads)[number]; latest: NodeGeom; alpha: number; label: string }> = [];
+      for (const th of p.threads) {
+        if (th.role === 'primary') continue;
+        if (!th.label && !nameAnonymous) continue;
+        const first = p.nodes[th.nodeIdxs[0]!];
+        if (!first || first.impact > t) continue;
+        let latest = first;
+        for (const id of th.nodeIdxs) {
+          const nd = p.nodes[id]!;
+          if (nd.impact <= t) latest = nd;
+          else break;
+        }
+        const mergedAt = th.mergeNodeIdx != null ? p.nodes[th.mergeNodeIdx]!.impact : Infinity;
+        const merged = mergedAt <= t;
+        const alpha = merged ? Math.max(0, 0.55 - (t - mergedAt) / 6) : th.ending === 'tip' ? 0.85 : 0.7;
+        if (alpha <= 0.02) continue;
+        candidates.push({ th, latest, alpha, label: th.label ?? th.id.replace('thread-', 'thread ') });
       }
-      const merged = th.mergeNodeIdx != null && p.nodes[th.mergeNodeIdx]!.impact <= t;
-      const label = th.label ?? th.id.replace('thread-', 'thread ');
-      if (labels === 'minimal') continue;
-      // Live threads stay legible; a thread that has landed fades out.
-      const alpha = merged ? Math.max(0, 0.55 - (t - p.nodes[th.mergeNodeIdx!]!.impact) / 6) : th.ending === 'tip' ? 0.85 : 0.7;
-      if (alpha <= 0.02) continue;
-      const scr = this.worldToScreen(latest.x, latest.y);
-      const tint = this.tints[th.idx] ?? PALETTE.slate;
-      place(scr.x + 12, scr.y + th.side * 13, label, alpha, tint);
+      // Named branches, then whichever landed most recently.
+      candidates.sort((a, b) => Number(!!b.th.label) - Number(!!a.th.label) || b.latest.impact - a.latest.impact);
+      for (const c of candidates.slice(0, 10)) {
+        const scr = this.worldToScreen(c.latest.x, c.latest.y);
+        place(scr.x + 12, scr.y + c.th.side * 13, c.label, c.alpha, this.tints[c.th.idx] ?? PALETTE.slate);
+      }
     }
     // main line label at the spine's first node once
     const spine = p.threads[0];
@@ -996,7 +1004,7 @@ export class StageRenderer {
     for (const e of p.edges) {
       if (e.kind !== 'aggregate' || e.start > t) continue;
       const agg = p.aggregates.find((a) => a.boundaryShas[1] === p.nodes[e.child]!.sha);
-      if (!agg) continue;
+      if (!agg || agg.memberCount < 3) continue;
       const m = pointAt(e.pts, 0.5, this.tmp);
       const s = this.worldToScreen(m.x, m.y);
       place(s.x - 30, s.y - 14, `${agg.memberCount} commits`, 0.75, PALETTE.textDim);

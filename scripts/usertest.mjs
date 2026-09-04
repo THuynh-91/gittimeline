@@ -67,9 +67,15 @@ const t0 = Date.now();
 await page.getByTestId('play-button').click();
 
 try {
-  await page.waitForFunction(() => window.__gitdance.stats !== null || !!document.querySelector('[role="alertdialog"]'), null, { timeout: 300000 });
+  // The demo is already loaded behind the landing page, so waiting for "stats
+  // is not null" would return instantly. Wait for this repository specifically.
+  await page.waitForFunction(
+    (want) => window.__gitdance.source?.slug.toLowerCase() === want || !!document.querySelector('[role="alertdialog"]'),
+    repo.toLowerCase(),
+    { timeout: 600000 },
+  );
 } catch {
-  log('TIMED OUT');
+  log('TIMED OUT waiting for', repo);
 }
 const loadMs = Date.now() - t0;
 const alert = await page.locator('[role="alertdialog"]').textContent().catch(() => null);
@@ -83,7 +89,7 @@ if (alert) {
 const stats = await page.evaluate(() => window.__gitdance.stats);
 const dur = await page.evaluate(() => window.__gitdance.duration);
 const badge = await page.locator('[data-testid="quality-badge"]').textContent();
-log(`loaded ${repo} in ${(loadMs / 1000).toFixed(1)}s using ${api} API requests · coverage ${badge}`);
+log(`loaded ${await page.evaluate(() => window.__gitdance.source?.slug)} in ${(loadMs / 1000).toFixed(1)}s using ${api} API requests · coverage ${badge}`);
 log(`  ${stats.commits} commits, ${stats.merges} merges, ${stats.threads} threads, up to ${stats.maxConcurrentThreads} at once`);
 log(`  show is ${dur.toFixed(0)}s`);
 
