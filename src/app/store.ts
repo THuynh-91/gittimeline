@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: Settings = {
   muted: true,
   effectsLevel: 0.7,
   ambientLevel: 0.5,
-  dynamics: 'standard',
+  dynamics: 'dramatic',
   labels: 'landmarks',
   showGlyphs: true,
   autoCamera: true,

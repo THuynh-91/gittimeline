@@ -1,4 +1,4 @@
-import { store, updateSettings } from './store';
+import { store } from './store';
 import { togglePlay, jumpLandmark, stepUnit, setSpeed } from './controller';
 import { Icons } from './icons';
 
@@ -6,7 +6,6 @@ export function Transport() {
   const perf = store.perf.value;
   const playing = store.playing.value;
   const speed = store.speed.value;
-  const scale = store.settings.value.timelineScale;
   if (!perf) return null;
   return (
     <div class="transport">
@@ -32,14 +31,6 @@ export function Transport() {
           </option>
         ))}
       </select>
-      <div class="scale-toggle" role="group" aria-label="Timeline scale">
-        <button type="button" aria-pressed={scale === 'performance'} onClick={() => updateSettings({ timelineScale: 'performance' })}>
-          Show
-        </button>
-        <button type="button" aria-pressed={scale === 'historical'} onClick={() => updateSettings({ timelineScale: 'historical' })}>
-          Calendar
-        </button>
-      </div>
       <span class="spacer" />
     </div>
   );

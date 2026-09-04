@@ -317,100 +317,88 @@ function Toggle({ label, value, onChange, testId }: { label: string; value: bool
   );
 }
 
+/**
+ * Deliberately short. Everything that has one right answer is baked in: label
+ * density, contributor glyphs, effect budgets, render quality (chosen from the
+ * device), branch discovery, captions and keyboard granularity. What remains is
+ * what a viewer genuinely wants to change, plus the accessibility switches,
+ * which are never someone else's call to make.
+ */
 function SettingsPanel() {
   const s = store.settings.value;
-  const structural = (patch: Partial<typeof s>) => {
-    updateSettings(patch);
-    scheduleRecompile();
-  };
-  const cosmetic = (patch: Partial<typeof s>) => {
-    updateSettings(patch);
-    applySettingsToRuntime();
-  };
   return (
     <div>
-      <h3>Playback</h3>
+      <h3>Performance</h3>
       <div class="field">
-        <label for="dur">Target duration</label>
-        <select id="dur" value={String(s.targetDuration)} onChange={(e) => structural({ targetDuration: Number((e.target as HTMLSelectElement).value) })} data-testid="duration-select">
-          <option value="20">20 s · sprint</option>
-          <option value="30">30 s</option>
-          <option value="45">45 s</option>
-          <option value="60">60 s</option>
-          <option value="90">90 s · unhurried</option>
+        <label for="dur">Length</label>
+        <select
+          id="dur"
+          value={String(s.targetDuration)}
+          onChange={(e) => {
+            updateSettings({ targetDuration: Number((e.target as HTMLSelectElement).value) });
+            scheduleRecompile();
+          }}
+          data-testid="duration-select"
+        >
+          <option value="20">20 seconds · sprint</option>
+          <option value="30">30 seconds</option>
+          <option value="45">45 seconds</option>
+          <option value="60">60 seconds</option>
+          <option value="90">90 seconds · unhurried</option>
         </select>
       </div>
-      <Toggle label="Loop the performance" value={s.loopPerformance} onChange={(v) => updateSettings({ loopPerformance: v })} />
-      <Toggle label="Spoiler-free timeline" value={s.spoilerFree} onChange={(v) => updateSettings({ spoilerFree: v })} />
-      <Toggle label="Captions" value={s.captions} onChange={(v) => updateSettings({ captions: v })} />
-      <div class="field">
-        <label for="kstep">Arrow keys step by</label>
-        <select id="kstep" value={s.keyboardStep} onChange={(e) => updateSettings({ keyboardStep: (e.target as HTMLSelectElement).value as typeof s.keyboardStep })}>
-          <option value="beat">beat</option>
-          <option value="commit">commit</option>
-          <option value="second">second</option>
-        </select>
-      </div>
-      <h3>Motion &amp; accessibility</h3>
-      <Toggle label="Reduced motion (R)" value={s.reducedMotion} onChange={(v) => structural({ reducedMotion: v })} testId="reduced-motion-toggle" />
-      <Toggle label="No flashes" value={s.noFlash} onChange={(v) => cosmetic({ noFlash: v })} testId="no-flash-toggle" />
-      <Toggle label="High contrast" value={s.highContrast} onChange={(v) => cosmetic({ highContrast: v })} />
-      <Toggle label="Contributor glyph shapes" value={s.showGlyphs} onChange={(v) => cosmetic({ showGlyphs: v })} />
-      <Toggle label="Auto camera (C)" value={s.autoCamera} onChange={(v) => { updateSettings({ autoCamera: v }); applySettingsToRuntime(); }} />
-      <div class="field">
-        <label for="labels">Labels</label>
-        <select id="labels" value={s.labels} onChange={(e) => cosmetic({ labels: (e.target as HTMLSelectElement).value as typeof s.labels })}>
-          <option value="minimal">minimal</option>
-          <option value="landmarks">landmarks</option>
-          <option value="all">all visible</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="quality">Render quality</label>
-        <select id="quality" value={s.quality} onChange={(e) => cosmetic({ quality: (e.target as HTMLSelectElement).value as typeof s.quality })}>
-          <option value="full">full (bloom, trails)</option>
-          <option value="reduced">reduced</option>
-          <option value="minimal">minimal</option>
-        </select>
-      </div>
-      <h3>Sound</h3>
-      <Toggle label="Mute (M)" value={s.muted} onChange={(v) => cosmetic({ muted: v })} />
-      <div class="field">
-        <label for="fx">Effects</label>
-        <input id="fx" type="range" min="0" max="1" step="0.05" value={s.effectsLevel} onInput={(e) => cosmetic({ effectsLevel: Number((e.target as HTMLInputElement).value) })} />
-      </div>
-      <div class="field">
-        <label for="amb">Ambience</label>
-        <input id="amb" type="range" min="0" max="1" step="0.05" value={s.ambientLevel} onInput={(e) => cosmetic({ ambientLevel: Number((e.target as HTMLInputElement).value) })} />
-      </div>
-      <div class="field">
-        <label for="dyn">Dynamic range</label>
-        <select id="dyn" value={s.dynamics} onChange={(e) => cosmetic({ dynamics: (e.target as HTMLSelectElement).value as typeof s.dynamics })}>
-          <option value="quiet">quiet</option>
-          <option value="standard">standard</option>
-          <option value="dramatic">dramatic</option>
-        </select>
-      </div>
-      <h3>Data</h3>
-      <Toggle label="Include surviving branches" value={s.includeBranches} onChange={(v) => updateSettings({ includeBranches: v })} />
-      <div class="field">
-        <label for="seed">Seed</label>
-        <input id="seed" type="text" value={s.seed} maxLength={64} onChange={(e) => structural({ seed: (e.target as HTMLInputElement).value || 'gitdance' })} />
-      </div>
+      <p>However long the history is, the show fits this. Long linear stretches become counted ribbons rather than a queue of identical dots.</p>
+      <Toggle label="Sound" value={!s.muted} onChange={(v) => { updateSettings({ muted: !v }); applySettingsToRuntime(); }} />
+      <Toggle label="Loop" value={s.loopPerformance} onChange={(v) => updateSettings({ loopPerformance: v })} />
+
+      <h3>Accessibility</h3>
+      <Toggle
+        label="Reduced motion"
+        value={s.reducedMotion}
+        onChange={(v) => {
+          updateSettings({ reducedMotion: v });
+          scheduleRecompile();
+        }}
+        testId="reduced-motion-toggle"
+      />
+      <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
+      <Toggle label="High contrast" value={s.highContrast} onChange={(v) => { updateSettings({ highContrast: v }); applySettingsToRuntime(); }} />
+      <p>Every event keeps its meaning in reduced motion; only the expression calms down. Nothing is conveyed by sound alone.</p>
+
+      <h3>Large repositories</h3>
       <TokenField />
     </div>
   );
 }
 
+/**
+ * GitHub allows about 60 anonymous requests an hour per network, which covers a
+ * few thousand commits. A free read-only token raises that to about 5,000 and
+ * lifts the page budget from 40 to 400, which is what a large open-source
+ * project needs.
+ */
 function TokenField() {
   const [value, setValue] = useState(store.token.value ?? '');
+  const active = !!store.token.value;
   return (
     <div>
       <div class="field">
-        <label for="token">GitHub token (optional)</label>
-        <input id="token" type="text" autoComplete="off" spellcheck={false} value={value} placeholder="fine-grained, public read" onInput={(e) => setValue((e.target as HTMLInputElement).value)} onChange={() => (store.token.value = value.trim() || null)} />
+        <label for="token">GitHub token</label>
+        <input
+          id="token"
+          type="text"
+          autoComplete="off"
+          spellcheck={false}
+          value={value}
+          placeholder="optional"
+          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+          onChange={() => (store.token.value = value.trim() || null)}
+        />
       </div>
-      <p>Kept in memory only for this tab and sent solely to api.github.com to raise the request limit. Never stored, logged, exported or put in links.</p>
+      <p>
+        {active ? 'Active for this tab: about 5,000 requests an hour.' : 'Without one, GitHub allows this network about 60 requests an hour, which is a few thousand commits. A free fine-grained token with read-only public access raises it to about 5,000.'}
+      </p>
+      <p>Kept in memory for this tab only, sent solely to api.github.com, never stored, logged or put in a shared link.</p>
     </div>
   );
 }

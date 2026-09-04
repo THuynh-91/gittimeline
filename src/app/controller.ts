@@ -860,8 +860,19 @@ export function installDebugHook() {
 
 /* ---------------- boot ---------------- */
 
+/** Render quality follows the device rather than asking the viewer to guess. */
+function chooseQuality(): 'full' | 'reduced' | 'minimal' {
+  const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 4) : 4;
+  const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 4;
+  const small = typeof window !== 'undefined' && Math.min(window.innerWidth, window.innerHeight) < 500;
+  if (cores <= 2 || mem <= 2) return 'minimal';
+  if (cores <= 4 || small) return 'reduced';
+  return 'full';
+}
+
 export async function boot() {
   installDebugHook();
+  updateSettings({ quality: chooseQuality() });
   void refreshRecent();
   void cache.estimate().then((e) => (store.storage.value = e));
   const share = parseShareHash(location.hash);

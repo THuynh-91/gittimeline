@@ -93,6 +93,10 @@ docs/            architecture, data truth, choreography, testing, deployment, ac
 | `node scripts/inspect.mjs <dir>` | capture frames of the demo from the preview server (visual QA) |
 | `node scripts/live-smoke.mjs owner/repo` | read-only smoke test against the real GitHub API (few requests) |
 
+## Settings
+
+Deliberately few. Length, sound, loop, and the three accessibility switches (reduced motion, no flashes, high contrast), plus an optional GitHub token for large repositories. Everything with one right answer is baked in: label density, contributor glyphs, effect budgets, branch discovery, captions, keyboard granularity, and render quality, which is chosen from the device.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) — pipeline from API record to rendered frame, module boundaries, worker split.
