@@ -96,6 +96,9 @@ export interface ScopeQuestion {
   estimatedCommits: number | null;
   firstYear: number | null;
   lastYear: number | null;
+  /** Why we are asking: too many commits, or too dense to show in full. */
+  reason: 'large' | 'dense';
+  mergeRatio: number | null;
 }
 
 const SETTINGS_KEY = 'gittimeline.settings.v1';

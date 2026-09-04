@@ -32,15 +32,21 @@ States: `intimate`, `split`, `ensemble`, `overview`, `convergence`, `impact` (pu
 
 The viewer can override it: zooming or dragging enters free look, and pressing `C` then hands the framing back to the director **while keeping the zoom the viewer chose**.
 
-## Pace
+## Pace (`src/choreography/pace.ts`)
 
 Two numbers govern how long a performance runs and therefore how fast its arrivals land.
 
-`perNode` (0.26 s, or 0.4 s under reduced motion) is the stage time one visible commit needs to read as its own beat. It sizes the aggregation budget — the history is collapsed into ribbons until what remains can actually be watched — *and* it sizes the clock. Those two used to disagree: aggregation collapsed the history for 0.26 s a commit and the clock then played the result at 0.12 s, so every large repository ran at more than twice the pace it had been collapsed for. An explicitly chosen length is still honoured exactly; only the automatic length stretches, and only as far as legibility asks.
+`SECONDS_PER_NODE` (0.26 s, or 0.4 s under reduced motion) is the stage time one visible commit needs to read as its own beat. It sizes the aggregation budget — the history is collapsed into ribbons until what remains can actually be watched — *and* it sizes the clock. Those two used to disagree: aggregation collapsed the history for 0.26 s a commit and the clock then played the result at 0.12 s, so every large repository ran at more than twice the pace it had been collapsed for. An explicitly chosen length is still honoured exactly; only the automatic length stretches.
 
-`rangeK` narrows the dynamic range as the number of arrivals grows. Speeding up and slowing down is only expressive while there is room to do it in; past a few hundred arrivals every one is already close to the shortest interval the eye can resolve, so the same swings that make a small history ride like a roller coaster just push the busy spans under the threshold — and the busiest span of a repository's life, usually its first month, ends up the one you cannot see at all. It depends only on the item count, never on the target duration, so geometry stays identical at every length ([ADR 0003](adr/0003-quantize-in-natural-time.md)).
+`rangeK` in `clock.ts` narrows the dynamic range as the number of arrivals grows. Speeding up and slowing down is only expressive while there is room to do it in; past a few hundred arrivals every one is already close to the shortest interval the eye can resolve, so the same swings that make a small history ride like a roller coaster just push the busy spans under the threshold — and the busiest span of a repository's life, usually its first month, ends up the one you cannot see at all. It depends only on the item count, never on the target duration, so geometry stays identical at every length ([ADR 0003](adr/0003-quantize-in-natural-time.md)).
 
-`tests/unit/pacing.test.ts` asserts, for the demo and every fixture, that the typical arrival holds the stage for at least 0.25 s, that even the fastest tenth stays above 0.12 s, that arrivals stay under 4.5 per second, and that nothing runs longer than four minutes.
+### Length, and why there is no cap
+
+There is no upper bound on duration, because any bound can only be honoured by breaking the per-commit budget. That is not hypothetical. Merge junctions cannot be aggregated without hiding topology, so a pull-request repository keeps nearly all of its commits on stage — mdBook keeps 2,584 of 3,296 — and at the legible pace that is eleven minutes. Under the old four-minute cap it played at 0.10 s a commit, a blur, and the corpus never caught it because no fixture was dense enough to reach the cap.
+
+`LONG_PERFORMANCE_SECONDS` (six minutes) is therefore a *question*, not a limit: nothing is truncated to it. `predictVisible` estimates what will survive aggregation from the commit count and a merge-ratio sample of the most recent hundred commits — the survivors are bounded below by the junctions, which cannot collapse, and above by the budget, whichever is larger — and `willOutrunTheCeiling` turns that into the question the scope chooser asks *before anything is fetched*, with the full history's real length on the button. It is deliberately pessimistic on the dense side: offering a choice that turns out to be unnecessary is a far smaller failure than not offering one that was.
+
+The prediction is an estimate of a repository's *current* habits, since the sample is recent. A project that adopted pull requests late reads denser than its whole history really is — a bias that points the safe way.
 
 ## Sound (`src/audio/score.ts`, `src/audio/engine.ts`)
 

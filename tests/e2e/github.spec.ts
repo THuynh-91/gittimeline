@@ -88,8 +88,10 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByRole('alertdialog')).toContainText('cannot bypass');
 
     await page.unrouteAll();
-    // Two of these are the size probe that runs before any history is fetched.
-    await routeGitHub(page, bigRepo(350), { rateLimitAfter: 5 });
+    // Three of these are the size probe that runs before any history is
+    // fetched: metadata, the commit count, and a sample of recent commits to
+    // measure how much of this project's work arrives as merges.
+    await routeGitHub(page, bigRepo(350), { rateLimitAfter: 6 });
     await page.goto('/');
     await page.getByTestId('url-input').fill('acme/widget');
     await page.getByTestId('play-button').click();

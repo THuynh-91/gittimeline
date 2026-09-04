@@ -59,7 +59,20 @@ Measured end to end with a token:
 
 When a repository turns out to be large, GitTimeline says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. Anything already fetched is reused on the next visit with **no requests at all**, and Settings has a "fetch latest commits" action when you want fresh data.
 
-**How long a show runs** is derived, not fixed. Each visible commit is given 0.26 seconds of stage time — enough for its arrival to read as its own beat — and the history is collapsed into counted ribbons until what remains fits. The automatic length is therefore the size of what survives aggregation, with a ceiling of **four minutes**; choosing an explicit length in Settings overrides that exactly. `tests/unit/pacing.test.ts` holds the floor: the typical arrival must hold the stage for at least a quarter of a second, and arrivals must stay under 4.5 a second, for every history in the corpus.
+**How long a show runs** is derived, not fixed. Each visible commit is given 0.26 seconds of stage time — enough for its arrival to read as its own beat — and the history is collapsed into counted ribbons until what remains fits. The automatic length is therefore the size of what survives aggregation. There is **no cap**, because a cap can only be met by making arrivals invisible — a show nobody can follow is not a shorter show, it is a broken one. Choosing an explicit length in Settings overrides the pace exactly.
+
+**Density, not size, decides whether a history can be shown whole.** A merge is a branch point, and a branch point cannot be collapsed into a ribbon without hiding what happened — so a linear repository collapses however long it is, while a pull-request repository keeps nearly all of its commits on stage. Measured on the four histories in the shipped catalog:
+
+| History | commits | merges | visible after aggregation | at the legible pace |
+|---|---:|---:|---:|---:|
+| ripgrep | 2,299 | 3% | 335 | 97 s |
+| Svelte 2023 | 860 | 3% | 235 | 86 s |
+| public-apis 2021 | 1,796 | 44% | 1,587 | 7 min |
+| mdBook | 3,296 | 32% | 2,584 | 11 min |
+
+The last two run past six minutes, so they are **predicted as such from two probe requests and you are offered a shorter span before anything is fetched**, with the real length on the button — sampling the merge ratio of the most recent hundred commits costs one request and is what separates "large" from "long". Whatever you then pick plays at the legible pace however long it takes, because you picked it. Before this, mdBook was silently truncated to four minutes and played at 0.10 s a commit.
+
+`tests/unit/pacing.test.ts` holds it with no exceptions: for every history in the corpus the typical arrival holds the stage for at least a quarter of a second, the fastest tenth stays above the flicker threshold, and arrivals stay under 4.5 a second — and any show that runs past six minutes must have been predicted dense, so nobody arrives at a long one unasked. Fixture `22-merge-dense-decade` is as dense as mdBook and runs 10.5 minutes at 0.262 s a commit; without a history that dense the suite only ever tested the comfortable path, which is how the old cap degraded real repositories unnoticed.
 
 Ingestion cost, measured by driving the real interface (`scripts/usertest.mjs`) with a token:
 

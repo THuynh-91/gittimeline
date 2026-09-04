@@ -9,6 +9,7 @@ import { GitHubClient, GitHubError } from '@/github/adapter';
 import { ApiCache } from '@/github/cache';
 import { ingestRepository, probeRepository, type IngestOutcome } from '@/github/ingest';
 import { formatReset } from '@/github/ratelimit';
+import { willOutrunTheCeiling } from '@/choreography/pace';
 import { buildDemoDataset } from '@/fixtures/demo';
 import { fixtureById } from '@/fixtures/corpus';
 import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
@@ -41,7 +42,13 @@ let recompileTimer: number | null = null;
 let recorder: MediaRecorder | null = null;
 /** The repository a scope question is about, held while the viewer decides. */
 let pendingScope: { repo: RepoRef; autoplay: boolean; startAt?: number; tip?: string | null } | null = null;
-/** How many commits make a repository worth asking about before fetching it. */
+/**
+ * How many commits make a repository worth asking about before fetching it.
+ *
+ * Size is only half the question — see `willOutrunTheCeiling` for the other
+ * half, which is whether the history is dense enough that showing all of it
+ * would have to go faster than the eye follows.
+ */
 const SCOPE_THRESHOLD = 3500;
 let recordedChunks: Blob[] = [];
 
@@ -403,12 +410,24 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
   try {
     const probe = await probeRepository(repo, probeClient);
     if (run?.id !== probeRun.id) return;
-    if ((probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD) {
+    const tooBig = (probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD;
+    // Dense is not the same as large. A merge-heavy history keeps nearly every
+    // commit on stage because junctions cannot be collapsed, so it can outrun
+    // the ceiling at a size that would be comfortable for a linear project.
+    const tooDense = willOutrunTheCeiling(probe.estimatedCommits, probe.mergeRatio, presetFromSettings().lengthBias);
+    if (tooBig || tooDense) {
       // Ask before spending hundreds of requests on something unwatchable.
       pendingScope = { repo, autoplay: opts.autoplay ?? true, startAt: opts.startAt, tip: opts.tip ?? null };
       batch(() => {
         store.progress.value = null;
-        store.scope.value = { displayName: probe.displayName, estimatedCommits: probe.estimatedCommits, firstYear: probe.firstYear, lastYear: probe.lastYear };
+        store.scope.value = {
+          displayName: probe.displayName,
+          estimatedCommits: probe.estimatedCommits,
+          firstYear: probe.firstYear,
+          lastYear: probe.lastYear,
+          reason: tooDense ? 'dense' : 'large',
+          mergeRatio: probe.mergeRatio,
+        };
       });
       return;
     }

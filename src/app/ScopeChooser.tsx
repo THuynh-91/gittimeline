@@ -1,5 +1,6 @@
 import { store } from './store';
 import { chooseScope, cancel } from './controller';
+import { legibleSecondsFor, predictVisible } from '@/choreography/pace';
 
 /**
  * A big repository is a decision, not a default. Fetching a decade of history
@@ -13,19 +14,35 @@ import { chooseScope, cancel } from './controller';
 export function ScopeChooser() {
   const scope = store.scope.value;
   if (!scope) return null;
-  const { displayName, estimatedCommits, firstYear, lastYear } = scope;
+  const { displayName, estimatedCommits, firstYear, lastYear, reason, mergeRatio } = scope;
   const years: number[] = [];
   if (firstYear && lastYear) for (let y = lastYear; y >= firstYear && years.length < 12; y--) years.push(y);
   const approx = estimatedCommits ? estimatedCommits.toLocaleString('en-US') : 'a great many';
   const requests = estimatedCommits ? Math.ceil(estimatedCommits / 100) : null;
+  // What the whole history would actually cost to watch, at the pace that
+  // keeps every arrival visible. Nothing is truncated, so this is honest.
+  const fullMinutes =
+    estimatedCommits && mergeRatio != null
+      ? Math.round(legibleSecondsFor(predictVisible(estimatedCommits, mergeRatio)) / 60)
+      : null;
 
   return (
     <div class="prelude" role="dialog" aria-labelledby="scope-title" data-testid="scope-chooser">
       <div class="error-card scope-card">
         <h2 id="scope-title">{displayName} has about {approx} commits</h2>
-        <p>
-          The whole history is {requests ? `about ${requests} requests` : 'a large fetch'} and runs up against the four-minute ceiling, where commits land too quickly to follow individually. A single year is quicker to load and much easier to watch.
-        </p>
+        {reason === 'dense' ? (
+          <p>
+            About {Math.round((mergeRatio ?? 0) * 100)}% of its recent commits are merges. Merges are branch points, and a branch point cannot be
+            collapsed into a ribbon without hiding what actually happened — so nearly all of this history stays on stage. Shown at a pace you can
+            actually follow, the whole thing runs {fullMinutes ? `about ${fullMinutes} minutes` : 'a very long time'}. A single year is loaded
+            quickly and watched in a couple.
+          </p>
+        ) : (
+          <p>
+            The whole history is {requests ? `about ${requests} requests` : 'a large fetch'} and runs up against the six-minute ceiling, where commits
+            land too quickly to follow individually. A single year is quicker to load and much easier to watch.
+          </p>
+        )}
         <div class="scope-years">
           {years.map((y) => (
             <button type="button" key={y} class="btn small" onClick={() => chooseScope({ since: `${y}-01-01T00:00:00Z`, until: `${y + 1}-01-01T00:00:00Z`, label: String(y) })}>
@@ -45,7 +62,7 @@ export function ScopeChooser() {
             </button>
           )}
           <button type="button" class="btn" onClick={() => chooseScope({ since: null, until: null, label: 'the full history' })} data-testid="scope-full">
-            Everything
+            {reason === 'dense' && fullMinutes ? `Everything · ~${fullMinutes} min` : 'Everything'}
           </button>
           <button type="button" class="btn" onClick={cancel}>
             Cancel

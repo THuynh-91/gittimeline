@@ -328,6 +328,30 @@ export const FIXTURES: Fixture[] = [
       return s.build();
     },
   },
+  {
+    id: '22-merge-dense-decade',
+    title: 'Dense enough that the whole history cannot be shown legibly',
+    build: () => {
+      // The case the ceiling exists for, and the case it used to fail
+      // silently. Every commit here is a junction or the head of a branch, so
+      // aggregation has almost nothing to collapse and the performance runs
+      // into its cap. The corpus needs it: without a history this dense the
+      // pacing tests only ever exercised the comfortable path, which is why
+      // the cap could degrade real repositories unnoticed.
+      const s = new Script('22-merge-dense-decade', '2015-01-01T00:00:00Z');
+      s.commit('main', 'seed', mara);
+      const people = [devi, kofi, ines, yuki, mara];
+      // As dense as rust-lang/mdBook, which is the real history that exposed
+      // the ceiling overriding the per-commit budget.
+      for (let i = 0; i < 1200; i++) {
+        const who = people[i % people.length]!;
+        s.branch(`pr${i}`, 'main');
+        s.commit(`pr${i}`, `pr${i}-1`, who, { days: 0.04 });
+        s.merge('main', `pr${i}`, `m${i}`, mara, { days: 0.02 });
+      }
+      return s.build();
+    },
+  },
 ];
 
 export function fixtureById(id: string): Fixture | undefined {

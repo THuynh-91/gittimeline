@@ -19,6 +19,7 @@ import { assignThreads } from '@/dag/threads';
 import { aggregateLinearRuns } from '@/analysis/aggregate';
 import { analyzeActivity } from '@/analysis/activity';
 import { buildClock, mapMonotone, CLOCK_HEAD, CLOCK_TAIL, type ClockItem } from './clock';
+import { SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
 import { layoutGraph, routeAlongLane, routeCurve, X_PER_SECOND, type ThreadLayoutInput } from '@/layout/layout';
 import { buildEvents } from './events';
 import { planCamera } from './camera';
@@ -140,7 +141,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // Nine commits should not be stretched to a minute, and sixty thousand should
   // not be crammed into one. The show grows with the logarithm of the history,
   // bounded to a watchable window, and the viewer can nudge it brief or extended.
-  const autoSeconds = Math.max(24, Math.min(165, 16 + 24 * Math.log10(1 + n))) * (opts.preset.lengthBias ?? 1);
+  const autoSeconds = targetSecondsFor(n, opts.preset.lengthBias ?? 1);
   const targetSeconds = opts.preset.targetDuration > 0 ? opts.preset.targetDuration : autoSeconds;
   // Seconds of stage time each visible commit needs to read as its own beat.
   // This is what stops a large repository turning into a blur: the history is
@@ -149,7 +150,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // result is played. They used to disagree — aggregation sized the show for
   // 0.26s a commit and the clock then played it at 0.12s — so every large
   // repository ran at over twice the pace it had been collapsed for.
-  const perNode = reducedMotion ? 0.4 : 0.26;
+  const perNode = reducedMotion ? SECONDS_PER_NODE_REDUCED : SECONDS_PER_NODE;
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateLinearRuns(
     g,
@@ -242,7 +243,10 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   const paced =
     opts.preset.targetDuration > 0
       ? targetSeconds
-      : Math.max(targetSeconds, Math.min(260, HEAD + TAIL + visible.length * perNode));
+      // No upper bound. A history that cannot be shown in six minutes without
+      // blurring is shown in longer than six minutes — the viewer was asked
+      // before it was fetched, and every arrival keeps the time it needs.
+      : Math.max(targetSeconds, HEAD + TAIL + visible.length * perNode);
   const clock = buildClock(items, paced, reducedMotion);
 
   onProgress('layout');

@@ -79,6 +79,15 @@ interface ApiRef {
 export interface RepoProbe {
   /** Roughly how many commits the default branch has, from the pagination header. */
   estimatedCommits: number | null;
+  /**
+   * Fraction of the most recent hundred commits that are merges.
+   *
+   * This, not the commit count, is what decides whether a whole history can be
+   * watched: merge junctions cannot be aggregated without hiding topology, so
+   * a pull-request repository keeps nearly all of its commits on stage while a
+   * linear one of the same size collapses into a handful of ribbons.
+   */
+  mergeRatio: number | null;
   defaultBranch: string | null;
   firstYear: number | null;
   lastYear: number | null;
@@ -95,15 +104,34 @@ export async function probeRepository(repo: RepoRef, client: GitHubClient): Prom
   const defaultBranch = typeof meta.data?.default_branch === 'string' ? cleanText(meta.data.default_branch, LIMITS.refName) : null;
   const created = typeof meta.data?.created_at === 'string' ? new Date(meta.data.created_at) : null;
   const pushed = typeof meta.data?.pushed_at === 'string' ? new Date(meta.data.pushed_at) : null;
+  const branch = defaultBranch ? `&sha=${encodeURIComponent(defaultBranch)}` : '';
   let estimatedCommits: number | null;
   try {
-    const head = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=1${defaultBranch ? `&sha=${encodeURIComponent(defaultBranch)}` : ''}`);
+    const head = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=1${branch}`);
     estimatedCommits = head.link.lastPage ?? (Array.isArray(head.data) ? head.data.length : null);
   } catch {
     estimatedCommits = null;
   }
+
+  // How much of this project's work arrives as merges, sampled from its most
+  // recent hundred commits. Size alone does not say whether a history can be
+  // watched: a linear one collapses into ribbons however long it is, while a
+  // pull-request repository is nearly all junctions and collapses hardly at
+  // all. One request buys the difference between asking a useful question and
+  // a useless one.
+  let mergeRatio: number | null = null;
+  try {
+    const sample = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=100${branch}`);
+    if (Array.isArray(sample.data) && sample.data.length) {
+      const merges = sample.data.filter((c) => Array.isArray(c?.parents) && c.parents.length > 1).length;
+      mergeRatio = merges / sample.data.length;
+    }
+  } catch {
+    mergeRatio = null;
+  }
   return {
     estimatedCommits,
+    mergeRatio,
     defaultBranch,
     firstYear: created && Number.isFinite(created.getTime()) ? created.getUTCFullYear() : null,
     lastYear: pushed && Number.isFinite(pushed.getTime()) ? pushed.getUTCFullYear() : new Date().getUTCFullYear(),
