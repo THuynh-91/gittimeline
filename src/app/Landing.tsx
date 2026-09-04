@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { store } from './store';
 import { loadDemo, loadRepo, loadArtifactFile, play } from './controller';
+import { Catalog } from './Catalog';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
 
@@ -165,6 +166,7 @@ export function Landing() {
           </div>
         )}
       </form>
+      <Catalog />
       <TokenNote />
       <div class="meta">
         <span>Fetched from GitHub, rendered on your device. No backend, no account, no upload.</span>

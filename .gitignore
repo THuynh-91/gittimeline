@@ -9,3 +9,6 @@ blob-report
 coverage
 .vite
 debug-out.txt
+
+# Pre-fetched histories: a build product, rebuilt by CI on every deploy.
+public/catalog/

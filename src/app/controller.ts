@@ -489,6 +489,47 @@ export function retry() {
   if (lastInputForRetry) void loadRepo(lastInputForRetry, { autoplay: true });
 }
 
+/**
+ * Play a history that was fetched ahead of time and shipped with the site.
+ *
+ * This is the answer to "can I share my token so other people get a higher
+ * rate limit". A token in the client is readable by anyone who opens the
+ * network tab, so instead the fetching happened once at build time and the
+ * result is a static file: a visitor watches a large repository with no token
+ * and no GitHub requests at all. The artifact still goes through the same
+ * normalizer as live data, so nothing about the truth model is relaxed.
+ */
+export async function loadCatalogEntry(file: string, label: string) {
+  const r = newRun();
+  batch(() => {
+    store.mode.value = 'player';
+    store.error.value = null;
+    store.banner.value = null;
+    store.phase.value = 'FETCHING_TOPOLOGY';
+    store.progress.value = { phase: 'normalizing', message: `Opening ${label}`, pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: label, fromCache: true };
+  });
+  primeAudio();
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}catalog/${file}`, { signal: r.abort.signal });
+    if (!res.ok) throw new Error(`catalog entry unavailable (${res.status})`);
+    const { dataset } = await parseArtifact(await res.blob());
+    if (run?.id !== r.id) return;
+    lastRepo = null;
+    await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false });
+    toast(`${label} — fetched ahead of time, no requests used`);
+  } catch (err) {
+    if (run?.id !== r.id) return;
+    fail({
+      kind: 'artifact',
+      title: 'Could not open that history',
+      message: err instanceof Error ? err.message : String(err),
+      resetAt: null,
+      canPlayPartial: false,
+      retry: false,
+    });
+  }
+}
+
 export async function loadArtifactFile(file: File) {
   const r = newRun();
   store.mode.value = 'player';
@@ -1053,6 +1094,16 @@ export function installDebugHook() {
     },
     get viewport() {
       return renderer?.viewport() ?? null;
+    },
+    /** The artifact this repository would export, base64, for the catalog build. */
+    async artifact(): Promise<string | null> {
+      const ds = store.dataset.value;
+      if (!ds) return null;
+      const blob = await serializeArtifact(createArtifact(ds, { preset: presetFromSettings(), seed: store.settings.value.seed }), true);
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      return btoa(bin);
     },
     get waveform() {
       return store.perf.value ? Array.from(store.perf.value.waveform) : null;

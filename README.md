@@ -71,6 +71,14 @@ Ingestion cost, measured by driving the real interface (`scripts/usertest.mjs`) 
 
 React's entire history loads with a token, at exact coverage. Aggregation collapses long linear runs into counted ribbons so the show stays watchable, and three things keep a very dense project legible rather than a smear: lanes are capped so thousands of short-lived pull-request branches share outer lanes instead of pushing the graph tens of thousands of units tall, the camera will not pull back past a fixed bound and instead stays with the front of the work, and thread names are budgeted so a named branch is labelled while thousands of anonymous ones are not.
 
+## Pre-fetched histories
+
+GitHub gives an anonymous visitor about **60 requests an hour** — a few thousand commits — and a large repository needs hundreds. The obvious fix is to ship a token, and it does not work: the browser has to send it as an `Authorization` header, so anyone who opens the network tab can read it. There is no way to hide a credential in a static site.
+
+So the fetching happens once, in CI, with the token GitHub Actions issues to the job and which never leaves it, and what ships is the **result**. `catalog.json` lists the histories; `scripts/build-catalog.mjs` drives the real interface to produce each one — the same ingestion and the same normalizer as live data, so nothing about the truth model is relaxed — and the landing page offers them as a shelf. Opening one costs **no token and no GitHub requests at all**, which `tests/e2e/catalog.spec.ts` asserts by blocking `api.github.com` outright.
+
+The current shelf is four histories in 1.4 MB, including a year of `public-apis` at 1,796 commits and 781 merges. Adding one is a line in `catalog.json`. The step is best-effort: if a fetch fails, that build simply has no shelf.
+
 ## Truth model
 
 Every displayed commit is a real commit or an explicitly labelled aggregate; every edge comes from a parent relation; divergences and merges happen only where ancestry says so; concurrent work is spatially concurrent; missing history is shown as unknown, never fabricated; historic branch names are never guessed. Coverage (exact / partial / unknown) is visible in the top bar and in the **What am I seeing?** panel. See [docs/data-truth.md](docs/data-truth.md).

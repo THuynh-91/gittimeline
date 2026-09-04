@@ -1,0 +1,9 @@
+{
+  "$comment": "Histories built ahead of time so a visitor can watch a large repository with no GitHub token and no API requests at all. Kept deliberately short: each entry is a real fetch at build time and a real download for every visitor. `scope` is a year, or omitted for the whole history.",
+  "entries": [
+    { "slug": "BurntSushi/ripgrep", "title": "ripgrep", "blurb": "A search tool grown by one author, then a community." },
+    { "slug": "public-apis/public-apis", "title": "public-apis", "scope": "2021", "blurb": "A pull-request treadmill: half of 2021 is merges." },
+    { "slug": "sveltejs/svelte", "title": "Svelte", "scope": "2023", "blurb": "A framework rewriting itself in public." },
+    { "slug": "rust-lang/mdBook", "title": "mdBook", "blurb": "A steady, long-running tool with a small core team." }
+  ]
+}

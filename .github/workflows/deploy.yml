@@ -39,6 +39,24 @@ jobs:
           npx playwright test tests/e2e/demo.spec.ts --grep "pressing Play"
         env:
           CI: 'true'
+      - name: Build the pre-fetched catalog
+        # GitHub gives an anonymous visitor about 60 requests an hour, and a
+        # large repository needs hundreds. Shipping a token would not fix that:
+        # the browser has to send it as an Authorization header, so anyone can
+        # read it out of the network tab. Instead the fetching happens here,
+        # once, with the token Actions issues to this job and which never
+        # leaves it, and the *result* is published as a static file.
+        #
+        # Best effort on purpose. A rate limit or a renamed repository must not
+        # fail a deploy: the shelf simply does not appear in that build.
+        continue-on-error: true
+        run: |
+          npx vite preview --port 4173 &
+          for i in $(seq 1 60); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
+          node scripts/build-catalog.mjs public/catalog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Build with the Pages base path
         # Project sites live under /<repository>/; a user or organization site
         # (<owner>.github.io) lives at /.
