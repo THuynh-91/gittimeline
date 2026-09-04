@@ -36,7 +36,7 @@ Useful URL parameters (everything lives in the hash so static hosting needs no r
 | `#repo=owner/name` | open a repository |
 | `&tip=<sha>` | pin the tip so a shared performance never drifts |
 | `&t=12.5` | start position in performance seconds |
-| `&dur=30\|60\|90\|180\|0` | target duration (0 = natural) |
+| `&dur=20\|30\|45\|60\|90` | target duration in seconds |
 | `&seed=…` | deterministic seed for aesthetic variance |
 | `&autoplay=1`, `&gallery=1` | start playing / hide the chrome and loop |
 | `#demo=1`, `#fixture=07-octopus-merge` | built-in demo / synthetic fixture |
@@ -91,7 +91,7 @@ docs/            architecture, data truth, choreography, testing, deployment, ac
 - [Data truth](docs/data-truth.md) — provenance classes, what Git can and cannot prove, partial history, aggregation rules.
 - [Choreography](docs/choreography.md) — clocks, tempo, event grammar, effect budget, camera states, sound.
 - [Testing](docs/testing.md) — invariants, fixtures, property tests, browser suites, visual QA.
-- [Deployment](docs/deployment.md) — GitHub Pages workflow and the one remaining external step.
+- [Deployment](docs/deployment.md) — how the site is built and published.
 - [Accessibility](docs/accessibility.md) — keyboard, reduced motion, no flashes, screen readers, contrast.
 - [ADRs](docs/adr/) — material deviations from the original specification and why.
 
