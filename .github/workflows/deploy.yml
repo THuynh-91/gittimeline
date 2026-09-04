@@ -29,18 +29,23 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Smoke-test a root-path build
+        # The browser tests address the site at "/", so they run against a
+        # default build; the Pages build follows once they pass.
+        run: |
+          npm run build
+          npx playwright test tests/e2e/demo.spec.ts --grep "pressing Play"
+        env:
+          CI: 'true'
       - name: Build with the Pages base path
-        # Project sites live under /<repository>/; a user/organization site (<owner>.github.io) lives at /.
+        # Project sites live under /<repository>/; a user or organization site
+        # (<owner>.github.io) lives at /.
         run: |
           if [[ "${{ github.event.repository.name }}" == *.github.io ]]; then export VITE_BASE="/"; else export VITE_BASE="/${{ github.event.repository.name }}/"; fi
           echo "Building with VITE_BASE=$VITE_BASE"
           npm run build
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-      - name: Smoke-test the built output
-        run: npx playwright test tests/e2e/demo.spec.ts --grep "pressing Play"
-        env:
-          CI: 'true'
       - name: SPA-friendly 404 (static hosting has no server routing)
         run: cp dist/index.html dist/404.html
       - uses: actions/configure-pages@v5
