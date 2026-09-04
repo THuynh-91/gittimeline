@@ -50,6 +50,16 @@ export interface Settings {
   keyboardStep: 'beat' | 'commit' | 'second';
   /** Where the commit ledger sits. */
   railDock: 'top' | 'left' | 'right';
+  /**
+   * The two things a viewer can take off the stage.
+   *
+   * Both default on, because a first-time visitor needs to know what they are
+   * looking at. Once you do, the commit ledger and the player furniture are
+   * the only things between you and the picture — so they come off, and what
+   * is left is the performance.
+   */
+  showRail: boolean;
+  showControls: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -72,6 +82,8 @@ export const DEFAULT_SETTINGS: Settings = {
   captions: true,
   keyboardStep: 'beat',
   railDock: 'top',
+  showRail: true,
+  showControls: true,
 };
 
 export interface AppError {
@@ -118,7 +130,7 @@ function loadSettings(): Settings {
 
 export const store = {
   phase: signal<AppPhase>('IDLE'),
-  mode: signal<'landing' | 'player'>('landing'),
+  mode: signal<'landing' | 'player' | 'catalog'>('landing'),
   input: signal(''),
   inputError: signal<string | null>(null),
   progress: signal<IngestProgress | null>(null),

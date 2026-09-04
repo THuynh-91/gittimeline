@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { store } from './store';
 import { loadDemo, loadRepo, loadArtifactFile, play } from './controller';
-import { Catalog } from './Catalog';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
 
@@ -155,6 +154,10 @@ export function Landing() {
           <button type="button" onClick={() => void loadDemo({ autoplay: true, landing: false })} data-testid="demo-button">
             the built-in demo
           </button>
+          <span>·</span>
+          <button type="button" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
+            histories ready to watch
+          </button>
         </div>
         {recent.length > 0 && (
           <div class="recent" aria-label="Recent repositories">
@@ -166,7 +169,6 @@ export function Landing() {
           </div>
         )}
       </form>
-      <Catalog />
       <TokenNote />
       <div class="meta">
         <span>Fetched from GitHub, rendered on your device. No backend, no account, no upload.</span>

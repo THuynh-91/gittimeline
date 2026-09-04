@@ -636,7 +636,7 @@ a {
   justify-content: center;
   z-index: 7;
   padding: 24px;
-  background: radial-gradient(ellipse at center, rgba(7, 8, 12, 0.35), rgba(7, 8, 12, 0.7) 75%);
+  background: radial-gradient(ellipse at center, rgba(7, 8, 12, 0.62), rgba(7, 8, 12, 0.93) 78%);
   /* Centred while it fits, scrollable when it does not. Without this the
      footer links become unreachable on a short window as soon as anything is
      added above them — a shelf of pre-fetched histories, for instance. */
@@ -1665,42 +1665,51 @@ kbd {
   }
 }
 
-/* Histories fetched ahead of time: a shelf, not a settings list. */
+/* Histories fetched ahead of time: a shelf you can look at, not a list. */
 .catalog {
-  margin: 26px auto 4px;
-  max-width: 760px;
+  margin: 30px auto 6px;
+  width: min(820px, 100%);
   text-align: left;
 }
 
-.catalog h2 {
+.catalog-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.catalog-head h2 {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.catalog-note {
-  margin: 3px 0 12px;
+.catalog-head p {
+  margin: 0;
   font-size: 12px;
   color: var(--text-faint);
 }
 
 .catalog-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .catalog-card {
   display: grid;
-  gap: 4px;
-  padding: 11px 13px;
+  grid-template-rows: auto 1fr;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgba(13, 15, 22, 0.7);
+  background: rgba(13, 15, 22, 0.72);
   color: inherit;
   cursor: pointer;
   transition: border-color 0.18s ease, transform 0.18s ease;
@@ -1709,42 +1718,181 @@ kbd {
 .catalog-card:hover,
 .catalog-card:focus-visible {
   border-color: var(--accent);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+}
+
+/* The hero: a real frame of that performance's final tableau. */
+.catalog-shot {
+  position: relative;
+  display: block;
+  aspect-ratio: 40 / 11;
+  background: var(--ink);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.catalog-shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.92;
+}
+
+.catalog-card:hover .catalog-shot img,
+.catalog-card:focus-visible .catalog-shot img {
+  opacity: 1;
+}
+
+.catalog-scope {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  color: var(--ivory);
+  background: rgba(7, 8, 12, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.catalog-body {
+  display: grid;
+  gap: 3px;
+  padding: 11px 13px 12px;
 }
 
 .catalog-title {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--ivory);
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
 }
 
-.catalog-title em {
-  font-style: normal;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0 6px;
+.catalog-slug {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
 }
 
 .catalog-blurb {
+  margin-top: 3px;
   font-size: 12.5px;
   color: var(--text-dim);
-  line-height: 1.35;
+  line-height: 1.36;
 }
 
 .catalog-meta {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 11px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 560px) {
+.catalog-meta b {
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.catalog-meta i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+@media (max-width: 620px) {
   .catalog-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Taking things off the stage. Deliberately faint until looked for, and
+   deliberately never hidden by the thing they hide. */
+.view-toggles {
+  position: absolute;
+  left: 26px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+  opacity: 0.28;
+  transition: opacity 0.2s ease;
+}
+
+.view-toggles:hover,
+.view-toggles:focus-within {
+  opacity: 1;
+}
+
+.vbtn {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  background: rgba(7, 8, 12, 0.6);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.vbtn.on {
+  color: var(--ivory);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.vbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A full page over the stage: the catalog, and anything else that needs room. */
+.page {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow-y: auto;
+  background: radial-gradient(ellipse at 50% 0%, rgba(7, 8, 12, 0.82), rgba(7, 8, 12, 0.95) 70%);
+}
+
+.page-inner {
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 42px 24px 56px;
+}
+
+.page-back {
+  font-size: 12px;
+  color: var(--text-dim);
+  background: none;
+  border: 0;
+  padding: 0;
+  margin-bottom: 22px;
+  cursor: pointer;
+}
+
+.page-back:hover {
+  color: var(--ivory);
+}
+
+.page-inner h1 {
+  margin: 0 0 8px;
+  font-size: clamp(22px, 3.4vw, 32px);
+  font-weight: 300;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ivory);
+}
+
+.page-lead {
+  margin: 0 0 26px;
+  max-width: 62ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
 }

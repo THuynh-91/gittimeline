@@ -14,6 +14,8 @@ import { Panels } from './Panels';
 import { FollowButton } from './FollowButton';
 import { ScopeChooser } from './ScopeChooser';
 import { ExploreBar } from './ExploreBar';
+import { ViewToggles } from './ViewToggles';
+import { CatalogPage } from './CatalogPage';
 
 export function App() {
   useEffect(() => {
@@ -36,6 +38,7 @@ export function App() {
   const perf = store.perf.value;
   const showPlayer = mode === 'player';
   const chromeHidden = store.chromeHidden.value;
+  const view = store.settings.value;
   const banner = store.banner.value;
   const toast = store.toast.value;
 
@@ -43,12 +46,14 @@ export function App() {
     <div class={`app${chromeHidden ? ' chrome-hidden' : ''}`}>
       <Stage />
       {mode === 'landing' && <Landing />}
+      {mode === 'catalog' && <CatalogPage />}
       <ScopeChooser />
       <Prelude />
       {showPlayer && perf && !chromeHidden && <TopBar />}
-      {showPlayer && perf && !chromeHidden && <CommitRail />}
+      {showPlayer && perf && !chromeHidden && view.showRail && <CommitRail />}
       {showPlayer && perf && <FollowButton />}
-      {showPlayer && perf && !chromeHidden && (
+      {showPlayer && perf && !chromeHidden && <ViewToggles />}
+      {showPlayer && perf && !chromeHidden && view.showControls && (
         <div class="band" role="region" aria-label="Date, timeline and transport">
           <DateBar />
           <ExploreBar />
