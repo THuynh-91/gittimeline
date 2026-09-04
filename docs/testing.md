@@ -41,4 +41,4 @@ It was used to verify the pacing and audio against real repositories rather than
 
 ## Adding a fixture
 
-Add an entry to `src/fixtures/corpus.ts` with the `Script` helper (`commit`, `branch`, `merge`, `tag`, `keep`, `missingParents`). It is compiled and invariant-checked automatically, appears in the **What am I seeing?** fixture selector, and can be opened with `#fixture=<id>`.
+Add an entry to `src/fixtures/corpus.ts` with the `Script` helper (`commit`, `branch`, `merge`, `tag`, `keep`, `missingParents`). It is compiled and invariant-checked automatically, and can be opened with `#fixture=<id>`.
