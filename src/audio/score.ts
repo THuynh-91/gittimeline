@@ -1,4 +1,4 @@
-import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
+import type { ChoreographyEvent, CompiledPerformance, Era } from '@/model/types';
 import { hash01 } from '@/model/prng';
 import { beatLengthAt } from '@/choreography/clock';
 
@@ -158,6 +158,15 @@ export interface Piece {
    * chord tones, which is what makes a line sound written rather than picked.
    */
   scale: number[];
+  /**
+   * A short figure, in scale steps, restated at the head of every phrase.
+   *
+   * Without one the melody is a well-behaved random walk: every note is
+   * defensible and nothing is memorable, which is what makes a generated line
+   * sound generated. Stating the same shape again — from wherever the harmony
+   * has moved to — is the cheapest thing that makes a tune sound written.
+   */
+  motif: number[];
   character: Character;
   articulation: Articulation;
 }
@@ -240,6 +249,10 @@ export function derivePiece(hash: string, character: Character = { drive: 0.4, t
   // rolling figure and the melody each draw their notes from this one list.
   const chords = turn.map((d) => [0, 2, 4, 7, 9, 11].map((i) => tonic + scale(d + i)));
   const scaleNotes = Array.from({ length: 15 }, (_, i) => tonic + scale(i));
+  // Three intervals, conjunct enough to be singable and shaped enough to be
+  // recognised when it comes back a key away.
+  const STEPS = [-2, -1, 1, 2];
+  const motif = [0, 1, 2].map((i) => STEPS[Math.floor(hash01(`motif:${i}:${hash}`) * STEPS.length) % STEPS.length]!);
 
   // How it is played. A deep doubled left hand ringing for five seconds is a
   // wonderful sound and completely wrong for a project that never stops for
@@ -254,7 +267,7 @@ export function derivePiece(hash: string, character: Character = { drive: 0.4, t
     gain: 0.88 + 0.16 * weight,
   };
 
-  return { tonic, mode: modeName, chordSeconds, chords, scale: scaleNotes, character, articulation };
+  return { tonic, mode: modeName, chordSeconds, chords, scale: scaleNotes, motif, character, articulation };
 }
 
 /**
@@ -298,7 +311,7 @@ export function buildChordTimes(piece: Piece, tempoMap: Array<[number, number]>,
 /** The chord sounding at a moment, against the plan's own bar lines. */
 export function chordAtTime(plan: ScorePlan, t: number): number[] {
   const times = plan.chordTimes;
-  const chords = plan.piece.chords;
+  const chords = sectionAt(plan, t).chords;
   if (times.length < 2) return chords[0]!;
   const x = Math.max(0, t);
   let lo = 0;
@@ -325,11 +338,11 @@ export function chordAt(piece: Piece, t: number): number[] {
  * the nearest tone of the sounding chord, which is what stops a stepwise line
  * from wandering out of the harmony.
  */
-export function melodyStep(piece: Piece, chord: number[], from: number, r: number, resolve: boolean): number {
+export function melodyStep(scale: number[], chord: number[], from: number, r: number, resolve: boolean): number {
   const lo = 4;
   // A tune lives inside about an octave. A wider range stops sounding like one
   // voice and starts sounding like the instrument being swept.
-  const hi = Math.min(piece.scale.length - 2, lo + 7);
+  const hi = Math.min(scale.length - 2, lo + 7);
   // Mostly conjunct, occasionally still, rarely a third — the proportions of a
   // written line rather than a random walk.
   const delta = r < 0.34 ? -1 : r < 0.68 ? 1 : r < 0.84 ? 0 : r < 0.92 ? 2 : -2;
@@ -341,11 +354,11 @@ export function melodyStep(piece: Piece, chord: number[], from: number, r: numbe
     for (let radius = 0; radius <= 3; radius++) {
       const down = next - radius;
       const up = next + radius;
-      if (down >= lo && tones.has(((piece.scale[down]! % 12) + 12) % 12)) {
+      if (down >= lo && tones.has(((scale[down]! % 12) + 12) % 12)) {
         next = down;
         break;
       }
-      if (up <= hi && tones.has(((piece.scale[up]! % 12) + 12) % 12)) {
+      if (up <= hi && tones.has(((scale[up]! % 12) + 12) % 12)) {
         next = up;
         break;
       }
@@ -355,7 +368,7 @@ export function melodyStep(piece: Piece, chord: number[], from: number, r: numbe
   // Between resolutions the line stays conjunct. Whatever the mode's step
   // sizes — some have an augmented second in them — the sounding interval
   // never exceeds a major third.
-  while (next !== from && Math.abs(piece.scale[next]! - piece.scale[from]!) > 4) {
+  while (next !== from && Math.abs(scale[next]! - scale[from]!) > 4) {
     next += next > from ? -1 : 1;
   }
   return next;
@@ -441,6 +454,96 @@ export function articulationAt(piece: Piece, energy: number): Articulation {
   };
 }
 
+/**
+ * One movement of the piece: the span of an era, in its own key.
+ *
+ * A four-chord loop held for four minutes is monotonous however well it is
+ * voiced, and the repository already tells us where its chapters are — the
+ * choreography's eras. So each era becomes a section and the piece *modulates*
+ * into it, and the direction of that modulation says what happened: a busier
+ * era than the last lifts the key, a quieter one drops it. The change of
+ * colour is the history changing, not decoration on top of it.
+ */
+export interface Section {
+  start: number;
+  end: number;
+  label: string;
+  /** The piece's chords, transposed into this section's key. */
+  chords: number[][];
+  /** And its scale, so the melody modulates with the harmony rather than against it. */
+  scale: number[];
+  transpose: number;
+}
+
+/** Keys a section may move to, grouped by what the history just did. */
+const LIFT = [2, 5, 7];
+const FALL = [-3, -5, -2];
+
+/**
+ * The longest a piece may stay in one key.
+ *
+ * Eras are the repository's own chapters and are the right seams to modulate
+ * on, but a project can work at one steady pitch for years — a pull-request
+ * treadmill has no chapters at all — and four minutes in one key on one
+ * four-chord loop is monotonous however truthfully it was arrived at. So a
+ * long stretch is divided anyway, and the piece moves.
+ */
+const MAX_SECTION_SECONDS = 52;
+
+export function buildSections(piece: Piece, eras: Era[], duration: number, hash: string): Section[] {
+  // Spans first: the history's own chapters where it has them, the whole show
+  // where it does not, and then anything too long to sit still is subdivided.
+  const raw = eras.length
+    ? eras.map((e) => ({ start: e.performanceStart, end: e.performanceEnd, label: e.label, intensity: e.intensity }))
+    : [{ start: 0, end: Math.max(1, duration), label: '', intensity: 0.5 }];
+
+  const spans: Array<{ start: number; end: number; label: string; intensity: number; seam: boolean }> = [];
+  for (const r of raw) {
+    const length = Math.max(0.001, r.end - r.start);
+    const parts = Math.max(1, Math.ceil(length / MAX_SECTION_SECONDS));
+    for (let i = 0; i < parts; i++) {
+      spans.push({
+        start: r.start + (length * i) / parts,
+        end: r.start + (length * (i + 1)) / parts,
+        label: r.label,
+        intensity: r.intensity,
+        seam: i === 0,
+      });
+    }
+  }
+
+  const sections: Section[] = [];
+  let transpose = 0;
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i]!;
+    if (i > 0) {
+      const prev = spans[i - 1]!;
+      // A seam between chapters says what changed; a seam inside one just has
+      // to keep the piece moving, so it takes a small step either way.
+      const change = span.intensity - prev.intensity;
+      const pool = span.seam ? (change > 0.1 ? LIFT : change < -0.1 ? FALL : [0]) : hash01(`dir:${i}:${hash}`) > 0.5 ? LIFT : FALL;
+      const step = pool[Math.floor(hash01(`mod:${i}:${hash}`) * pool.length) % pool.length]!;
+      // Wander, but never so far that the left hand leaves the instrument.
+      transpose = Math.max(-7, Math.min(7, transpose + step));
+    }
+    sections.push({
+      start: span.start,
+      end: span.end,
+      label: span.label,
+      transpose,
+      chords: piece.chords.map((c) => c.map((n) => n + transpose)),
+      scale: piece.scale.map((n) => n + transpose),
+    });
+  }
+  return sections;
+}
+
+export function sectionAt(plan: ScorePlan, t: number): Section {
+  const ss = plan.sections;
+  for (let i = ss.length - 1; i >= 0; i--) if (t >= ss[i]!.start) return ss[i]!;
+  return ss[0]!;
+}
+
 /** Everything the engine needs in order to decide how to play a given plan. */
 export interface ScorePlan {
   piece: Piece;
@@ -449,12 +552,21 @@ export interface ScorePlan {
   mergePressure: number;
   /** Performance times at which the harmony turns over. */
   chordTimes: number[];
+  /** One movement per era, each in its own key. */
+  sections: Section[];
 }
 
 export function planScore(p: CompiledPerformance | null): ScorePlan {
   if (!p) {
     const piece = derivePiece('');
-    return { piece, featured: new Set(), accentGap: MIN_NOTE_GAP, mergePressure: 0, chordTimes: [0] };
+    return {
+      piece,
+      featured: new Set(),
+      accentGap: MIN_NOTE_GAP,
+      mergePressure: 0,
+      chordTimes: [0],
+      sections: buildSections(piece, [], 1, ''),
+    };
   }
   const piece = derivePiece(p.planHash, characterOf(p));
   return {
@@ -463,5 +575,6 @@ export function planScore(p: CompiledPerformance | null): ScorePlan {
     accentGap: accentGapFor(p.events, p.duration),
     mergePressure: mergePressureFor(p.events, p.duration),
     chordTimes: buildChordTimes(piece, p.tempoMap, p.duration),
+    sections: buildSections(piece, p.eras, p.duration, p.planHash),
   };
 }

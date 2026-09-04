@@ -128,7 +128,9 @@ Every repository gets its own piece, chosen to fit rather than at random. Three 
 
 **It follows the timeline.** Harmony turns over in bars rather than seconds, counted on the performance's own beat grid, so a busy stretch changes chord faster and a dormant one holds. The writing moves with the activity curve too: the deep doubled left hand lifts and the ring shortens when things get busy, the rolling figure fills in, and it drops to half-time when the tempo outruns the ear. A repository is not one mood for its whole life.
 
-The melody walks the scale and resolves onto chord tones on the downbeat — never the voiced chord, whose adjacent notes are a third apart and which turned every step into a leap. Nothing is sampled and nothing drones.
+**It is in movements.** A four-chord loop held for four minutes is monotonous however well it is voiced, so the performance is divided and the piece modulates between the parts. The seams are the repository's own chapters, and the direction says what happened: a busier era than the last lifts the key, a quieter one drops it. A history with no chapters still gets movements, because nothing stays in one key for more than about a minute.
+
+The melody walks the scale, resolves onto chord tones on the downbeat, and restates a three-interval motif at the head of every phrase — recurrence is what makes a line memorable rather than merely well behaved. Nothing is sampled and nothing drones.
 
 | Section | Carries |
 |---|---|

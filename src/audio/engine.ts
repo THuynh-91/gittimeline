@@ -1,6 +1,6 @@
 import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
 import { hash01 } from '@/model/prng';
-import { articulationAt, chordAtTime, eventKey, melodyStep, planScore, type ScorePlan } from './score';
+import { articulationAt, chordAtTime, eventKey, melodyStep, planScore, sectionAt, type ScorePlan } from './score';
 
 /**
  * A small synthetic orchestra, written from the same event plan the visuals use.
@@ -63,6 +63,8 @@ export class AudioEngine {
   private lastChordIndex = -1;
   /** Where the melody currently sits within the piece's scale. */
   private leadIdx = 7;
+  /** How far through the motif this phrase is; past its end the line walks free. */
+  private motifPos = 99;
   /** Beat-grid cursor for the piano piece. */
   private nextBeat = 0;
   private nextBeatTime = 0;
@@ -195,6 +197,7 @@ export class AudioEngine {
       this.send(strings(ctx, out, when, chord, 0.026 + 0.05 * this.intensity, len));
       this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.045 + 0.02 * this.intensity, len * 0.7));
       this.leadIdx = 7;
+      this.motifPos = 99;
     }
 
     // The piece itself: walk the beat grid and play the piano up to the
@@ -309,7 +312,8 @@ export class AudioEngine {
     if (sings && hash01(`melody:${bar}:${inBar}`) > 0.18) {
       // Strong beats resolve into the harmony; the beats between are free to
       // pass through it, which is what gives the phrase somewhere to go.
-      const pitch = this.sing(chord, `bar:${bar}:${inBar}`, inBar === 0);
+      const phraseHead = inBar === 0 && bar % 4 === 0;
+      const pitch = this.sing(chord, beatTime, `bar:${bar}:${inBar}`, phraseHead);
       this.send(piano(ctx, out, when, noteHz(pitch, 1), (0.04 + 0.022 * energy) * vel * g, 3.4));
     }
   }
@@ -364,10 +368,24 @@ export class AudioEngine {
    * moved one place in that array — leapt on every note and the line never
    * sounded like a line.
    */
-  private sing(chord: number[], key: string, resolve: boolean): number {
-    const piece = this.score.piece;
-    this.leadIdx = melodyStep(piece, chord, this.leadIdx, hash01(key), resolve);
-    return piece.scale[this.leadIdx]!;
+  private sing(chord: number[], at: number, key: string, phraseHead: boolean): number {
+    // The scale is the current section's, so when the piece modulates the tune
+    // modulates with it rather than singing in the key it has just left.
+    const scale = sectionAt(this.score, at).scale;
+    const motif = this.score.piece.motif;
+    if (phraseHead) {
+      // Land in the harmony and start the figure again.
+      this.motifPos = 0;
+      this.leadIdx = melodyStep(scale, chord, this.leadIdx, hash01(key), true);
+    } else if (this.motifPos < motif.length) {
+      // The same three intervals every phrase, from wherever the harmony has
+      // moved to. Recurrence is what a listener remembers; a line that never
+      // repeats itself is not a tune, however well behaved each note is.
+      this.leadIdx = Math.max(4, Math.min(scale.length - 2, this.leadIdx + motif[this.motifPos++]!));
+    } else {
+      this.leadIdx = melodyStep(scale, chord, this.leadIdx, hash01(key), false);
+    }
+    return scale[this.leadIdx]!;
   }
 
   private voice(ev: ChoreographyEvent, when: number) {

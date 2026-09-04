@@ -14,6 +14,7 @@ import {
   eventKey,
   melodyStep,
   planScore,
+  sectionAt,
   selectFeatured,
 } from '@/audio/score';
 import { hash01 } from '@/model/prng';
@@ -196,7 +197,7 @@ describe('the melody is a line, not an arpeggio', () => {
     for (let bar = 0; bar < 64; bar++) {
       const chord = chordAt(piece, bar * piece.chordSeconds * 0.25);
       for (const beat of [0, 2]) {
-        idx = melodyStep(piece, chord, idx, hash01(`bar:${bar}:${beat}`), beat === 0);
+        idx = melodyStep(piece.scale, chord, idx, hash01(`bar:${bar}:${beat}`), beat === 0);
         pitches.push(piece.scale[idx]!);
       }
     }
@@ -231,10 +232,61 @@ describe('the melody is a line, not an arpeggio', () => {
       let idx = 7;
       for (let bar = 0; bar < 32; bar++) {
         const chord = chordAt(piece, bar * piece.chordSeconds);
-        idx = melodyStep(piece, chord, idx, hash01(`r:${bar}`), true);
+        idx = melodyStep(piece.scale, chord, idx, hash01(`r:${bar}`), true);
         const tones = new Set(chord.map((c) => ((c % 12) + 12) % 12));
         expect(tones.has(((piece.scale[idx]! % 12) + 12) % 12), `${id} bar ${bar}`).toBe(true);
       }
+    }
+  });
+});
+
+describe('the piece has movements, not one loop', () => {
+  it('every history is divided into sections that follow its eras', () => {
+    for (const [id, p] of PLANS) {
+      const { sections } = planScore(p);
+      expect(sections.length, `${id} has sections`).toBeGreaterThanOrEqual(1);
+      // Chapters where the history has them, and never one key for too long.
+      if (p.eras.length > 1) expect(sections.length, `${id} follows its eras`).toBeGreaterThanOrEqual(p.eras.length);
+      for (const s of sections) expect(s.end - s.start, `${id} no section outstays its welcome`).toBeLessThanOrEqual(53);
+      // sectionAt must agree with the spans it was built from.
+      for (const s of sections) expect(sectionAt(planScore(p), (s.start + s.end) / 2).start).toBe(s.start);
+      for (let i = 1; i < sections.length; i++) {
+        expect(sections[i]!.start, `${id} sections are ordered`).toBeGreaterThanOrEqual(sections[i - 1]!.start);
+      }
+      for (const s of sections) {
+        expect(Math.abs(s.transpose), `${id} stays on the instrument`).toBeLessThanOrEqual(7);
+        // The scale must move with the chords or the melody sings in the key
+        // the piece has just left.
+        expect(s.scale.length).toBe(15);
+        const chordClasses = new Set(s.chords.flat().map((n) => ((n % 12) + 12) % 12));
+        const scaleClasses = new Set(s.scale.map((n) => ((n % 12) + 12) % 12));
+        for (const c of chordClasses) expect(scaleClasses.has(c), `${id} chord tones are in the section scale`).toBe(true);
+      }
+    }
+  });
+
+  it('a history with changing eras actually changes key somewhere', () => {
+    const withEras = PLANS.filter(([, p]) => p.eras.length > 2);
+    expect(withEras.length, 'the corpus has multi-era histories to test').toBeGreaterThan(0);
+    const moved = withEras.filter(([, p]) => new Set(planScore(p).sections.map((s) => s.transpose)).size > 1);
+    expect(moved.length, 'at least some multi-era histories modulate').toBeGreaterThan(0);
+    // And no long performance sits in one key, however uniform its history.
+    for (const [id, p] of PLANS) {
+      if (p.duration < 90) continue;
+      expect(new Set(planScore(p).sections.map((s) => s.transpose)).size, `${id} moves`).toBeGreaterThan(1);
+    }
+  });
+
+  it('the motif is short, conjunct and restated identically', () => {
+    for (const [id, p] of PLANS) {
+      const piece = derivePiece(p.planHash, characterOf(p));
+      expect(piece.motif.length, `${id} motif length`).toBe(3);
+      for (const d of piece.motif) {
+        expect(Math.abs(d), `${id} motif is singable`).toBeLessThanOrEqual(2);
+        expect(d).not.toBe(0);
+      }
+      // Same piece, same figure, every time it comes round.
+      expect(derivePiece(p.planHash, characterOf(p)).motif).toEqual(piece.motif);
     }
   });
 });
