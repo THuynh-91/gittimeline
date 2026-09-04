@@ -1,0 +1,9 @@
+{
+  "name": "gittimeline-auth",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "GitHub sign-in for GitTimeline. Exchanges an OAuth code for a token and nothing else.",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node index.mjs" }
+}

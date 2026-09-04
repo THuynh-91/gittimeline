@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { store } from './store';
+import { AUTH_BASE, signInWithGitHub } from './auth';
 import { loadDemo, loadRepo, loadArtifactFile, play } from './controller';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
@@ -32,6 +33,16 @@ function TokenNote() {
       <p>
         Without a token GitHub allows your network about 60 requests an hour, which covers a few thousand commits. A free fine-grained token with read-only public access raises that to about 5,000, enough for a large project's whole history.
       </p>
+      {AUTH_BASE && (
+        <div class="token-signin">
+          <button type="button" class="btn primary small" onClick={signInWithGitHub} data-testid="signin-github">
+            Sign in with GitHub
+          </button>
+          <span>
+            Grants no permissions at all — it reads exactly what an anonymous visitor reads, just faster. Nothing about you is stored.
+          </span>
+        </div>
+      )}
       <div class="token-inline">
         <input
           type="text"

@@ -17,6 +17,7 @@ import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types
 import { buildShareHash, parseShareHash } from '@/export/share';
 import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '@/export/artifact';
 import { fmtClock } from '@/choreography/events';
+import { claimTokenFromUrl } from './auth';
 
 /**
  * Orchestration: ingestion runs, compilation, the frame loop, keyboard,
@@ -1269,5 +1270,6 @@ export async function boot() {
     return;
   }
   // Landing: the demo performs softly behind the form.
+  if (claimTokenFromUrl()) toast('Signed in with GitHub — about 5,000 requests an hour');
   await loadDemo({ autoplay: true, landing: true });
 }
