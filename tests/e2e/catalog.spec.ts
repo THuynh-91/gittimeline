@@ -17,6 +17,7 @@ test.describe('pre-fetched catalog', () => {
     });
 
     await page.goto('/');
+    await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
     // A build without a catalog simply has no shelf; nothing here is a failure.
     if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
@@ -42,6 +43,12 @@ test.describe('pre-fetched catalog', () => {
     for (const e of index.entries) {
       const head = await page.evaluate(async (f) => (await fetch(`/catalog/${f}`)).status, e.file);
       expect(head, `${e.slug} artifact is served`).toBe(200);
+      // The shelf leads with a picture; a card with a broken image is worse
+      // than a card with none, so the thumbnail must actually be there.
+      expect(e.poster, `${e.slug} has a thumbnail`).toBeTruthy();
+      const shot = await page.evaluate(async (f) => (await fetch(`/catalog/${f}`)).status, e.poster);
+      expect(shot, `${e.slug} thumbnail is served`).toBe(200);
+      expect(e.posterBytes, `${e.slug} thumbnail is small enough for a landing page`).toBeLessThan(120_000);
       expect(e.commits, `${e.slug} has commits`).toBeGreaterThan(0);
       expect(e.bytes, `${e.slug} has bytes`).toBeGreaterThan(1000);
       expect(typeof e.builtAt).toBe('string');

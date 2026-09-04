@@ -1125,7 +1125,7 @@ export function installDebugHook() {
       for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
       return btoa(bin);
     },
-    /** A static SVG of this history's shape, for catalog thumbnails. */
+    /** A static SVG of this history's shape. Exact, and large. */
     posterSvg(): string | null {
       const perf = store.perf.value;
       return perf ? renderPosterSvg(perf) : null;
@@ -1212,4 +1212,14 @@ export async function boot() {
   }
   // Landing: the demo performs softly behind the form.
   await loadDemo({ autoplay: true, landing: true });
+  // Open on the demo's most alive moment rather than on an empty stage. The
+  // landing page is the first thing anyone sees and the first second of any
+  // history is one commit; the widest parallel phrase is what the app is for.
+  const p0 = store.perf.value;
+  if (p0) {
+    const widest = p0.events
+      .filter((e) => e.type === 'PARALLEL_PHRASE')
+      .sort((a, b) => b.performanceEnd - b.performanceStart - (a.performanceEnd - a.performanceStart))[0];
+    if (widest) player.seek(Math.max(0, widest.performanceStart - 1.5));
+  }
 }

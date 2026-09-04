@@ -71,11 +71,43 @@ for (const entry of entries) {
     const file = `${entry.slug.replace('/', '-')}.gittimeline.gz`;
     writeFileSync(join(outDir, file), bytes);
 
-    // A thumbnail of the actual shape. A shelf of names tells you nothing;
-    // the silhouette of a history is the thing worth choosing between.
-    const svg = await page.evaluate(() => window.__gittimeline.posterSvg());
-    const svgFile = `${entry.slug.replace('/', '-')}.svg`;
-    if (svg) writeFileSync(join(outDir, svgFile), svg);
+    // A picture of the finished history, so the shelf is something you can
+    // look at rather than a list of names. This is a real frame of the real
+    // performance at its final tableau — not an illustration of one — which
+    // is both more honest and far smaller than the SVG poster: that runs to
+    // 3.4 MB for a merge-heavy history because it carries every path.
+    let shotFile = null;
+    let shotBytes = 0;
+    try {
+      await page.setViewportSize({ width: 1200, height: 420 });
+      // Everything except the stage comes off, or the thumbnail is a picture
+      // of the interface rather than of the history.
+      await page.addStyleTag({
+        content: '.rail,.band,.banner,.toast,.topbar,.follow-btn,.view-toggles,.prelude{display:none!important}',
+      });
+      // Not the final tableau: that shot is deliberately quiet and dim, which
+      // is right at the end of a performance and makes a near-black thumbnail.
+      // The widest parallel phrase is the moment the picture is most alive —
+      // several threads open at once, trails lit, camera pulled back.
+      await page.evaluate(() => {
+        const g = window.__gittimeline;
+        const widest = g
+          .events('PARALLEL_PHRASE')
+          .sort((a, b) => b.end - b.start - (a.end - a.start))[0];
+        g.seek(widest ? widest.start + (widest.end - widest.start) * 0.6 : g.duration * 0.72);
+        g.play();
+      });
+      await page.waitForTimeout(900); // let trails and glow build under motion
+      // JPEG, not PNG: the stage is a dark photographic gradient with fine
+      // strokes over it, which PNG stores at ~220 KB a frame and JPEG at a
+      // fraction of that with no visible difference at card size.
+      const shot = await page.getByTestId('stage-canvas').screenshot({ type: 'jpeg', quality: 82 });
+      shotFile = `${entry.slug.replace('/', '-')}.jpg`;
+      writeFileSync(join(outDir, shotFile), shot);
+      shotBytes = shot.length;
+    } catch (err) {
+      console.warn(`  ${entry.slug}: no thumbnail — ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     const stats = await page.evaluate(() => window.__gittimeline.stats);
     // Coverage must be recorded honestly: a truncated fetch shipped as a
@@ -91,8 +123,8 @@ for (const entry of entries) {
       blurb: entry.blurb ?? '',
       scope: entry.scope ?? null,
       file,
-      poster: svg ? svgFile : null,
-      posterBytes: svg ? Buffer.byteLength(svg) : 0,
+      poster: shotFile,
+      posterBytes: shotBytes,
       bytes: bytes.length,
       commits: stats.commits,
       merges: stats.merges,
@@ -103,7 +135,7 @@ for (const entry of entries) {
     console.log(
       `${entry.slug}${entry.scope ? ` (${entry.scope})` : ''}: ${stats.commits} commits, ` +
         `${requests} requests, ${(bytes.length / 1e6).toFixed(2)} MB` +
-        `${svg ? ` + ${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB poster` : ''}, ${((Date.now() - started) / 1000).toFixed(0)}s`,
+        `${shotBytes ? ` + ${(shotBytes / 1024).toFixed(0)} KB thumbnail` : ''}, ${((Date.now() - started) / 1000).toFixed(0)}s`,
     );
   } catch (err) {
     // One repository failing must not cost the whole catalog: ship what worked.
