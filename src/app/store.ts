@@ -143,7 +143,14 @@ export const store = {
   rate: signal<RateInfo | null>(null),
   time: signal(0),
   playing: signal(false),
-  speed: signal(1),
+  /**
+   * Playback rate, opening at 2x.
+   *
+   * The pacing is built so every arrival is legible at 1x, which turns out to
+   * be slower than most people want to watch a timelapse — the natural first
+   * action was to reach for the speed control, so that is where it starts.
+   */
+  speed: signal(2),
   settings: signal<Settings>(typeof localStorage !== 'undefined' ? loadSettings() : DEFAULT_SETTINGS),
   selectedNode: signal<number | null>(null),
   hoverNode: signal<number | null>(null),

@@ -281,6 +281,7 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset, opts: { au
     else store.banner.value = null;
   });
   player.load(perf, opts.startAt ?? 0);
+  player.rate = store.speed.peek();
   releaseCamera();
   captionPtr = 0;
   renderer?.setPerformance(perf);

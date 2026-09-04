@@ -25,7 +25,7 @@ export function Transport() {
         <Icons.next />
       </button>
       <select class="speed" aria-label="Playback speed" value={String(speed)} onChange={(e) => setSpeed(Number((e.target as HTMLSelectElement).value))}>
-        {[0.5, 0.75, 1, 1.5, 2].map((r) => (
+        {[0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4].map((r) => (
           <option key={r} value={String(r)}>
             {r}×
           </option>

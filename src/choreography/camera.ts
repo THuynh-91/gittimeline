@@ -195,8 +195,11 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     // Desired frame with state-dependent breathing room.
     const padX = state === 'intimate' ? 120 : state === 'overview' ? 180 : 140;
     const padY = state === 'intimate' ? 90 : state === 'overview' ? 130 : 110;
-    const minW = state === 'intimate' ? 420 : state === 'overview' ? 720 : 560;
-    const minH = state === 'intimate' ? 230 : state === 'overview' ? 380 : 300;
+    // Stand further back. These were tuned on the demo, which is small, and on
+    // a real repository they framed a handful of commits at a time — you could
+    // see the brushwork and not the picture.
+    const minW = state === 'intimate' ? 680 : state === 'overview' ? 1180 : 900;
+    const minH = state === 'intimate' ? 360 : state === 'overview' ? 600 : 480;
     let tw = Math.min(MAX_FRAME_W, Math.max(minW * growth * eraWiden, maxX - minX + padX * 2));
     let th = Math.min(MAX_FRAME_H, Math.max(minH * (1 + (growth - 1) * 0.15) * eraWiden, maxY - minY + padY * 2));
     if (inTail) {
