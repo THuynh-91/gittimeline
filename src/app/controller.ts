@@ -41,9 +41,18 @@ let recompileTimer: number | null = null;
 let recorder: MediaRecorder | null = null;
 let recordedChunks: Blob[] = [];
 
+const LENGTH_BIAS = { brief: 0.62, natural: 1, extended: 1.55 } as const;
+
 export function presetFromSettings(): PlaybackPreset {
   const s = store.settings.value;
-  return { id: 'cinematic', version: 1, targetDuration: s.targetDuration, reducedMotion: s.reducedMotion, aggregateAbove: 900 };
+  return {
+    id: 'cinematic',
+    version: 1,
+    targetDuration: store.durationOverride.value ?? 0,
+    lengthBias: LENGTH_BIAS[s.lengthMode],
+    reducedMotion: s.reducedMotion,
+    aggregateAbove: 900,
+  };
 }
 
 /* ---------------- renderer lifecycle ---------------- */
@@ -93,7 +102,7 @@ function syncRendererSettings() {
     selectedThread: store.selectedThread.value,
   };
   renderer.attenuation = store.mode.value === 'landing' ? 0.85 : 1;
-  audio.levels = { master: 0.7, effects: s.effectsLevel, ambient: s.ambientLevel, muted: s.muted };
+  audio.levels = { master: 0.7, effects: s.effectsLevel, muted: s.muted };
   audio.dynamics = s.dynamics;
   audio.applyLevels();
 }
@@ -342,7 +351,7 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
       client,
       signal: r.abort.signal,
       includeBranches: store.settings.value.includeBranches,
-      maxPages: store.token.value ? 400 : 40,
+      maxPages: store.token.value ? 600 : 40,
       pinnedTip: opts.tip ?? null,
       onProgress: (p) => {
         if (run?.id !== r.id) return;
@@ -407,7 +416,10 @@ export async function loadArtifactFile(file: File) {
   try {
     const { dataset, options } = await parseArtifact(file);
     if (run?.id !== r.id) return;
-    if (options?.preset) updateSettings({ targetDuration: options.preset.targetDuration, seed: options.seed });
+    if (options?.preset) {
+      store.durationOverride.value = options.preset.targetDuration > 0 ? options.preset.targetDuration : null;
+      updateSettings({ seed: options.seed });
+    }
     lastRepo = null;
     await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false });
     store.banner.value = { kind: 'info', message: `Loaded from a .gitdance artifact (${dataset.coverage.summary})` };
@@ -617,7 +629,7 @@ export function shareLink(): string {
     repo: lastRepo ? lastRepo.slug : null,
     tip: perf?.source.provider === 'github' ? perf.source.selectedTipSha : null,
     t: Math.round(player.t * 100) / 100,
-    duration: s.targetDuration,
+    duration: store.durationOverride.value,
     seed: s.seed,
     focus: store.contributorFocus.value,
     reducedMotion: s.reducedMotion,
@@ -758,18 +770,6 @@ export function handleKey(e: KeyboardEvent): boolean {
       if (!hasPerf) return false;
       toggleAutoCamera();
       return true;
-    case 'r':
-    case 'R':
-      toggleReducedMotion();
-      return true;
-    case 'e':
-    case 'E':
-      store.panel.value = store.panel.value === 'events' ? 'none' : 'events';
-      return true;
-    case 'i':
-    case 'I':
-      store.panel.value = store.panel.value === 'data' ? 'none' : 'data';
-      return true;
     case '?':
       store.panel.value = store.panel.value === 'help' ? 'none' : 'help';
       return true;
@@ -881,7 +881,7 @@ export async function boot() {
     store.banner.value = { kind: 'fallback', message: 'Poster mode: Canvas rendering is unavailable or was switched off, so the exact topology is drawn as a static SVG with a navigable event list.' };
   }
   if (share.reducedMotion != null) updateSettings({ reducedMotion: share.reducedMotion });
-  if (share.duration) updateSettings({ targetDuration: share.duration });
+  if (share.duration) store.durationOverride.value = share.duration;
   if (share.seed) updateSettings({ seed: share.seed });
   if (share.focus) store.contributorFocus.value = share.focus;
   if (share.fixture) {

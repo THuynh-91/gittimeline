@@ -9,8 +9,6 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await expect(page.getByTestId('poster')).toContainText('Static poster mode');
     const paths = await page.locator('[data-testid="poster"] svg path').count();
     expect(paths).toBeGreaterThan(10);
-    await page.keyboard.press('e');
-    await expect(page.getByTestId('event-list')).toContainText('Major merge');
     await page.keyboard.press('ArrowRight');
     expect(await page.evaluate(() => window.__gitdance.time)).toBeGreaterThan(20);
     await expect(page.locator('.banner')).toContainText('Canvas rendering is unavailable');
@@ -20,7 +18,7 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/#demo=1&autoplay=1');
     await waitForReady(page);
-    await expect(page.getByTestId('motion-button')).toHaveAttribute('aria-pressed', 'true');
+    // The operating system preference is honoured without any control to find.
     const cam = await page.evaluate(() => window.__gitdance.camera);
     expect(cam!.punch).toBe(1);
     const types = await page.evaluate(() => [...new Set(window.__gitdance.events().map((e) => e.type))]);
@@ -69,8 +67,8 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await expect(page.getByTestId('timeline')).toBeVisible();
     const box = (await page.getByTestId('timeline').boundingBox())!;
     expect(box.width).toBeGreaterThan(300);
-    await page.getByTestId('events-button').click();
-    await expect(page.getByTestId('panel-events')).toBeVisible();
+    await page.getByTestId('settings-button').click();
+    await expect(page.getByTestId('panel-settings')).toBeVisible();
   });
 
   test('ultrawide layout and the final tableau', async ({ page }) => {

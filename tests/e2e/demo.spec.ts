@@ -162,7 +162,7 @@ test.describe('built-in demo performance', () => {
     await expect(page.locator('.timeline .tip')).toContainText('commit');
   });
 
-  test('mute, camera and reduced-motion shortcuts work and the same history is preserved', async ({ page }) => {
+  test('sound and camera shortcuts work and the history is preserved', async ({ page }) => {
     await page.goto('/#demo=1&autoplay=1');
     await waitForReady(page);
     const hash = await page.evaluate(() => window.__gitdance.planHash);
@@ -179,41 +179,33 @@ test.describe('built-in demo performance', () => {
     expect(await page.evaluate(() => window.__gitdance.zoomLocked)).toBe(true); // keeps the zoom the viewer chose
     await page.keyboard.press('c');
     expect(await page.evaluate(() => window.__gitdance.zoomLocked)).toBe(false);
-    await page.keyboard.press('r');
-    await expect(page.getByTestId('motion-button')).toHaveAttribute('aria-pressed', 'true');
-    await page.waitForFunction((h) => window.__gitdance.planHash !== h, hash);
-    await waitForReady(page);
+    void hash;
     const stats = await page.evaluate(() => window.__gitdance.stats);
     expect(stats!.commits).toBe(56);
-    const cam = await page.evaluate(() => window.__gitdance.camera);
-    expect(cam!.punch).toBe(1);
-    // still animated in reduced motion (steady transitions), but calmer
+    // The stage keeps changing frame to frame.
     const a = await stageHash(page);
     await page.waitForTimeout(700);
     const b = await stageHash(page);
     expect(a).not.toBe(b);
-    await page.keyboard.press('r');
   });
 
-  test('panels: events stream, data truth, inspector via keyboard, share link', async ({ page }) => {
+  test('the commit ledger, help panel and thread selection explain the performance', async ({ page }) => {
     await page.goto('/#demo=1&autoplay=1');
     await waitForReady(page);
-    await page.keyboard.press('e');
-    await expect(page.getByTestId('panel-events')).toBeVisible();
-    await expect(page.getByTestId('event-list')).toContainText('peels away');
-    await expect(page.getByTestId('event-list')).toContainText('merge');
+    // The ledger prints commits as they land, and docks to the top by default.
+    await expect(page.getByTestId('commit-rail')).toHaveClass(/dock-top/);
+    await expect(page.getByTestId('commit-rail')).toContainText('Initial commit');
+    // Help carries the coverage truth and the legend.
+    await page.getByTestId('help-button').click();
+    await expect(page.getByTestId('panel-help')).toContainText('exact');
+    await expect(page.getByTestId('panel-help')).toContainText('Straight ivory line');
+    await expect(page.getByTestId('panel-help')).toContainText('Contributors');
     await page.keyboard.press('Escape');
-    await page.keyboard.press('i');
-    await expect(page.getByTestId('panel-data')).toContainText('exact');
-    await expect(page.getByTestId('panel-data')).toContainText('Bright ivory path');
-    await page.keyboard.press('Escape');
-    await page.keyboard.press('Space'); // pause so captions stop announcing
+    // Threads can be walked from the keyboard and are announced.
+    await page.keyboard.press('Space');
     await page.evaluate(() => window.__gitdance.seek(12));
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('.sr-only[aria-live]')).toContainText('Thread');
-    await page.getByTestId('share-button').click();
-    await expect(page.getByTestId('share-link')).toContainText('demo=1');
-    await expect(page.getByTestId('share-link')).toContainText('t=');
   });
 
   test('a share link restores the position and a fixture can be loaded from the hash', async ({ page }) => {

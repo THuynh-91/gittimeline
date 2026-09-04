@@ -313,6 +313,18 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+.partial-flag {
+  color: var(--warn);
+  border: 1px solid rgba(255, 176, 112, 0.45);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-right: 10px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-family: var(--font);
+}
+
 .date-meta .clock b {
   color: var(--text-dim);
   font-weight: 500;
@@ -434,32 +446,75 @@ a {
   color: var(--text);
 }
 
-/* ---------- commit rail: the notes as they are written ---------- */
+/* ---------- commit ledger: dockable to the top or either side ---------- */
 
 .rail {
   position: absolute;
-  right: 26px;
-  bottom: calc(var(--band) + 18px);
-  width: min(330px, 34vw);
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 10px;
   z-index: 4;
-  pointer-events: none;
+  display: flex;
+  gap: 10px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.rail:active {
+  cursor: grabbing;
+}
+
+.rail.dock-top {
+  top: calc(var(--chrome-top) + 6px);
+  left: 26px;
+  right: 26px;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  align-items: flex-start;
+  mask-image: linear-gradient(to left, #000 60%, transparent);
+  -webkit-mask-image: linear-gradient(to left, #000 60%, transparent);
+}
+
+.rail.dock-right,
+.rail.dock-left {
+  bottom: calc(var(--band) + 18px);
+  width: min(330px, 32vw);
+  flex-direction: column-reverse;
   mask-image: linear-gradient(to top, #000 55%, transparent);
   -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
 }
 
+.rail.dock-right {
+  right: 26px;
+}
+
+.rail.dock-left {
+  left: 26px;
+}
+
 .rail-item {
-  pointer-events: auto;
-  text-align: right;
   display: grid;
-  grid-template-columns: 1fr;
   gap: 1px;
+  opacity: calc(1 - var(--i) * 0.16);
+  transition: opacity 0.4s ease;
+  min-width: 0;
+}
+
+.rail.dock-top .rail-item {
+  flex: 1 1 0;
+  max-width: 15rem;
+  text-align: left;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--c);
+}
+
+.rail.dock-right .rail-item {
+  text-align: right;
   padding: 2px 10px 2px 0;
   border-right: 2px solid var(--c);
-  opacity: calc(1 - var(--i) * 0.17);
-  transition: opacity 0.4s ease;
+}
+
+.rail.dock-left .rail-item {
+  text-align: left;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--c);
 }
 
 .rail-item.fresh {
@@ -469,7 +524,7 @@ a {
 @keyframes rail-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateY(-10px);
   }
   to {
     opacity: 1;
@@ -509,14 +564,19 @@ a {
   color: var(--text-faint);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+}
+
+.rail.dock-right .rail-who {
+  justify-content: flex-end;
 }
 
 .rail-who .swatch {
   width: 7px;
   height: 7px;
   box-shadow: none;
+  flex: none;
 }
 
 .rail-tag,
@@ -529,6 +589,7 @@ a {
   border-radius: 999px;
   padding: 0 6px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .rail-tag {

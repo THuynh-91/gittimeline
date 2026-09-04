@@ -10,20 +10,37 @@ import { hash01 } from '@/model/prng';
 export interface AudioLevels {
   master: number;
   effects: number;
-  ambient: number;
   muted: boolean;
 }
 
-const PENTATONIC = [0, 2, 4, 7, 9, 12, 14, 16];
-const ROOT_HZ = 196; // G3
+/**
+ * The score is written, not scattered. A slow four-chord progression in A minor
+ * runs underneath the whole performance, turning over every few phrases, and
+ * every voice draws its pitches from the chord currently sounding. A thread's
+ * lane picks which chord tone it takes, so two branches running in parallel
+ * harmonize instead of colliding, and a merge simply plays the chord.
+ */
+const PROGRESSION: number[][] = [
+  [0, 3, 7, 12, 15, 19], // i
+  [8, 12, 15, 20, 24, 27], // VI
+  [5, 8, 12, 17, 20, 24], // iv
+  [10, 14, 17, 22, 26, 29], // VII
+];
+const CHORD_SECONDS = 7.5;
+const ROOT_HZ = 220; // A3
+
+function chordAt(t: number): number[] {
+  return PROGRESSION[Math.floor(Math.max(0, t) / CHORD_SECONDS) % PROGRESSION.length]!;
+}
+
+function noteHz(semitones: number, octave = 1): number {
+  return ROOT_HZ * octave * Math.pow(2, semitones / 12);
+}
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private fx: GainNode | null = null;
-  private amb: GainNode | null = null;
-  private ambFilter: BiquadFilterNode | null = null;
-  private ambOscs: OscillatorNode[] = [];
   private scheduledUntil = -1;
   private lastT = -1;
   private perf: CompiledPerformance | null = null;
@@ -33,7 +50,7 @@ export class AudioEngine {
   private intensity = 0;
   private voiceSlot = -1;
   private voiceCount = 0;
-  levels: AudioLevels = { master: 0.7, effects: 0.8, ambient: 0.5, muted: false };
+  levels: AudioLevels = { master: 0.7, effects: 0.7, muted: true };
   /** Dynamic range: 'quiet' | 'standard' | 'dramatic' */
   dynamics: 'quiet' | 'standard' | 'dramatic' = 'standard';
 
@@ -70,41 +87,18 @@ export class AudioEngine {
     limiter.connect(ctx.destination);
     this.fx = ctx.createGain();
     this.fx.connect(this.master);
-    this.amb = ctx.createGain();
-    this.ambFilter = ctx.createBiquadFilter();
-    this.ambFilter.type = 'lowpass';
-    this.ambFilter.frequency.value = 320;
-    this.ambFilter.Q.value = 0.8;
-    this.amb.connect(this.ambFilter);
-    this.ambFilter.connect(this.master);
-    // ambient bed: two detuned triangles an octave apart, very quiet
-    for (const [freq, detune] of [
-      [ROOT_HZ / 2, -6],
-      [ROOT_HZ / 2, 6],
-      [ROOT_HZ, 3],
-    ] as const) {
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.value = freq;
-      o.detune.value = detune;
-      const g = ctx.createGain();
-      g.gain.value = 0.11;
-      o.connect(g);
-      g.connect(this.amb);
-      o.start();
-      this.ambOscs.push(o);
-    }
+    // There is no ambient bed and no held tone of any kind. Every sound in
+    // GitDance is a discrete event with a decay; nothing drones.
     this.applyLevels();
     return true;
   }
 
   applyLevels() {
-    if (!this.ctx || !this.master || !this.fx || !this.amb) return;
+    if (!this.ctx || !this.master || !this.fx) return;
     const now = this.ctx.currentTime;
     const range = this.dynamics === 'quiet' ? 0.6 : this.dynamics === 'dramatic' ? 1.25 : 1;
     this.master.gain.setTargetAtTime(this.levels.muted ? 0 : this.levels.master * range, now, 0.03);
     this.fx.gain.setTargetAtTime(this.levels.effects, now, 0.03);
-    this.amb.gain.setTargetAtTime(this.levels.ambient * 0.6, now, 0.1);
   }
 
   setPerformance(p: CompiledPerformance | null) {
@@ -141,7 +135,6 @@ export class AudioEngine {
       return;
     }
     this.intensity += (intensity - this.intensity) * 0.1;
-    if (this.ambFilter) this.ambFilter.frequency.setTargetAtTime(220 + 1400 * this.intensity * this.intensity, ctx.currentTime, 0.4);
     const lookahead = 0.16 * rate;
     if (this.lastT < 0 || t < this.lastT || t - this.lastT > 1.5) {
       // fresh start or seek: re-anchor the pointer just after t
@@ -187,33 +180,36 @@ export class AudioEngine {
     const fx = this.fx!;
     const ctx = this.ctx!;
     const node = p.nodes.find((n) => n.sha === ev.subjectIds[0]);
-    const lane = node ? Math.min(PENTATONIC.length - 1, Math.abs(p.threads[node.threadIdx]?.lane ?? 0)) : 0;
-    const degree = PENTATONIC[lane]!;
+    const chord = chordAt(ev.performanceImpact);
+    const lane = node ? Math.abs(p.threads[node.threadIdx]?.lane ?? 0) : 0;
+    const degree = chord[lane % chord.length]!;
     const contributorJitter = node ? hash01(`voice:${p.contributors[node.contributorIdx]?.id ?? ''}`) : 0.5;
     const budget = ev.effectBudget;
     switch (ev.type) {
       case 'COMMIT_STEP': {
         if (!this.takeVoice(ev.performanceImpact)) break;
+        // The main line sings in the middle register; side threads answer above it.
         const octave = node?.isSpine ? 1 : 2;
-        pluck(ctx, fx, when, ROOT_HZ * octave * Math.pow(2, degree / 12), 0.075 + 0.03 * ev.salience, 1.6, contributorJitter);
+        pluck(ctx, fx, when, noteHz(degree, octave), 0.075 + 0.03 * ev.salience, 1.6, contributorJitter);
         break;
       }
       case 'COMMIT_CLUSTER': {
         const count = 6;
         const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
-        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[i % 5]! / 12), 0.04, 0.9, contributorJitter);
+        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, noteHz(chord[i % chord.length]!, 2), 0.04, 0.9, contributorJitter);
         break;
       }
       case 'DIVERGENCE':
-        pluck(ctx, fx, when - 0.1, ROOT_HZ * 2 * Math.pow(2, (degree + 2) / 12), 0.1 * budget, 1, contributorJitter);
-        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, (degree + 7) / 12), 0.13 * budget, 1.6, contributorJitter);
+        // A rising pickup out of the chord: the branch asks a question.
+        pluck(ctx, fx, when - 0.1, noteHz(chord[lane % chord.length]!, 2), 0.09 * budget, 1, contributorJitter);
+        pluck(ctx, fx, when, noteHz(chord[(lane + 2) % chord.length]!, 2), 0.12 * budget, 1.6, contributorJitter);
         swish(ctx, fx, when - 0.05, 0.25, 0.06 * budget);
         break;
       case 'THREAD_ACTIVATE':
-        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, degree / 12), 0.09, 1.4, contributorJitter);
+        pluck(ctx, fx, when, noteHz(degree, 2), 0.09, 1.4, contributorJitter);
         break;
       case 'CONTRIBUTOR_ENTER':
-        pluck(ctx, fx, when, ROOT_HZ * 4 * Math.pow(2, (degree + 4) / 12), 0.05, 1.2, contributorJitter);
+        pluck(ctx, fx, when, noteHz(chord[(lane + 1) % chord.length]!, 4), 0.045, 1.2, contributorJitter);
         break;
       case 'MERGE_APPROACH':
         break; // scheduled by start in schedule()
@@ -221,29 +217,38 @@ export class AudioEngine {
       case 'MAJOR_MERGE':
       case 'OCTOPUS_MERGE': {
         const big = ev.type !== 'MERGE_IMPACT';
-        thump(ctx, fx, when, big ? 0.55 * budget : 0.32 * budget, big ? 48 : 60);
-        chord(ctx, fx, when, ROOT_HZ, big ? 0.16 * budget : 0.1 * budget, big ? 1.4 : 0.8);
+        const vol = node ? node.mergeVolume : 0;
+        // Weight follows the work absorbed, so a two-commit merge is a footstep
+        // and a twenty-commit one is the downbeat of the phrase.
+        const weight = Math.min(1, 0.22 + Math.log2(1 + vol) * 0.2);
+        thump(ctx, fx, when, (big ? 0.42 : 0.26) * weight * budget, big ? 46 : 58);
+        pad(ctx, fx, when, chord, (0.05 + 0.09 * weight) * budget, 1 + 1.6 * weight);
         // Roll the chord out of the impact: more voices the more work converged.
-        const voices = Math.min(6, 2 + Math.round(Math.log2(1 + (node ? node.mergeVolume : 0))));
+        const voices = Math.max(1, Math.min(6, Math.round(Math.log2(1 + vol) * 1.3)));
         for (let i = 0; i < voices; i++) {
-          pluck(ctx, fx, when + i * 0.045, ROOT_HZ * (i < 3 ? 1 : 2) * Math.pow(2, PENTATONIC[i % PENTATONIC.length]! / 12), (big ? 0.1 : 0.07) * budget, 2.2, 0.4);
+          pluck(ctx, fx, when + i * 0.05, noteHz(chord[i % chord.length]!, i < 3 ? 1 : 2), (big ? 0.085 : 0.06) * weight * budget, 2.2, 0.4);
         }
         break;
       }
       case 'TAG_LANDMARK':
-        bell(ctx, fx, when, ROOT_HZ * 3, 0.16 * budget);
+        // A cadence: the root arrives high over the sounding chord.
+        bell(ctx, fx, when, noteHz(0, 4), 0.12 * budget);
+        pad(ctx, fx, when, chord, 0.06, 2.4);
         break;
       case 'ERA_TRANSITION':
-        chord(ctx, fx, when, ROOT_HZ / 2, 0.08, 2.4);
+        // The harmony turns over: a low root under a new colour.
+        pluck(ctx, fx, when, noteHz(chordAt(ev.performanceImpact + CHORD_SECONDS)[0]!, 0.5), 0.085, 3.2, 0.3);
+        pad(ctx, fx, when + 0.12, chordAt(ev.performanceImpact + CHORD_SECONDS), 0.055, 3);
         break;
       case 'REPO_BIRTH':
       case 'MULTI_ROOT_REVEAL':
-        bell(ctx, fx, when, ROOT_HZ * 2, 0.14);
-        thump(ctx, fx, when, 0.18, 44);
+        bell(ctx, fx, when, noteHz(0, 2), 0.12);
+        thump(ctx, fx, when, 0.16, 44);
         break;
       case 'REPO_PRESENT':
-        chord(ctx, fx, when, ROOT_HZ, 0.14, 3.2);
-        bell(ctx, fx, when + 0.3, ROOT_HZ * 3, 0.1);
+        // Final cadence: home to the tonic, held.
+        pad(ctx, fx, when, PROGRESSION[0]!, 0.1, 3.4);
+        bell(ctx, fx, when + 0.35, noteHz(0, 4), 0.085);
         break;
       case 'QUIET_GAP':
         swish(ctx, fx, when - 0.6, 0.9, 0.05);
@@ -350,15 +355,16 @@ function thump(ctx: AudioContext, out: AudioNode, when: number, gain: number, fr
   n.stop(t0 + 0.2);
 }
 
-function chord(ctx: AudioContext, out: AudioNode, when: number, root: number, gain: number, length: number) {
+/** A soft sustained voicing of a chord: the harmonic bed under an event. */
+function pad(ctx: AudioContext, out: AudioNode, when: number, semitones: number[], gain: number, length: number) {
   const t0 = Math.max(when, ctx.currentTime);
-  for (const semi of [0, 7, 12, 16]) {
+  for (const semi of semitones.slice(0, 4)) {
     const o = ctx.createOscillator();
     o.type = 'triangle';
-    o.frequency.value = root * Math.pow(2, semi / 12);
+    o.frequency.value = noteHz(semi, 1);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain / 3, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(gain / 3, t0 + 0.05);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';

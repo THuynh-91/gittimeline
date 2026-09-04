@@ -16,7 +16,8 @@ GitDance is a static, open-source web application. There is no backend: the brow
 - **Dashed grey** is history that was not loaded. It is labelled and never filled in.
 - **A thick ribbon** is an exact aggregate of many known commits, with the count written on it.
 - **The calendar leads.** The repository's own month and year fill the bottom of the screen and advance as the show plays; quiet years spin past in well under a second while busy weeks slow down and fill the stage. A slim scrub line underneath carries the playhead and the landmarks worth jumping to.
-- **The commit ledger** down the right-hand side prints each commit as it lands: short SHA in the author's signature colour, subject, and name. Click one to jump back to that moment.
+- **The commit ledger** across the top prints each commit as it lands: short SHA in the author's colour, subject and name. Click one to jump back to that moment, or drag the ledger to either side if you would rather keep the top clear.
+- **Each thread has its own muted tint and carries its name**, pinned to the newest commit it has landed, so two branches running side by side are never a guess. Threads whose branch no longer exists are labelled honestly as `thread 07` rather than given an invented name.
 
 The camera is a director, not a follower: intimate on calm linear work, pulling back for splits and ensembles, tracking convergence, pushing in at impacts, settling afterwards, and framing the final tableau.
 
@@ -44,7 +45,7 @@ Useful URL parameters (everything lives in the hash so static hosting needs no r
 
 ## Keyboard
 
-`Space` play/pause · `←/→` step by beat (or commit / second) · `Shift+←/→` landmarks · `↑/↓` walk active threads · `Home/End` · `M` sound on/off (off by default) · `C` camera: free look → follow at your zoom → auto · `R` reduced motion · `E` events · `I` what am I seeing? · `?` help · `Esc` close.
+`Space` play/pause · `←/→` step a beat · `Shift+←/→` landmarks · `↑/↓` walk the active threads · `Home/End` · `M` sound (off by default) · `C` camera: free look → follow at your zoom → auto · `?` help · `Esc` close.
 
 Zoom out with the wheel, then press `C`: the performance keeps playing and keeps that wider view instead of springing back.
 
@@ -95,7 +96,13 @@ docs/            architecture, data truth, choreography, testing, deployment, ac
 
 ## Settings
 
-Deliberately few. Length, sound, loop, and the three accessibility switches (reduced motion, no flashes, high contrast), plus an optional GitHub token for large repositories. Everything with one right answer is baked in: label density, contributor glyphs, effect budgets, branch discovery, captions, keyboard granularity, and render quality, which is chosen from the device.
+Deliberately few: length, sound, loop, no-flashes, high contrast, and an optional GitHub token. Everything with one right answer is baked in — label density, contributor glyphs, effect budgets, branch discovery, captions, keyboard granularity, dynamic range, and render quality, which is chosen from the device. Reduced motion has no switch because it follows your operating system preference.
+
+The length follows the history rather than a fixed target: a handful of commits plays in about half a minute, tens of thousands in a couple of minutes, and *Brief* or *Extended* nudges that either way.
+
+## Sound
+
+Off until you ask for it, and there is no drone: every sound is a discrete event with a decay. A slow four-chord progression in A minor runs underneath the performance and turns over every few phrases, and every voice takes its pitches from the chord currently sounding — a thread's lane picks which chord tone it gets, so parallel branches harmonize instead of colliding. Commits are struck-string piano tones; a merge plays the chord, weighted by how much work it absorbed.
 
 ## Documentation
 

@@ -137,7 +137,11 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   // How many nodes can land inside the target duration and still each get a
   // legible beat? That, not a fixed commit count, is what decides aggregation.
-  const targetSeconds = opts.preset.targetDuration > 0 ? opts.preset.targetDuration : 90;
+  // Nine commits should not be stretched to a minute, and sixty thousand should
+  // not be crammed into one. The show grows with the logarithm of the history,
+  // bounded to a watchable window, and the viewer can nudge it brief or extended.
+  const autoSeconds = Math.max(20, Math.min(150, 12 + 20 * Math.log10(1 + n))) * (opts.preset.lengthBias ?? 1);
+  const targetSeconds = opts.preset.targetDuration > 0 ? opts.preset.targetDuration : autoSeconds;
   const perNode = reducedMotion ? 0.18 : 0.09;
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateLinearRuns(
@@ -221,7 +225,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
       salience: mergeSalienceC[cid]!,
     };
   });
-  const clock = buildClock(items, opts.preset.targetDuration, reducedMotion);
+  const clock = buildClock(items, targetSeconds, reducedMotion);
 
   onProgress('layout');
   // Layout runs in natural time so geometry is identical for every target duration.

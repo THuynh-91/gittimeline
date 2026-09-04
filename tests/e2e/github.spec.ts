@@ -25,14 +25,10 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.locator('.repo-id')).toContainText('acme/widget');
     const stats = await page.evaluate(() => window.__gitdance.stats);
     expect(stats).toMatchObject({ commits: 9, merges: 1, threads: 3 });
-    await page.keyboard.press('e');
-    await expect(page.getByTestId('event-list')).toContainText('Merge feature');
-    await expect(page.getByTestId('event-list')).toContainText('v0.1.0');
-    await expect(page.getByTestId('event-list')).toContainText('experiment');
-    await page.keyboard.press('Escape');
-    await page.keyboard.press('i');
-    await expect(page.getByTestId('panel-data')).toContainText('full known history');
-    await expect(page.getByTestId('panel-data')).toContainText('trunk');
+    await page.getByTestId('help-button').click();
+    await expect(page.getByTestId('panel-help')).toContainText('full known history');
+    await expect(page.getByTestId('panel-help')).toContainText('trunk');
+    await expect(page.getByTestId('panel-help')).toContainText('Mara Ekwueme');
   });
 
   test('paste detection normalizes the URL; Enter submits; Escape clears', async ({ page }) => {
@@ -140,16 +136,13 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(9);
   });
 
-  test('a pinned share link re-fetches and reproduces the same plan', async ({ page }) => {
+  test('a pinned link re-fetches and reproduces the same plan', async ({ page }) => {
     await routeGitHub(page, sampleRepo());
     await page.goto('/#repo=acme/widget&autoplay=1&seed=zeta');
     await waitForReady(page);
     const hash1 = await page.evaluate(() => window.__gitdance.planHash);
-    await page.getByTestId('share-button').click();
-    const link = await page.getByTestId('share-link').textContent();
-    expect(link).toContain('repo=acme%2Fwidget');
-    expect(link).toContain('tip=');
-    await page.goto(link!.trim());
+    // Opening the same pinned link again re-fetches and recompiles identically.
+    await page.goto('/#repo=acme/widget&autoplay=1&seed=zeta');
     await page.reload();
     await waitForReady(page);
     expect(await page.evaluate(() => window.__gitdance.planHash)).toBe(hash1);

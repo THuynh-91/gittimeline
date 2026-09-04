@@ -27,10 +27,10 @@ export type AppPhase =
   | 'ERROR_RECOVERABLE'
   | 'ERROR_FATAL';
 
-export type PanelId = 'none' | 'inspector' | 'data' | 'settings' | 'events' | 'share' | 'help';
+export type PanelId = 'none' | 'inspector' | 'settings' | 'help';
 
 export interface Settings {
-  targetDuration: number;
+  lengthMode: 'brief' | 'natural' | 'extended';
   reducedMotion: boolean;
   noFlash: boolean;
   highContrast: boolean;
@@ -49,10 +49,12 @@ export interface Settings {
   loopPerformance: boolean;
   captions: boolean;
   keyboardStep: 'beat' | 'commit' | 'second';
+  /** Where the commit ledger sits. */
+  railDock: 'top' | 'left' | 'right';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  targetDuration: 45,
+  lengthMode: 'natural',
   reducedMotion: false,
   noFlash: false,
   highContrast: false,
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   loopPerformance: false,
   captions: true,
   keyboardStep: 'beat',
+  railDock: 'top',
 };
 
 export interface AppError {
@@ -136,6 +139,8 @@ export const store = {
   storage: signal<{ usage: number; quota: number } | null>(null),
   isDemo: signal(false),
   loopRange: signal<{ start: number; end: number } | null>(null),
+  /** Explicit duration from a share link, overriding the derived one. */
+  durationOverride: signal<number | null>(null),
   recording: signal(false),
   toast: signal<string | null>(null),
 };

@@ -3,7 +3,7 @@ import { sampleCamera } from '@/choreography/camera';
 import { pointAt, headingAt } from '@/layout/paths';
 import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
-import { GLYPH_PATHS, PALETTE } from './palette';
+import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
 
 /**
  * Canvas2D stage renderer. Every visible quantity is a pure function of the
@@ -57,7 +57,10 @@ const HEAVY = new Set(['MERGE_IMPACT', 'MAJOR_MERGE', 'OCTOPUS_MERGE']);
  * real weight of the work rather than with a normalized score.
  */
 function volumeScale(volume: number): number {
-  return 1 + Math.min(2.6, Math.log2(1 + Math.max(0, volume)) * 0.42);
+  // Deliberately starts well below one. A merge that absorbs a commit or two is
+  // a tap; only real convergence earns a wall of light. Previously every merge
+  // got a headline effect, which made the big ones mean nothing.
+  return 0.42 + Math.min(2.3, Math.log2(1 + Math.max(0, volume)) * 0.44);
 }
 
 export class StageRenderer {
@@ -75,8 +78,10 @@ export class StageRenderer {
   private smoothedPunch = 1;
   private lastT = -1;
   private nodeBySha = new Map<string, NodeGeom>();
+  private tints: string[] = [];
   private dust: Float32Array;
   private lastCue: CameraCue | null = null;
+  private sweepX = -Infinity;
   private frameCounter = 0;
   private tmp = { x: 0, y: 0 };
   private tmp2 = { x: 0, y: 0 };
@@ -126,6 +131,7 @@ export class StageRenderer {
     this.nodeBySha.clear();
     if (!p) return;
     for (const nd of p.nodes) this.nodeBySha.set(nd.sha, nd);
+    this.tints = p.threads.map((t) => threadTint(t.side, t.lane, this.settings.highContrast));
     this.impactEvents = p.events.filter((e) => HEAVY.has(e.type) || e.type === 'DIVERGENCE' || e.type === 'TAG_LANDMARK' || e.type === 'REPO_BIRTH' || e.type === 'MULTI_ROOT_REVEAL' || e.type === 'REPO_PRESENT');
     this.edgeBounds = new Float32Array(p.edges.length * 4);
     p.edges.forEach((e, i) => {
@@ -281,6 +287,13 @@ export class StageRenderer {
       glow.translate(-v.cx, -v.cy);
     }
 
+    // Where the history-sweep light is right now: a slow pass over everything
+    // that has already been drawn, repeating every twelve seconds.
+    if (!this.settings.reducedMotion && p.nodes.length) {
+      const span = Math.max(400, vx1 - p.bounds.minX + 400);
+      this.sweepX = p.bounds.minX + ((t * 260) % span);
+    } else this.sweepX = -Infinity;
+
     const ripples = this.activeRipples(t);
     const focus = this.settings.contributorFocus;
     const focusIdx = focus ? p.contributors.findIndex((c) => c.id === focus) : -1;
@@ -428,8 +441,9 @@ export class StageRenderer {
     }
   }
 
-  private drawSettledEdge(ctx: CanvasRenderingContext2D, e: EdgeGeom, t: number, ivory: string, slate: string, dim: number, focusIdx: number) {
+  private drawSettledEdge(ctx: CanvasRenderingContext2D, e: EdgeGeom, t: number, ivory: string, slateBase: string, dim: number, focusIdx: number) {
     const p = this.perf!;
+    const slate = this.tints[e.threadIdx] ?? slateBase;
     const child = p.nodes[e.child]!;
     const parent = e.parent >= 0 ? p.nodes[e.parent]! : null;
     const spine = child.isSpine && (parent ? parent.isSpine : true) && e.kind !== 'secondary';
@@ -469,6 +483,22 @@ export class StageRenderer {
       ctx.lineWidth = 2.6;
       this.drawPolyline(ctx, e.pts);
       ctx.stroke();
+      // A slow light runs back along everything already built, so the finished
+      // structure keeps breathing instead of turning into wallpaper.
+      if (!this.settings.reducedMotion && this.sweepX > -Infinity) {
+        const mid = (e.pts[0]! + e.pts[e.pts.length - 2]!) / 2;
+        const d = Math.abs(mid - this.sweepX);
+        if (d < 240) {
+          const k = Math.pow(1 - d / 240, 2);
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = rgba(ivory, 0.4 * k);
+          ctx.lineWidth = 3.4;
+          this.drawPolyline(ctx, e.pts);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
       return;
     }
     ctx.strokeStyle = rgba(selected ? PALETTE.accent : slate, alpha);
@@ -484,8 +514,9 @@ export class StageRenderer {
     return e.kind === 'merge' ? f * f * (3 - 2 * f) * 0.6 + 0.4 * Math.pow(f, 1.7) : Math.pow(f, 1.6);
   }
 
-  private drawActiveEdge(ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D | null, e: EdgeGeom, t: number, ivory: string, slate: string, focusIdx: number) {
+  private drawActiveEdge(ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D | null, e: EdgeGeom, t: number, ivory: string, slateBase: string, focusIdx: number) {
     const p = this.perf!;
+    const slate = this.tints[e.threadIdx] ?? slateBase;
     const child = p.nodes[e.child]!;
     const parent = e.parent >= 0 ? p.nodes[e.parent]! : null;
     const spine = child.isSpine && (parent ? parent.isSpine : true) && e.kind !== 'secondary';
@@ -578,10 +609,11 @@ export class StageRenderer {
     t: number,
     ripples: Array<{ x: number; y: number; age: number; amp: number; reach: number }>,
     ivory: string,
-    slate: string,
+    slateBase: string,
     focusIdx: number,
   ) {
     const p = this.perf!;
+    const slate = this.tints[nd.threadIdx] ?? slateBase;
     const age = t - nd.impact;
     let x = nd.x;
     let y = nd.y;
@@ -810,7 +842,7 @@ export class StageRenderer {
         const release = Math.max(0.6, ev.performanceEnd - ev.performanceImpact);
         const a = Math.min(1, age / release);
         const vs = volumeScale(nd.mergeVolume);
-        const radius = (12 + (reduced ? 36 : 96) * Math.sqrt(a) * (0.6 + ev.salience * 0.7)) * budget * vs;
+        const radius = reduced ? (16 + 22 * (0.6 + ev.salience * 0.7)) * budget * vs : (12 + 96 * Math.sqrt(a) * (0.6 + ev.salience * 0.7)) * budget * vs;
         ctx.beginPath();
         ctx.arc(nd.x, nd.y, radius, 0, Math.PI * 2);
         ctx.strokeStyle = rgba(PALETTE.merge, (1 - a) * (1 - a) * 0.75 * budget);
@@ -905,17 +937,29 @@ export class StageRenderer {
       ctx.fillStyle = rgba(color, alpha);
       ctx.fillText(text, x, y);
     };
-    // thread labels near their divergence for a few seconds (or always in 'all')
+    // Every thread that has started carries its name with it, pinned to the
+    // newest commit it has landed. Two branches running side by side are then
+    // never a guess, which matters most when the older history is missing.
     for (const th of p.threads) {
-      const first = p.nodes[th.nodeIdxs[0]!];
+      if (th.role === 'primary') continue;
+      const ids = th.nodeIdxs;
+      const first = p.nodes[ids[0]!];
       if (!first || first.impact > t) continue;
-      const label = th.label ?? (labels === 'all' ? th.id : null);
-      if (!label || th.role === 'primary') continue;
-      const age = t - first.impact;
-      const alpha = labels === 'all' ? 0.8 : labels === 'minimal' ? 0 : Math.max(0, Math.min(1, 1 - (age - 3.5) / 1.5));
-      if (alpha <= 0) continue;
-      const s = this.worldToScreen(first.x, first.y);
-      place(s.x + 10, s.y + th.side * 12, label, alpha, PALETTE.textDim);
+      let latest = first;
+      for (const id of ids) {
+        const nd = p.nodes[id]!;
+        if (nd.impact <= t) latest = nd;
+        else break;
+      }
+      const merged = th.mergeNodeIdx != null && p.nodes[th.mergeNodeIdx]!.impact <= t;
+      const label = th.label ?? th.id.replace('thread-', 'thread ');
+      if (labels === 'minimal') continue;
+      // Live threads stay legible; a thread that has landed fades out.
+      const alpha = merged ? Math.max(0, 0.55 - (t - p.nodes[th.mergeNodeIdx!]!.impact) / 6) : th.ending === 'tip' ? 0.85 : 0.7;
+      if (alpha <= 0.02) continue;
+      const scr = this.worldToScreen(latest.x, latest.y);
+      const tint = this.tints[th.idx] ?? PALETTE.slate;
+      place(scr.x + 12, scr.y + th.side * 13, label, alpha, tint);
     }
     // main line label at the spine's first node once
     const spine = p.threads[0];

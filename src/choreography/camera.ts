@@ -30,6 +30,7 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
 
   const merges = events.filter((e) => e.type === 'MERGE_IMPACT' || e.type === 'MAJOR_MERGE' || e.type === 'OCTOPUS_MERGE');
   const splits = events.filter((e) => e.type === 'DIVERGENCE');
+  const eras = events.filter((e) => e.type === 'ERA_TRANSITION');
   const nodeBySha = new Map<string, NodeGeom>();
   for (const nd of nodes) nodeBySha.set(nd.sha, nd);
   const sortedEdges = [...edges].sort((a, b) => a.start - b.start);
@@ -167,13 +168,27 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
       maxY = input.bounds.maxY;
     }
 
+    // As the history accumulates the frame opens up, so the viewer watches the
+    // shape being built rather than a fixed-size window sliding along forever.
+    // This is the difference between a timelapse and a treadmill.
+    const progress = Math.max(0, Math.min(1, t / Math.max(1, duration - input.tail)));
+    const growth = 1 + Math.pow(progress, 0.8) * 1.15;
+
+    // Era changes get a brief reframe of their own, so the composition keeps
+    // changing even through long stretches of similar work.
+    let eraWiden = 1;
+    for (const ev of eras) {
+      const dt = t - ev.performanceImpact;
+      if (dt >= -0.5 && dt < 2.4) eraWiden = Math.max(eraWiden, 1 + 0.22 * (1 - Math.abs(dt - 0.9) / 1.5));
+    }
+
     // Desired frame with state-dependent breathing room.
     const padX = state === 'intimate' ? 120 : state === 'overview' ? 180 : 140;
     const padY = state === 'intimate' ? 90 : state === 'overview' ? 130 : 110;
     const minW = state === 'intimate' ? 420 : state === 'overview' ? 720 : 560;
     const minH = state === 'intimate' ? 230 : state === 'overview' ? 380 : 300;
-    let tw = Math.max(minW, maxX - minX + padX * 2);
-    let th = Math.max(minH, maxY - minY + padY * 2);
+    let tw = Math.max(minW * growth * eraWiden, maxX - minX + padX * 2);
+    let th = Math.max(minH * (1 + (growth - 1) * 0.55) * eraWiden, maxY - minY + padY * 2);
     if (inTail) {
       tw = Math.max(minW, (maxX - minX) * 1.12 + 80);
       th = Math.max(minH, (maxY - minY) * 1.25 + 80);
@@ -182,8 +197,9 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     const dolly = dollyAt(t) + tw * 0.06;
     const bboxCentre = (minX + maxX) / 2;
     const tx = inTail ? bboxCentre : dolly + Math.max(-tw * 0.18, Math.min(tw * 0.18, bboxCentre - dolly)) * 0.35;
-    // Vertical: bias toward the straight spine axis so the main line stays level.
-    const ty = inTail ? (minY + maxY) / 2 : ((minY + maxY) / 2) * 0.55;
+    // Vertical: the straight spine is the centre line of the stage, full stop.
+    // Threads spreading unevenly widen the frame instead of pushing main off-centre.
+    const ty = inTail ? (minY + maxY) / 2 : 0;
 
     // Critically damped springs. The centre tracks briskly; the zoom breathes more
     // slowly so the frame does not pump on every passing thread.

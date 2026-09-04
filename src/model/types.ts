@@ -251,10 +251,12 @@ export interface Dataset {
 export interface PlaybackPreset {
   id: string;
   version: number;
-  /** Target performance duration in seconds, or 0 for "natural". */
+  /** Explicit duration in seconds, or 0 to derive one from the size of the history. */
   targetDuration: number;
+  /** Multiplier on the derived duration: brief, natural or extended. */
+  lengthBias?: number;
   reducedMotion: boolean;
-  /** Threshold above which linear runs are aggregated. */
+  /** Upper bound on visible nodes, whatever the derived duration suggests. */
   aggregateAbove: number;
 }
 

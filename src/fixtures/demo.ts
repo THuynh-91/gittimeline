@@ -49,6 +49,7 @@ export function buildDemoDataset(): Dataset {
   s.commit('rewrite/engine', 'rw-04', ines, { days: 0.5, message: 'Port the renderer to the new engine' });
 
   // --- Beat one: a modest merge. Four commits converge.
+  s.keep('feature/auth');
   s.merge('main', 'feature/auth', 'merge-auth', kofi, { days: 1, message: 'Merge feature/auth: sessions, tokens and guards' });
   s.commit('rewrite/engine', 'rw-05', yuki, { days: 0.5, message: 'Threaded asset loading' });
   s.commit('main', 'docs-auth', kofi, { days: 1, message: 'Document authentication' });
@@ -59,6 +60,7 @@ export function buildDemoDataset(): Dataset {
   s.merge('perf/render', 'main', 'perf-sync', kofi, { days: 0.5, message: 'Merge main into perf/render' });
   s.commit('rewrite/engine', 'rw-07', yuki, { days: 0.5, message: 'Rewrite the input layer' });
   s.commit('perf/render', 'perf-final', kofi, { days: 1, message: 'Tune the batching thresholds' });
+  s.keep('perf/render');
   s.merge('main', 'perf/render', 'merge-perf', mara, { days: 1, message: 'Merge perf/render: 3x faster frames' });
   s.tag('v1.0.0', 'merge-perf');
 
@@ -70,7 +72,8 @@ export function buildDemoDataset(): Dataset {
   s.commit('rewrite/engine', 'rw-11', devi, { days: 0.5, message: 'Migrate the auth module across' });
   s.commit('rewrite/engine', 'rw-12', ines, { days: 0.5, message: 'Remove the last of the old engine' });
 
-  // --- Beat two: the heavy one. Sixteen commits of rewrite land at once.
+  // --- Beat two: the heavy one. Twelve commits of rewrite land at once.
+  s.keep('rewrite/engine');
   s.merge('main', 'rewrite/engine', 'merge-rewrite', ines, { days: 1, message: 'Merge rewrite/engine: the new engine is the engine' });
   s.tag('v2.0.0', 'merge-rewrite');
   s.commit('main', 'settle', mara, { days: 2, message: 'Settle the dust after the rewrite' });
@@ -88,6 +91,7 @@ export function buildDemoDataset(): Dataset {
   ] as const) {
     s.branch(branch, 'main');
     msgs.forEach((m, i) => s.commit(branch, `${branch}-${i}`, who, { days: 0.3, message: m }));
+    s.keep(branch);
   }
   s.commit('main', 'ts-strict', mara, { days: 0.4, message: 'Enable strict TypeScript' });
   s.commit('main', 'release-notes', kofi, { days: 0.4, message: 'Draft the release notes' });

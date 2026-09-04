@@ -34,10 +34,12 @@ The viewer can override it: zooming or dragging enters free look, and pressing `
 
 ## Sound (`src/audio/engine.ts`)
 
-Sound is **off by default** and is never required to understand anything.
+Sound is **off by default**, is never required to understand anything, and **nothing drones**: there is no ambient bed, and every voice is a discrete event with a decay.
 
-Original procedural voices scheduled from the same events with a 160 ms look-ahead: pentatonic plucks for commits (pitch by lane, timbre by contributor), pickup + swish for divergence, a rising filtered swell from `MERGE_APPROACH.start`, thump + chord at impact, bells for tags and birth, a pad for eras and the present. An ambient bed's low-pass follows intensity. A compressor/limiter guarantees headroom; a full mute and separate effect/ambience levels exist. Audio starts only after a user gesture and nothing is conveyed by sound alone.
+The score is composed rather than scattered. A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds beneath the whole performance, and every voice draws its pitches from the chord currently sounding. A thread's lane index selects which chord tone it takes, so parallel branches harmonize; the main line sings an octave below the side threads.
+
+Voices, scheduled from the same event plan with a 160 ms look-ahead: struck-string piano tones for commits (six inharmonic partials with per-partial decay plus a hammer knock), a rising pickup for divergence, a filtered swell through the merge approach, a low thump plus a chord roll at impact whose weight and voice count follow how many commits converged, a bell cadence on tags, a low root and new colour at era changes, and a held tonic at the end. A per-half-second voice budget keeps dense history a flurry rather than a machine gun, and a compressor guarantees headroom.
 
 ## Reduced motion
 
-Same plan, calmer expression: steady reveals instead of comets, markers at arrival nodes, no pops/ripples/breathing/dust drift, no push-in or roll, slower camera, tempo capped at ~108 BPM natural, and larger minimum steps. Event meaning, captions, timeline and the events stream are unchanged.
+Reduced motion follows the operating system preference and has no control of its own. Same plan, calmer expression: steady reveals instead of comets, markers at arrival nodes, merge rings that fade in place instead of expanding across the stage, no pops, ripples, breathing, sweep light, push-in or roll, a slower camera and a lower tempo cap. Event meaning, the calendar, the ledger and the timeline are unchanged.

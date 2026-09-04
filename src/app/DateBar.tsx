@@ -17,6 +17,7 @@ export function DateBar() {
   const era = perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
   const ev = store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;
+  const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
   return (
@@ -39,6 +40,7 @@ export function DateBar() {
           {ev ? ev.caption : ''}
         </span>
         <span class="clock" data-testid="clock">
+          {partial && <span class="partial-flag">partial history</span>}
           <b>{fmtClock(t)}</b> / {fmtClock(perf.duration)}
         </span>
       </div>

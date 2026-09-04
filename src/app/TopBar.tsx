@@ -1,5 +1,5 @@
 import { store, type PanelId } from './store';
-import { toggleMute, toggleAutoCamera, toggleReducedMotion, toggleRecording, canRecord, pause } from './controller';
+import { toggleMute, toggleAutoCamera, pause } from './controller';
 import { Icons } from './icons';
 
 export function TopBar() {
@@ -33,7 +33,7 @@ export function TopBar() {
           <strong>
             {perf.source.owner}/{perf.source.name}
           </strong>
-          <button type="button" class={`quality ${completeness}`} title={perf.coverage.summary} onClick={() => toggle('data')} aria-label={`Data quality: ${completeness}. ${perf.coverage.summary}`} data-testid="quality-badge">
+          <button type="button" class={`quality ${completeness}`} title={perf.coverage.summary} onClick={() => toggle('help')} aria-label={`Data quality: ${completeness}. ${perf.coverage.summary}`} data-testid="quality-badge">
             {completeness}
           </button>
         </div>
@@ -45,18 +45,7 @@ export function TopBar() {
         <button type="button" class={`icon-btn optional${s.autoCamera ? ' active' : ''}`} aria-label={store.manualCamera.value ? 'Free look — follow at this zoom (C)' : store.cameraLocked.value ? 'Following at your zoom (C)' : 'Auto camera (C)'} aria-pressed={s.autoCamera} title="Camera (C)" onClick={toggleAutoCamera} data-testid="camera-button">
           <Icons.camera />
         </button>
-        <button type="button" class={`icon-btn optional${s.reducedMotion ? ' active' : ''}`} aria-label="Reduced motion (R)" aria-pressed={s.reducedMotion} title="Reduced motion (R)" onClick={toggleReducedMotion} data-testid="motion-button">
-          <Icons.motion />
-        </button>
-        {canRecord() && (
-          <button type="button" class={`icon-btn optional${store.recording.value ? ' rec' : ''}`} aria-label={store.recording.value ? 'Stop recording' : 'Record WebM'} aria-pressed={store.recording.value} title="Record WebM" onClick={toggleRecording}>
-            <Icons.record />
-          </button>
-        )}
-        {btn('events', 'Events (E)', Icons.list, 'events-button')}
-        {btn('data', 'What am I seeing? (I)', Icons.info, 'data-button')}
         {btn('settings', 'Settings', Icons.settings, 'settings-button')}
-        {btn('share', 'Share & export', Icons.share, 'share-button')}
         {btn('help', 'Help (?)', Icons.help, 'help-button', true)}
       </div>
     </header>

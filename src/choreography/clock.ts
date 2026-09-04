@@ -76,8 +76,10 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
   let natural = 0;
   for (let i = 0; i < n; i++) {
     const it = items[i]!;
-    const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.6);
-    let s = (1.02 - 0.9 * d) * Math.max(1, it.weight);
+    // A narrower range than a pure sprint: busy spans quicken, but every arrival
+    // still gets room to land as a beat rather than blurring into the next.
+    const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.7);
+    let s = (1.16 - 0.72 * d) * Math.max(1, it.weight);
     // A merge that absorbs twenty commits deserves visibly more room than one
     // that absorbs two: the pause before it is part of the drama.
     if (it.isMerge) s += 0.28 + 0.5 * it.salience + Math.min(0.9, 0.16 * Math.log2(1 + (it.volume ?? 0)));
@@ -130,8 +132,9 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     if (d > 1e-6) minStep = Math.min(minStep, d);
   }
   if (n === 1) maxStep = 1;
-  // Never stretch the natural pace by more than a third: small histories end early rather than crawling.
-  scale = Math.min(scale, 1.35);
+  // Never stretch the natural pace by much more than half: small histories end
+  // early rather than crawling.
+  scale = Math.min(scale, 1.6);
   if (maxStep * scale > 2.8) scale = 2.8 / maxStep;
   // No minimum-step inflation. Where many commits land close together the
   // result is a flurry, and a flurry is honest: that is what a busy day looked
@@ -207,6 +210,8 @@ function quantize(items: ClockItem[], nominal: Float64Array, reducedMotion: bool
     if (i > 0) earliest = Math.max(earliest, impact[i - 1]!); // never reorder the global sequence
     const prevOnThread = lastOnThread.get(it.thread);
     if (prevOnThread !== undefined) earliest = Math.max(earliest, impact[prevOnThread]! + Math.max(minStep, bl * 0.5));
+    // Two bodies must never land on the exact same instant: a dance has beats.
+    if (i > 0) earliest = Math.max(earliest, impact[i - 1]! + minStep * 0.6);
     for (const a of it.after) {
       let reserve = bl * 0.5;
       if (it.isMerge) reserve = bl * (1.25 + it.salience * 1.25);
