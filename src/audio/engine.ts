@@ -1,5 +1,6 @@
 import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
 import { hash01 } from '@/model/prng';
+import { chordAt as chordOf, eventKey, planScore, type ScorePlan } from './score';
 
 /**
  * A small synthetic orchestra, written from the same event plan the visuals use.
@@ -32,21 +33,9 @@ export interface AudioLevels {
   muted: boolean;
 }
 
-/** A slow four-chord progression in A minor: i · VI · iv · VII. */
-const PROGRESSION: number[][] = [
-  [0, 3, 7, 12, 15, 19],
-  [8, 12, 15, 20, 24, 27],
-  [5, 8, 12, 17, 20, 24],
-  [10, 14, 17, 22, 26, 29],
-];
-const CHORD_SECONDS = 7.5;
-/** Below about an eighth of a second the ear stops hearing separate notes. */
-const MIN_NOTE_GAP = 0.13;
 const ROOT_HZ = 220; // A3
 
-function chordAt(t: number): number[] {
-  return PROGRESSION[Math.floor(Math.max(0, t) / CHORD_SECONDS) % PROGRESSION.length]!;
-}
+
 
 function noteHz(semitones: number, octave = 1): number {
   return ROOT_HZ * octave * Math.pow(2, semitones / 12);
@@ -60,6 +49,7 @@ export class AudioEngine {
   private hallSend: GainNode | null = null;
   private scheduledUntil = -1;
   private lastT = -1;
+  private lastRate = 1;
   private perf: CompiledPerformance | null = null;
   private eventPtr = 0;
   private approachPtr = 0;
@@ -68,6 +58,8 @@ export class AudioEngine {
   private lastNoteAt = -Infinity;
   /** Beat onsets already committed to the piano, so accents can dodge them. */
   private pianoAt: number[] = [];
+  /** What this repository sounds like, and how densely it may be ornamented. */
+  private score: ScorePlan = planScore(null);
   private lastChordIndex = -1;
   /** Where each melodic voice currently sits within the sounding chord. */
   private leadIdx = 2;
@@ -136,6 +128,7 @@ export class AudioEngine {
 
   setPerformance(p: CompiledPerformance | null) {
     this.perf = p;
+    this.score = planScore(p);
     this.eventPtr = 0;
     this.approachPtr = 0;
     this.approaches = p ? p.events.filter((e) => e.type === 'MERGE_APPROACH').sort((a, b) => a.performanceStart - b.performanceStart) : [];
@@ -177,6 +170,7 @@ export class AudioEngine {
       return;
     }
     const out = this.fx;
+    this.lastRate = rate;
     this.intensity += (intensity - this.intensity) * 0.08;
     const lookahead = 0.18 * rate;
     if (this.lastT < 0 || t < this.lastT || t - this.lastT > 1.5) {
@@ -184,7 +178,7 @@ export class AudioEngine {
       const idx = this.approaches.findIndex((e) => e.performanceStart > t);
       this.approachPtr = idx < 0 ? this.approaches.length : idx;
       this.scheduledUntil = t;
-      this.lastChordIndex = Math.floor(Math.max(0, t) / CHORD_SECONDS);
+      this.lastChordIndex = Math.floor(Math.max(0, t) / this.score.piece.chordSeconds);
       this.seekGrid(p.tempoMap, t);
       this.pianoAt = [];
     }
@@ -193,12 +187,12 @@ export class AudioEngine {
     const until = t + lookahead;
 
     // The harmony turns over: strings re-voice and the basses take the new root.
-    const chordIndex = Math.floor(Math.max(0, t) / CHORD_SECONDS);
+    const chordIndex = Math.floor(Math.max(0, t) / this.score.piece.chordSeconds);
     if (chordIndex !== this.lastChordIndex) {
       this.lastChordIndex = chordIndex;
-      const chord = chordAt(t);
+      const chord = this.chord(t);
       const when = ctx.currentTime + 0.02;
-      const len = (CHORD_SECONDS * 0.92) / Math.max(0.05, rate);
+      const len = (this.score.piece.chordSeconds * 0.92) / Math.max(0.05, rate);
       this.send(strings(ctx, out, when, chord, 0.026 + 0.05 * this.intensity, len));
       this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.045 + 0.02 * this.intensity, len * 0.7));
       this.leadIdx = 2;
@@ -223,9 +217,11 @@ export class AudioEngine {
     while (this.approachPtr < this.approaches.length && this.approaches[this.approachPtr]!.performanceStart <= until) {
       const ev = this.approaches[this.approachPtr++]!;
       if (ev.performanceStart <= this.scheduledUntil && this.scheduledUntil > t) continue;
+      // A crescendo that resolves into nothing is worse than no crescendo.
+      if (!this.score.featured.has(eventKey(ev))) continue;
       const len = Math.max(0.35, Math.min(2.6, ev.performanceImpact - ev.performanceStart)) / Math.max(0.05, rate);
       const when = ctx.currentTime + Math.max(0, (ev.performanceStart - t) / Math.max(0.05, rate));
-      this.send(crescendo(ctx, out, when, chordAt(ev.performanceImpact), len, (0.03 + 0.06 * ev.salience) * ev.effectBudget));
+      this.send(crescendo(ctx, out, when, this.chord(ev.performanceImpact), len, (0.03 + 0.06 * ev.salience) * ev.effectBudget));
     }
 
     const events = p.events;
@@ -262,30 +258,43 @@ export class AudioEngine {
    * repeating a loop.
    */
   private playBar(ctx: AudioContext, out: AudioNode, when: number, beatTime: number, beat: number, beatLen: number) {
-    const chord = chordAt(beatTime);
+    const chord = this.chord(beatTime);
     const inBar = beat % 4;
     const bar = Math.floor(beat / 4);
     const energy = Math.max(0, Math.min(1, this.intensity));
     const vel = 0.9 + 0.18 * (inBar === 0 ? 1 : inBar === 2 ? 0.4 : 0);
 
+    // Past a certain speed a pianist stops playing every beat and feels the
+    // bar in half instead. Without this a fast history turns the piece into an
+    // undifferentiated stream of quavers, which is the thing that stops being
+    // music. The pulse is still there; it is just carried by half as many
+    // notes, so each one can be heard.
+    if (beatLen < 0.5 && inBar % 2 === 1) return;
+
     // The piece has right of way: an accent that would land on top of a piano
     // note is dropped rather than blurring into it.
     this.pianoAt.push(beatTime);
 
-    // Left hand: the root on the downbeat, the fifth halfway through the bar.
-    if (inBar === 0) this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.5), 0.062 * vel, 3.4));
-    else if (inBar === 2) this.send(piano(ctx, out, when, noteHz(chord[2]!, 0.5), 0.042, 2.6));
+    // Left hand, low and doubled at the octave the way the instrument is
+    // actually played down there: a bare root at A1 is a rumble, the octave
+    // above it is what gives the rumble a pitch.
+    if (inBar === 0) {
+      this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.25), 0.058 * vel, 5.2));
+      this.send(piano(ctx, out, when + 0.012, noteHz(chord[0]!, 0.5), 0.042 * vel, 4.2));
+    } else if (inBar === 2) {
+      this.send(piano(ctx, out, when, noteHz(chord[2]!, 0.25), 0.034, 3.8));
+    }
 
     // Rolling figure, which only appears once there is something happening.
     if (energy > 0.22) {
       const tone = chord[(beat + 1) % 4]!;
-      this.send(piano(ctx, out, when, noteHz(tone, 1), 0.03 + 0.016 * energy, 1.5));
+      this.send(piano(ctx, out, when, noteHz(tone, 0.5), 0.03 + 0.016 * energy, 2.2));
     }
     // The off-beat only when there is room for it. At a fast tempo the eighths
     // would run into each other and the figure would stop reading as a figure.
-    if (energy > 0.62 && beatLen > 0.42) {
+    if (energy > 0.7 && beatLen > 0.55) {
       const tone = chord[(beat * 2 + 3) % chord.length]!;
-      this.send(piano(ctx, out, when + beatLen * 0.5, noteHz(tone, 1), 0.022 + 0.012 * energy, 1.1));
+      this.send(piano(ctx, out, when + beatLen * 0.5, noteHz(tone, 0.5), 0.022 + 0.012 * energy, 1.7));
       this.pianoAt.push(beatTime + beatLen * 0.5);
     }
 
@@ -293,8 +302,31 @@ export class AudioEngine {
     const sings = inBar === 0 || (inBar === 2 && energy > 0.3) || (inBar === 3 && energy > 0.72);
     if (sings && hash01(`melody:${bar}:${inBar}`) > 0.18) {
       const pitch = this.step(chord, `bar:${bar}:${inBar}`, true);
-      this.send(piano(ctx, out, when, noteHz(pitch, 2), (0.036 + 0.02 * energy) * vel, 2.4));
+      this.send(piano(ctx, out, when, noteHz(pitch, 1), (0.04 + 0.022 * energy) * vel, 3.4));
     }
+  }
+
+  /** This repository's chord at a moment in the performance. */
+  private chord(t: number): number[] {
+    return chordOf(this.score.piece, t);
+  }
+
+  /**
+   * Offset that pulls a moment onto the nearest committed piano beat, when one
+   * is close enough that moving there is inaudible as timing but audible as
+   * ensemble. Returns 0 when there is no beat worth snapping to.
+   */
+  private snap(at: number): number {
+    let best = 0;
+    let dist = 0.07;
+    for (const beat of this.pianoAt) {
+      const d = Math.abs(beat - at);
+      if (d < dist) {
+        dist = d;
+        best = beat - at;
+      }
+    }
+    return best;
   }
 
   /**
@@ -306,10 +338,11 @@ export class AudioEngine {
    * `span` reserves a gesture that occupies time, such as a rolled cluster.
    */
   private takeVoice(at: number, span = 0): boolean {
-    if (at - this.lastNoteAt < MIN_NOTE_GAP) return false;
+    const gap = this.score.accentGap;
+    if (at - this.lastNoteAt < gap) return false;
     for (const beat of this.pianoAt) {
-      if (beat > at + span + MIN_NOTE_GAP) break;
-      if (beat > at - MIN_NOTE_GAP) return false;
+      if (beat > at + span + gap) break;
+      if (beat > at - gap) return false;
     }
     this.lastNoteAt = at + span;
     return true;
@@ -333,7 +366,7 @@ export class AudioEngine {
     const ctx = this.ctx!;
     const out = this.fx!;
     const node = p.nodes.find((n) => n.sha === ev.subjectIds[0]);
-    const chord = chordAt(ev.performanceImpact);
+    const chord = this.chord(ev.performanceImpact);
     const budget = ev.effectBudget;
     const colour = node ? hash01(`voice:${p.contributors[node.contributorIdx]?.id ?? ''}`) : 0.5;
 
@@ -363,6 +396,7 @@ export class AudioEngine {
         break;
       }
       case 'DIVERGENCE': {
+        if (!this.score.featured.has(eventKey(ev))) break;
         if (!this.takeVoice(ev.performanceImpact, 0.16)) break;
         // A rising pair in the winds: the branch asks a question, quietly.
         this.send(woodwind(ctx, out, when, noteHz(chord[1]!, 2), 0.028 * budget, 0.45));
@@ -387,12 +421,27 @@ export class AudioEngine {
         // Weight follows the work absorbed: a two-commit merge is a footstep,
         // a twenty-commit one is the downbeat of the phrase.
         const weight = Math.min(1, 0.22 + Math.log2(1 + vol) * 0.2);
-        this.send(timpani(ctx, out, when, (big ? 0.3 : 0.17) * weight * budget, noteHz(chord[0]!, 0.5)));
-        this.send(brass(ctx, out, when, chord, (0.03 + 0.055 * weight) * budget, 0.9 + 1.6 * weight));
-        // The piano takes the downbeat with both hands.
-        this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.5), 0.05 * weight, 3.6));
-        this.send(piano(ctx, out, when + 0.04, noteHz(chord[2]!, 1), 0.038 * weight, 2.6));
-        if (big && weight > 0.6) this.send(cymbal(ctx, out, when, 0.05 * weight * budget, 1.6));
+        if (!this.score.featured.has(eventKey(ev))) {
+          // Routine traffic in a merge-heavy history: it joins the harmony
+          // instead of interrupting it, and still yields to the piano.
+          if (!this.takeVoice(ev.performanceImpact)) break;
+          this.send(piano(ctx, out, when, noteHz(chord[2]!, 0.5), 0.026 * weight, 2.4));
+          break;
+        }
+        // The louder the repository merges, the less each merge shouts.
+        const room = 1 - 0.4 * this.score.mergePressure;
+        // A merge that lands a hair off a piano beat is a flam. Snapped onto
+        // the beat it becomes the downbeat of the bar, which is what a merge
+        // is. The shift is at most a few tens of milliseconds, far below what
+        // reads as drift against the picture.
+        const hit = when + this.snap(ev.performanceImpact) / Math.max(0.05, this.lastRate);
+        this.send(timpani(ctx, out, hit, (big ? 0.3 : 0.17) * weight * budget * room, noteHz(chord[0]!, 0.5)));
+        this.send(brass(ctx, out, hit, chord, (0.03 + 0.055 * weight) * budget * room, 0.9 + 1.6 * weight));
+        // The piano takes the downbeat with both hands, low.
+        this.send(piano(ctx, out, hit, noteHz(chord[0]!, 0.25), 0.055 * weight, 5));
+        this.send(piano(ctx, out, hit + 0.018, noteHz(chord[2]!, 0.5), 0.04 * weight, 3.2));
+        this.lastNoteAt = Math.max(this.lastNoteAt, ev.performanceImpact);
+        if (big && weight > 0.6) this.send(cymbal(ctx, out, when, 0.05 * weight * budget * room, 1.6));
         break;
       }
       case 'TAG_LANDMARK':
@@ -402,7 +451,7 @@ export class AudioEngine {
         this.send(piano(ctx, out, when, noteHz(chord[0]!, 2), 0.04 * budget, 3));
         break;
       case 'ERA_TRANSITION': {
-        const next = chordAt(ev.performanceImpact + CHORD_SECONDS);
+        const next = this.chord(ev.performanceImpact + this.score.piece.chordSeconds);
         this.send(strings(ctx, out, when, next, 0.075, 3.2));
         this.send(bass(ctx, out, when, noteHz(next[0]!, 0.5), 0.07, 2.4));
         break;
@@ -414,11 +463,11 @@ export class AudioEngine {
         break;
       case 'REPO_PRESENT':
         // Tutti, home to the tonic, and let it ring.
-        this.send(strings(ctx, out, when, PROGRESSION[0]!, 0.08, 4.5));
-        this.send(brass(ctx, out, when + 0.15, PROGRESSION[0]!, 0.05, 3));
+        this.send(strings(ctx, out, when, this.score.piece.chords[0]!, 0.08, 4.5));
+        this.send(brass(ctx, out, when + 0.15, this.score.piece.chords[0]!, 0.05, 3));
         this.send(timpani(ctx, out, when, 0.18, noteHz(0, 0.5)));
         this.send(cymbal(ctx, out, when, 0.035, 3));
-        for (let i = 0; i < 4; i++) this.send(piano(ctx, out, when + i * 0.07, noteHz(PROGRESSION[0]![i]!, i < 2 ? 0.5 : 1), 0.05, 4.5));
+        for (let i = 0; i < 4; i++) this.send(piano(ctx, out, when + i * 0.07, noteHz(this.score.piece.chords[0]![i]!, i < 2 ? 0.5 : 1), 0.05, 4.5));
         break;
       default:
         break;
@@ -573,18 +622,21 @@ function piano(ctx: AudioContext, out: AudioNode, when: number, freq: number, ga
   bus.gain.value = 1;
   const tone = ctx.createBiquadFilter();
   tone.type = 'lowpass';
-  tone.frequency.setValueAtTime(Math.min(11000, freq * 10), t0);
-  tone.frequency.exponentialRampToValueAtTime(Math.max(400, freq * 2.4), t0 + decay * 0.7);
+  tone.frequency.setValueAtTime(Math.min(9000, freq * 8 + 900), t0);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(210, freq * 2.1), t0 + decay * 0.85);
   bus.connect(tone);
   tone.connect(out);
   const B = 0.00035; // string inharmonicity
+  // Weighted low: the octave and twelfth carry the tone and the upper partials
+  // only colour the attack, which is what makes a piano read as deep rather
+  // than bright. The low partials also ring longer, so the note blooms.
   for (const [ratio, amp, ds] of [
-    [1, 1, 1],
-    [2, 0.44, 0.62],
-    [3, 0.24, 0.44],
-    [4, 0.13, 0.32],
-    [5, 0.07, 0.24],
-    [6, 0.04, 0.18],
+    [1, 1, 1.35],
+    [2, 0.52, 0.9],
+    [3, 0.2, 0.5],
+    [4, 0.085, 0.3],
+    [5, 0.038, 0.2],
+    [6, 0.016, 0.14],
   ] as const) {
     const f = freq * ratio * Math.sqrt(1 + B * ratio * ratio);
     if (f > 13000) continue;
@@ -601,6 +653,25 @@ function piano(ctx: AudioContext, out: AudioNode, when: number, freq: number, ga
     o.start(t0);
     o.stop(t0 + d + 0.05);
   }
+  // Real pianos string the same note two or three times, very slightly apart.
+  // The slow beating between them is most of what separates a piano from a
+  // sine bank, and it is what makes a held low note sound alive.
+  {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    o.detune.value = 6;
+    const g = ctx.createGain();
+    const d = Math.max(0.12, decay * 1.3);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * 0.52), t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.connect(g);
+    g.connect(bus);
+    o.start(t0);
+    o.stop(t0 + d + 0.05);
+  }
+
   // Felt: a very short filtered knock at the attack.
   const n = noise(ctx);
   const nf = ctx.createBiquadFilter();

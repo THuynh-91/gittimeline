@@ -25,7 +25,8 @@ public GitHub URL
       ↓  CompiledPerformance (typed arrays transferred back to the main thread)
       ↓  src/player/player.ts        performance clock: play / pause / seek / loop / landmarks
       ↓  src/renderer/canvas.ts      Canvas2D stage: every pixel is a function of (plan, t)
-      ↓  src/audio/engine.ts         procedural score scheduled from the same event plan
+      ↓  src/audio/score.ts          pure musical decisions: this repo's piece, accent spacing, which merges are events
+      ↓  src/audio/engine.ts         Web Audio realisation of those decisions, scheduled from the same event plan
       ↓  src/app/*                   Preact UI: landing, prelude, timeline, transport, panels
 ```
 
@@ -61,5 +62,5 @@ WebGL is intentionally not used in this version; see [ADR 0001](adr/0001-canvas2
 ## Where to add things
 
 - A new event type: `src/model/types.ts` (`ChoreographyEventType`), emit it in `choreography/events.ts`, react to it in `renderer/canvas.ts` and `audio/engine.ts`, label it in `app/Panels.tsx`.
-- A new fixture: `src/fixtures/corpus.ts` using the `Script` helper; it is automatically covered by `tests/unit/compile.test.ts`.
+- A new fixture: `src/fixtures/corpus.ts` using the `Script` helper; it is automatically covered by `tests/unit/compile.test.ts`, `pacing.test.ts` and `score.test.ts`.
 - A new provider: implement ingestion that yields `RawCommitRecord[]`/`RawRef[]` and call `buildDataset`.

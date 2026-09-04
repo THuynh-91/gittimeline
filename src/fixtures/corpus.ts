@@ -307,6 +307,27 @@ export const FIXTURES: Fixture[] = [
     build: () =>
       buildSynthetic({ name: '20-empty-repository', epoch: '2020-01-01T00:00:00Z', defaultBranch: 'main', commits: [], refs: [] }),
   },
+  {
+    id: '21-pull-request-treadmill',
+    title: 'Half of all history is pull-request merges',
+    build: () => {
+      // The shape of a popular list or docs repository — public-apis merges a
+      // contributor branch roughly every other commit. It is the most common
+      // real-world topology there is, and the one that most easily overwhelms
+      // the score, so it belongs in the corpus rather than only on the network.
+      const s = new Script('21-pull-request-treadmill', '2021-01-01T00:00:00Z');
+      s.commit('main', 'seed', mara);
+      const people = [devi, kofi, ines, yuki, mara];
+      for (let i = 0; i < 240; i++) {
+        const who = people[i % people.length]!;
+        s.branch(`pr${i}`, 'main');
+        s.commit(`pr${i}`, `pr${i}-1`, who, { days: 0.05 });
+        if (i % 3 === 0) s.commit(`pr${i}`, `pr${i}-2`, who, { days: 0.02 });
+        s.merge('main', `pr${i}`, `m${i}`, mara, { days: 0.03 });
+      }
+      return s.build();
+    },
+  },
 ];
 
 export function fixtureById(id: string): Fixture | undefined {

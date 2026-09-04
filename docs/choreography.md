@@ -32,32 +32,60 @@ States: `intimate`, `split`, `ensemble`, `overview`, `convergence`, `impact` (pu
 
 The viewer can override it: zooming or dragging enters free look, and pressing `C` then hands the framing back to the director **while keeping the zoom the viewer chose**.
 
-## Sound (`src/audio/engine.ts`)
+## Pace
+
+Two numbers govern how long a performance runs and therefore how fast its arrivals land.
+
+`perNode` (0.26 s, or 0.4 s under reduced motion) is the stage time one visible commit needs to read as its own beat. It sizes the aggregation budget — the history is collapsed into ribbons until what remains can actually be watched — *and* it sizes the clock. Those two used to disagree: aggregation collapsed the history for 0.26 s a commit and the clock then played the result at 0.12 s, so every large repository ran at more than twice the pace it had been collapsed for. An explicitly chosen length is still honoured exactly; only the automatic length stretches, and only as far as legibility asks.
+
+`rangeK` narrows the dynamic range as the number of arrivals grows. Speeding up and slowing down is only expressive while there is room to do it in; past a few hundred arrivals every one is already close to the shortest interval the eye can resolve, so the same swings that make a small history ride like a roller coaster just push the busy spans under the threshold — and the busiest span of a repository's life, usually its first month, ends up the one you cannot see at all. It depends only on the item count, never on the target duration, so geometry stays identical at every length ([ADR 0003](adr/0003-quantize-in-natural-time.md)).
+
+`tests/unit/pacing.test.ts` asserts, for the demo and every fixture, that the typical arrival holds the stage for at least 0.25 s, that even the fastest tenth stays above 0.12 s, that arrivals stay under 4.5 per second, and that nothing runs longer than four minutes.
+
+## Sound (`src/audio/score.ts`, `src/audio/engine.ts`)
 
 Sound is on by default, is never required to understand anything, and **nothing drones**: every voice is a struck or bowed gesture with an envelope that ends.
 
-**A piano piece is the primary layer.** It is not triggered by the data; it is sequenced on the performance's own beat grid (`seekGrid` places the cursor after a seek, `playBar` renders one beat), reading beat lengths from the same `tempoMap` the choreography uses. Because the grid *is* the performance's grid, the piece accelerates through a busy year and eases into a merge with the picture, and it survives seeking without drifting. Left hand takes the chord root on the downbeat and the fifth on beat three; a rolling figure appears once activity passes a threshold and an off-beat is added above it, but only when the tempo is slow enough for eighths to be heard apart. The right hand sings on strong beats, walking the chord by step. How much of that texture is played follows the repository's own intensity, so the music thins and thickens with the history rather than looping.
+The musical *decisions* live in `score.ts`, which is pure and DOM-free; `engine.ts` only realises them through the Web Audio API. That split exists so the rules below can be asserted against every history in the corpus without a browser — the failure they guard against is a constant quietly tuned until one example sounds right.
 
-Around it, a small synthetic orchestra plays the event plan. Strings carry the harmony, entering on each chord change with a bowed swell. Basses take one deep root per chord. Harp puts a touch of light on each commit, brighter on the main line, and rolls a short arpeggio for an aggregated run. Woodwind answers a divergence with a rising pair. Brass and timpani mark merges, weighted by how many commits converged, and a cymbal shimmer marks tags and the largest merges. A short convolution hall ties the sections together.
+### The piece
 
-A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds. The melodic voices *walk* that chord by step, holding or moving one place at a time, rather than indexing a pitch from a thread's lane — that difference is what makes the line read as a tune instead of as leaps wherever the graph happens to branch.
+Every repository gets its own. `derivePiece` takes the plan hash — the same hash that makes the choreography deterministic — and chooses a mode (one of six), a four-bar turnaround by scale degree (one of seven), a key within a comfortable range of the root, and how long each chord is held. Each turnaround begins on the tonic so the loop always resolves, and each works in any of the modes, so the space is large without containing bad outcomes. The same repository is always the same piece; two repositories are very rarely the same one.
+
+**The piano plays that piece continuously.** It is not triggered by the data: it is sequenced on the performance's own beat grid (`seekGrid` places the cursor after a seek, `playBar` renders one beat), reading beat lengths from the same `tempoMap` the choreography uses, so it accelerates through a busy year and eases into a merge with the picture, and survives seeking without drifting. Past a certain speed it drops to half-time, the way a pianist feels a fast bar in two rather than four. The left hand sits low and doubled at the octave — a bare root down there is a rumble, the octave above it is what gives the rumble a pitch — and the tone is weighted towards its low partials, with a slightly detuned unison string so held notes beat the way real ones do.
+
+Around it, the orchestra plays the event plan. Strings carry the harmony, entering on each chord change with a bowed swell. Basses take one deep root per chord. Harp puts a touch of light on each commit and rolls a short arpeggio for an aggregated run. Woodwind answers a divergence with a rising pair. Brass and timpani mark merges, weighted by how many commits converged, and a cymbal marks tags and the largest merges. A short convolution hall ties the sections together.
+
+### Adjusting to the repository
+
+None of the spacing rules are constants, because a quiet history and one built on pull requests produce wildly different numbers of events per second.
+
+- **`accentGapFor`** — how much air one accent needs, scaled by the plan's own accent rate between 0.13 s (below which the ear stops separating notes) and 0.34 s.
+- **`selectFeatured`** — merges and branch points *compete* for the downbeat rather than each taking one. Walking them in time order, one is featured only if enough time has passed since the last, and an important merge earns the right to interrupt sooner than a routine one, so what survives is the shape of the history rather than an arbitrary sample. Nothing is silenced: an unfeatured merge still sounds as a soft chord tone under the accent gate.
+- **`mergePressureFor`** — the more a repository merges, the less each merge shouts.
+- **`rangeK`** in `clock.ts` — the pacing's dynamic range narrows as the number of arrivals grows, because speeding up is only expressive while there is room to do it in.
+
+The problem these solve was real and specific: `public-apis/public-apis` merges a pull request roughly every other commit, which at speed is several downbeats a second and reads as an unbroken barrage. None of the rules take any input about a particular project.
 
 ### Spacing
 
-The piece has right of way. `takeVoice` rejects an accent that would land within `MIN_NOTE_GAP` (0.13 s) of the previous accent *or* of any beat the piano has already scheduled, which the engine tracks in `pianoAt` and prunes behind the playhead. A single monotone cursor is not enough here: accepting an accent must not pull the cursor back behind notes the piano has already committed to, or the next accent slips underneath one of them.
+The piece has right of way. `takeVoice` rejects an accent that would land within the current gap of the previous accent *or* of any beat the piano has already scheduled, which the engine tracks in `pianoAt` and prunes behind the playhead. A single monotone cursor is not enough: accepting an accent must not pull the cursor back behind notes the piano has already committed to.
 
-Gestures that occupy time reserve it. An aggregated run rolls **forward** from its landing, never backward — scheduling behind `ctx.currentTime` clamps every note to *now* and turns a roll into one smeared flam — and the roll is only as long as the span the run actually owns, so a dense history gets a single note where a spacious one gets four.
+Gestures that occupy time reserve it. An aggregated run rolls **forward** from its landing, never backward — scheduling behind `ctx.currentTime` clamps every note to *now* and turns a roll into one smeared flam — and the roll is only as long as the span the run actually owns. A featured merge is snapped onto the nearest piano beat within 70 ms, so it lands as the downbeat of the bar rather than as a flam beside one.
 
-The result across the fixture corpus, measured by instrumenting oscillator starts in a real browser:
+Measured by instrumenting oscillator starts in a real browser, fusing onsets within 30 ms the way the ear does:
 
-| Fixture | Attacks/s | Median gap | Longest silence |
-|---|---|---|---|
-| Built-in demo | 2.3 | 337 ms | 1171 ms |
-| 05 long-running side thread | 1.5 | 628 ms | 1585 ms |
-| 07 octopus merge | 1.4 | 523 ms | 1942 ms |
-| 11 dense linear burst | 3.7 | 292 ms | 919 ms |
-| 12 merge storm | 1.9 | 394 ms | 1903 ms |
-| 19 million-node synthetic | 3.8 | 205 ms | 796 ms |
+| Fixture | Attacks/s | Median gap |
+|---|---|---|
+| 13 contributor handoff | 0.8 | 1334 ms |
+| 01 linear | 1.0 | 1320 ms |
+| 07 octopus merge | 1.3 | 670 ms |
+| 05 long-running side thread | 1.5 | 823 ms |
+| 12 merge storm | 1.7 | 513 ms |
+| Built-in demo | 2.3 | 343 ms |
+| 19 million-node synthetic | 2.5 | 374 ms |
+| 21 pull-request treadmill | 3.0 | 323 ms |
+| 11 dense linear burst | 3.5 | 292 ms |
 
 Dynamics follow the activity curve, and a compressor guarantees headroom.
 

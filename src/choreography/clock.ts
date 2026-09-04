@@ -61,6 +61,14 @@ const DAY = 86_400_000;
 const GAP_THRESHOLD = 21 * DAY;
 export const CLOCK_TAIL = 3.2; // performance seconds reserved for the final tableau
 export const CLOCK_HEAD = 1.0; // performance seconds before the first impact
+/**
+ * The least *natural* time a busy arrival may occupy. Scaling is uniform, so a
+ * floor here survives into the performance as a floor relative to everything
+ * else. It exists because the release after a merge used to multiply steps
+ * down to a third of an already-short busy step, which is why the densest
+ * month in a repository — its first, usually — went past fastest of all.
+ */
+const MIN_BUSY_STEP = 0.4;
 
 export function buildClock(items: ClockItem[], targetDuration: number, reducedMotion: boolean): ClockResult {
   const n = items.length;
@@ -72,6 +80,20 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
   // 1. Natural step durations (seconds at 1x). The shape is deliberately
   //    uneven: a wide dynamic range is what makes the performance feel like a
   //    ride rather than a metronome.
+  // How much dynamic range the history can afford.
+  //
+  // Speeding up and slowing down is only expressive while there is room to do
+  // it in. Past a few hundred arrivals every one of them is already close to
+  // the shortest interval the eye can resolve, so the same swings that make a
+  // small history ride like a roller coaster just push the busy spans under
+  // the threshold — and the busiest span of a repository's life, usually its
+  // first month, ends up the one you cannot see at all.
+  //
+  // So the range narrows as the history grows: a dense performance is steadier
+  // and each arrival keeps its beat. This depends only on the number of items,
+  // never on the target duration, so geometry stays identical at every length.
+  const rangeK = Math.max(0.25, Math.min(1, 120 / n));
+
   const step = new Float64Array(n);
   let natural = 0;
   for (let i = 0; i < n; i++) {
@@ -79,10 +101,10 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     // A narrower range than a pure sprint: busy spans quicken, but every arrival
     // still gets room to land as a beat rather than blurring into the next.
     const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.7);
-    let s = (1.16 - 0.72 * d) * Math.max(1, it.weight);
+    let s = (1.16 - 0.72 * rangeK * d) * Math.max(1, it.weight);
     // A merge that absorbs twenty commits deserves visibly more room than one
     // that absorbs two: the pause before it is part of the drama.
-    if (it.isMerge) s += 0.28 + 0.5 * it.salience + Math.min(0.9, 0.16 * Math.log2(1 + (it.volume ?? 0)));
+    if (it.isMerge) s += (0.28 + 0.5 * it.salience + Math.min(0.9, 0.16 * Math.log2(1 + (it.volume ?? 0)))) * rangeK;
     if (i > 0) {
       const dh = it.h - items[i - 1]!.h;
       if (dh > GAP_THRESHOLD) {
@@ -101,10 +123,13 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
   for (let i = 0; i < n; i++) {
     const it = items[i]!;
     if (!it.isMerge || it.salience < 0.5) continue;
-    if (i > 0 && !gaps.has(i)) step[i - 1] = step[i - 1]! * (1 + 0.55 * it.salience);
+    if (i > 0 && !gaps.has(i)) step[i - 1] = step[i - 1]! * (1 + 0.55 * it.salience * rangeK);
     for (let k = 1; k <= 4 && i + k < n; k++) {
       if (gaps.has(i + k)) break;
-      step[i + k] = step[i + k]! * (0.5 + 0.11 * k);
+      // Race away, but never below what still reads as a landing, and only as
+      // far as the history has room for.
+      const release = 1 - (0.5 - 0.11 * k) * rangeK;
+      step[i + k] = Math.max(MIN_BUSY_STEP, step[i + k]! * release);
     }
   }
   natural = 0;

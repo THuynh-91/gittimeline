@@ -145,6 +145,10 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // Seconds of stage time each visible commit needs to read as its own beat.
   // This is what stops a large repository turning into a blur: the history is
   // collapsed into ribbons until what remains can actually be watched.
+  // One number governs both how hard the history is collapsed and how fast the
+  // result is played. They used to disagree — aggregation sized the show for
+  // 0.26s a commit and the clock then played it at 0.12s — so every large
+  // repository ran at over twice the pace it had been collapsed for.
   const perNode = reducedMotion ? 0.4 : 0.26;
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateLinearRuns(
@@ -233,7 +237,12 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // that cannot be collapsed without hiding topology. Rather than blur them
   // past legibility, the show lengthens until each visible commit gets a
   // readable moment, up to a firm ceiling.
-  const paced = Math.max(targetSeconds, Math.min(180, visible.length * (reducedMotion ? 0.18 : 0.12)));
+  // An explicitly chosen length is honoured exactly. Only the automatic length
+  // is allowed to stretch, and then only as far as legibility asks for.
+  const paced =
+    opts.preset.targetDuration > 0
+      ? targetSeconds
+      : Math.max(targetSeconds, Math.min(260, HEAD + TAIL + visible.length * perNode));
   const clock = buildClock(items, paced, reducedMotion);
 
   onProgress('layout');
