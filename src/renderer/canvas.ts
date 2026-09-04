@@ -195,6 +195,25 @@ export class StageRenderer {
     return { x: this.view.cx, y: this.view.cy, scale: this.view.scale };
   }
 
+  /**
+   * The world rectangle currently on screen. Panning controls need to know how
+   * much of the picture a viewer can see, not just where the camera is: at the
+   * end of a performance that is the difference between a slider that scrolls
+   * and one that has nothing left to scroll through.
+   */
+  viewport(): { cx: number; cy: number; scale: number; worldW: number; worldH: number } {
+    const s = this.settings.safe;
+    const safeW = Math.max(80, this.width - s.left - s.right);
+    const safeH = Math.max(80, this.height - s.top - s.bottom);
+    return {
+      cx: this.view.cx,
+      cy: this.view.cy,
+      scale: this.view.scale,
+      worldW: safeW / Math.max(1e-6, this.view.scale),
+      worldH: safeH / Math.max(1e-6, this.view.scale),
+    };
+  }
+
   pick(sx: number, sy: number, t: number): Pick {
     const p = this.perf;
     if (!p) return { node: null, aggregateEdge: null };

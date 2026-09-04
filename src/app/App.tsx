@@ -13,6 +13,7 @@ import { Transport } from './Transport';
 import { Panels } from './Panels';
 import { FollowButton } from './FollowButton';
 import { ScopeChooser } from './ScopeChooser';
+import { ExploreBar } from './ExploreBar';
 
 export function App() {
   useEffect(() => {
@@ -50,6 +51,7 @@ export function App() {
       {showPlayer && perf && !chromeHidden && (
         <div class="band" role="region" aria-label="Date, timeline and transport">
           <DateBar />
+          <ExploreBar />
           <Timeline />
           <Transport />
         </div>

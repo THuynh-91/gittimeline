@@ -114,9 +114,11 @@ The length follows the history rather than a fixed target: a handful of commits 
 
 ## Sound
 
-Every repository gets its own piece. The key, mode, four-bar turnaround and harmonic rhythm are derived from the same hash that makes the choreography deterministic, so a project always sounds like itself and rarely like anything else — six modes, seven turnarounds, ten keys and five chord lengths, every combination of them musical. Around that, a small synthetic orchestra plays the repository's own events. Nothing is sampled and nothing drones.
+Every repository gets its own piece, chosen to fit rather than at random. Three things are measured from the history — how much lands per second, how bursty and contested it is, and how much each merge absorbs — and they decide the mode, the harmonic rhythm and how heavily the piano is written. The plan hash then picks which piece within that character, so a project always sounds like itself.
 
-The piano is the piece, not a reaction to the data. It is sequenced on the performance's own beat grid, so it speeds up and eases exactly where the choreography does, plays half-time when the tempo outruns the ear, and keeps a deep, doubled left hand low in the instrument where the weight is. Its texture follows the repository's activity: a dormant year is a bare root, a busy one fills in the rolling figure and the melody above it.
+**It follows the timeline.** Harmony turns over in bars rather than seconds, counted on the performance's own beat grid, so a busy stretch changes chord faster and a dormant one holds. The writing moves with the activity curve too: the deep doubled left hand lifts and the ring shortens when things get busy, the rolling figure fills in, and it drops to half-time when the tempo outruns the ear. A repository is not one mood for its whole life.
+
+The melody walks the scale and resolves onto chord tones on the downbeat — never the voiced chord, whose adjacent notes are a third apart and which turned every step into a leap. Nothing is sampled and nothing drones.
 
 | Section | Carries |
 |---|---|
@@ -125,9 +127,9 @@ The piano is the piece, not a reaction to the data. It is sequenced on the perfo
 | Basses | one deep root per chord, giving the harmony a floor |
 | Harp | a touch of light on each commit, brighter on the main line |
 | Woodwind | a rising pair where a branch diverges |
-| Brass | merges, weighted by how many commits converged |
 | Timpani | the impact under a merge, pitched to the chord root |
-| Cymbal | tags and the largest merges |
+| Brass | merges that genuinely absorbed something, and the closing tutti |
+| Cymbal | tags and the final cadence only |
 
 **The score adjusts itself to the repository.** How much air an accent needs, how often a merge is played at full force, and how wide the pacing's dynamic range can be are all derived from the plan's own measured shape — never from anything about a particular project. A history that produces two events a second keeps the minimum spacing; one that merges a pull request every other commit spaces them out until they can be heard as separate things happening, and its routine merges join the harmony instead of each taking a downbeat. Nothing is silenced: an unfeatured merge still sounds, it just stops being an event.
 

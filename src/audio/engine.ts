@@ -1,6 +1,6 @@
 import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
 import { hash01 } from '@/model/prng';
-import { chordAt as chordOf, eventKey, planScore, type ScorePlan } from './score';
+import { articulationAt, chordAtTime, eventKey, melodyStep, planScore, type ScorePlan } from './score';
 
 /**
  * A small synthetic orchestra, written from the same event plan the visuals use.
@@ -61,9 +61,8 @@ export class AudioEngine {
   /** What this repository sounds like, and how densely it may be ornamented. */
   private score: ScorePlan = planScore(null);
   private lastChordIndex = -1;
-  /** Where each melodic voice currently sits within the sounding chord. */
-  private leadIdx = 2;
-  private counterIdx = 4;
+  /** Where the melody currently sits within the piece's scale. */
+  private leadIdx = 7;
   /** Beat-grid cursor for the piano piece. */
   private nextBeat = 0;
   private nextBeatTime = 0;
@@ -195,8 +194,7 @@ export class AudioEngine {
       const len = (this.score.piece.chordSeconds * 0.92) / Math.max(0.05, rate);
       this.send(strings(ctx, out, when, chord, 0.026 + 0.05 * this.intensity, len));
       this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.045 + 0.02 * this.intensity, len * 0.7));
-      this.leadIdx = 2;
-      this.counterIdx = 4;
+      this.leadIdx = 7;
     }
 
     // The piece itself: walk the beat grid and play the piano up to the
@@ -275,40 +273,50 @@ export class AudioEngine {
     // note is dropped rather than blurring into it.
     this.pianoAt.push(beatTime);
 
-    // Left hand, low and doubled at the octave the way the instrument is
-    // actually played down there: a bare root at A1 is a rumble, the octave
-    // above it is what gives the rumble a pitch.
+    // How this repository is played. A deep doubled left hand ringing for five
+    // seconds suits a history of large, deliberate merges and is exactly wrong
+    // for one that never pauses long enough to hear it — so the weight of the
+    // writing is earned from the history rather than applied to all of them.
+    const art = articulationAt(this.score.piece, energy);
+    const g = art.gain;
+
+    // Left hand. Doubled at the octave when the history has the weight to
+    // carry it: a bare root at A1 is a rumble, the octave above gives the
+    // rumble a pitch. A light history takes the single note and stays moving.
     if (inBar === 0) {
-      this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.25), 0.058 * vel, 5.2));
-      this.send(piano(ctx, out, when + 0.012, noteHz(chord[0]!, 0.5), 0.042 * vel, 4.2));
+      this.send(piano(ctx, out, when, noteHz(chord[0]!, 0.25), 0.058 * vel * g, art.leftDecay));
+      if (art.doubleOctave) this.send(piano(ctx, out, when + 0.012, noteHz(chord[0]!, 0.5), 0.042 * vel * g, art.leftDecay * 0.8));
     } else if (inBar === 2) {
-      this.send(piano(ctx, out, when, noteHz(chord[2]!, 0.25), 0.034, 3.8));
+      this.send(piano(ctx, out, when, noteHz(chord[2]!, art.doubleOctave ? 0.25 : 0.5), 0.034 * g, art.leftDecay * 0.72));
     }
 
-    // Rolling figure, which only appears once there is something happening.
-    if (energy > 0.22) {
+    // Rolling figure. A driving history reaches it sooner, so the motion in
+    // the piece tracks the motion in the repository.
+    if (energy > art.figureAt) {
       const tone = chord[(beat + 1) % 4]!;
-      this.send(piano(ctx, out, when, noteHz(tone, 0.5), 0.03 + 0.016 * energy, 2.2));
+      this.send(piano(ctx, out, when, noteHz(tone, 0.5), (0.03 + 0.016 * energy) * g, 2.2));
     }
     // The off-beat only when there is room for it. At a fast tempo the eighths
     // would run into each other and the figure would stop reading as a figure.
-    if (energy > 0.7 && beatLen > 0.55) {
+    if (energy > art.melodyAt + 0.08 && beatLen > 0.55) {
       const tone = chord[(beat * 2 + 3) % chord.length]!;
-      this.send(piano(ctx, out, when + beatLen * 0.5, noteHz(tone, 0.5), 0.022 + 0.012 * energy, 1.7));
+      this.send(piano(ctx, out, when + beatLen * 0.5, noteHz(tone, 0.5), (0.022 + 0.012 * energy) * g, 1.7));
       this.pianoAt.push(beatTime + beatLen * 0.5);
     }
 
     // Right hand: a phrase on the strong beats, stepping through the chord.
-    const sings = inBar === 0 || (inBar === 2 && energy > 0.3) || (inBar === 3 && energy > 0.72);
+    const sings = inBar === 0 || (inBar === 2 && energy > art.melodyAt - 0.32) || (inBar === 3 && energy > art.melodyAt + 0.1);
     if (sings && hash01(`melody:${bar}:${inBar}`) > 0.18) {
-      const pitch = this.step(chord, `bar:${bar}:${inBar}`, true);
-      this.send(piano(ctx, out, when, noteHz(pitch, 1), (0.04 + 0.022 * energy) * vel, 3.4));
+      // Strong beats resolve into the harmony; the beats between are free to
+      // pass through it, which is what gives the phrase somewhere to go.
+      const pitch = this.sing(chord, `bar:${bar}:${inBar}`, inBar === 0);
+      this.send(piano(ctx, out, when, noteHz(pitch, 1), (0.04 + 0.022 * energy) * vel * g, 3.4));
     }
   }
 
   /** This repository's chord at a moment in the performance. */
   private chord(t: number): number[] {
-    return chordOf(this.score.piece, t);
+    return chordAtTime(this.score, t);
   }
 
   /**
@@ -348,17 +356,18 @@ export class AudioEngine {
     return true;
   }
 
-  /** Step a melodic voice through the chord, so the line has contour. */
-  private step(chord: number[], key: string, lead: boolean): number {
-    const r = hash01(key);
-    const delta = r < 0.36 ? -1 : r < 0.72 ? 1 : 0;
-    const lo = lead ? 0 : 2;
-    const hi = lead ? chord.length - 3 : chord.length - 1;
-    const cur = lead ? this.leadIdx : this.counterIdx;
-    const next = Math.max(lo, Math.min(hi, cur + delta));
-    if (lead) this.leadIdx = next;
-    else this.counterIdx = next;
-    return chord[next]!;
+  /**
+   * Move the melody one scale step and return the pitch it lands on.
+   *
+   * This walks `piece.scale`, not the voiced chord. Adjacent entries in a
+   * voiced chord are a third apart, so the previous version of this — which
+   * moved one place in that array — leapt on every note and the line never
+   * sounded like a line.
+   */
+  private sing(chord: number[], key: string, resolve: boolean): number {
+    const piece = this.score.piece;
+    this.leadIdx = melodyStep(piece, chord, this.leadIdx, hash01(key), resolve);
+    return piece.scale[this.leadIdx]!;
   }
 
   private voice(ev: ChoreographyEvent, when: number) {
@@ -436,12 +445,14 @@ export class AudioEngine {
         // reads as drift against the picture.
         const hit = when + this.snap(ev.performanceImpact) / Math.max(0.05, this.lastRate);
         this.send(timpani(ctx, out, hit, (big ? 0.3 : 0.17) * weight * budget * room, noteHz(chord[0]!, 0.5)));
-        this.send(brass(ctx, out, hit, chord, (0.03 + 0.055 * weight) * budget * room, 0.9 + 1.6 * weight));
+        // Brass is the loudest colour in the box. Reserve it for merges that
+        // actually absorbed something, so it stays an event rather than a
+        // texture — the rest keep timpani and the piano's own downbeat.
+        if (weight > 0.55) this.send(brass(ctx, out, hit, chord, (0.03 + 0.055 * weight) * budget * room, 0.9 + 1.6 * weight));
         // The piano takes the downbeat with both hands, low.
-        this.send(piano(ctx, out, hit, noteHz(chord[0]!, 0.25), 0.055 * weight, 5));
+        this.send(piano(ctx, out, hit, noteHz(chord[0]!, 0.25), 0.055 * weight, articulationAt(this.score.piece, this.intensity).leftDecay));
         this.send(piano(ctx, out, hit + 0.018, noteHz(chord[2]!, 0.5), 0.04 * weight, 3.2));
         this.lastNoteAt = Math.max(this.lastNoteAt, ev.performanceImpact);
-        if (big && weight > 0.6) this.send(cymbal(ctx, out, when, 0.05 * weight * budget * room, 1.6));
         break;
       }
       case 'TAG_LANDMARK':
@@ -465,7 +476,7 @@ export class AudioEngine {
         // Tutti, home to the tonic, and let it ring.
         this.send(strings(ctx, out, when, this.score.piece.chords[0]!, 0.08, 4.5));
         this.send(brass(ctx, out, when + 0.15, this.score.piece.chords[0]!, 0.05, 3));
-        this.send(timpani(ctx, out, when, 0.18, noteHz(0, 0.5)));
+        this.send(timpani(ctx, out, when, 0.18, noteHz(this.score.piece.chords[0]![0]!, 0.5)));
         this.send(cymbal(ctx, out, when, 0.035, 3));
         for (let i = 0; i < 4; i++) this.send(piano(ctx, out, when + i * 0.07, noteHz(this.score.piece.chords[0]![i]!, i < 2 ? 0.5 : 1), 0.05, 4.5));
         break;

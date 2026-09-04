@@ -8,11 +8,15 @@ import {
   MAX_NOTE_GAP,
   MIN_NOTE_GAP,
   accentGapFor,
+  chordAt,
+  characterOf,
   derivePiece,
   eventKey,
+  melodyStep,
   planScore,
   selectFeatured,
 } from '@/audio/score';
+import { hash01 } from '@/model/prng';
 import type { CompiledPerformance, Dataset } from '@/model/types';
 
 /**
@@ -128,5 +132,109 @@ describe('the score adapts itself to any history', () => {
     const a = { type: 'MERGE_IMPACT', subjectIds: ['abc'], performanceImpact: 1 } as never;
     const b = { type: 'DIVERGENCE', subjectIds: ['abc'], performanceImpact: 1 } as never;
     expect(eventKey(a)).not.toBe(eventKey(b));
+  });
+});
+
+describe('the piece matches the repository, not a coin flip', () => {
+  it('a calmer history holds its chords longer than a driven one', () => {
+    const rate = (p: CompiledPerformance) => p.nodes.length / p.duration;
+    const sorted = [...PLANS].sort((a, b) => rate(a[1]) - rate(b[1]));
+    const calm = sorted[0]![1];
+    const driven = sorted[sorted.length - 1]![1];
+    const a = derivePiece(calm.planHash, characterOf(calm));
+    const b = derivePiece(driven.planHash, characterOf(driven));
+    expect(a.chordSeconds).toBeGreaterThan(b.chordSeconds);
+    // And it reaches its rolling figure later, so it stays sparse.
+    expect(a.articulation.figureAt).toBeGreaterThan(b.articulation.figureAt);
+  });
+
+  it('the heavy left hand is earned, never assumed', () => {
+    const pieces = PLANS.map(([id, p]) => [id, derivePiece(p.planHash, characterOf(p))] as const);
+    const doubled = pieces.filter(([, pc]) => pc.articulation.doubleOctave);
+    // Some histories get the weight and some do not — a setting that is always
+    // on is the bug this guards against.
+    expect(doubled.length).toBeGreaterThan(0);
+    expect(doubled.length).toBeLessThan(pieces.length);
+    for (const [id, pc] of pieces) {
+      expect(pc.articulation.leftDecay, `${id} decay is playable`).toBeGreaterThan(0.8);
+      expect(pc.articulation.leftDecay, `${id} decay is not a drone`).toBeLessThan(6);
+    }
+  });
+
+  it('character is measured, and stays inside its range for every history', () => {
+    for (const [id, p] of PLANS) {
+      const c = characterOf(p);
+      for (const [k, v] of Object.entries(c)) {
+        expect(v, `${id} ${k}`).toBeGreaterThanOrEqual(0);
+        expect(v, `${id} ${k}`).toBeLessThanOrEqual(1);
+      }
+    }
+    // The corpus genuinely spans the range rather than clustering.
+    const drives = PLANS.map(([, p]) => characterOf(p).drive);
+    expect(Math.max(...drives) - Math.min(...drives)).toBeGreaterThan(0.35);
+  });
+
+  it('a turbulent history and a settled one do not draw from the same modes', () => {
+    const byTurb = [...PLANS].sort((a, b) => characterOf(a[1]).turbulence - characterOf(b[1]).turbulence);
+    const settled = derivePiece(byTurb[0]![1].planHash, characterOf(byTurb[0]![1]));
+    const restless = derivePiece(byTurb[byTurb.length - 1]![1].planHash, characterOf(byTurb[byTurb.length - 1]![1]));
+    expect(['ionian', 'dorian', 'mixolydian']).toContain(settled.mode);
+    expect(['aeolian', 'phrygian', 'harmonic minor', 'dorian', 'mixolydian']).toContain(restless.mode);
+  });
+});
+
+describe('the melody is a line, not an arpeggio', () => {
+  /**
+   * The bug this replaces: the melody moved one place at a time through the
+   * *voiced chord*, whose adjacent entries are a third apart, so every note
+   * leapt and the result sounded picked rather than written.
+   */
+  const walk = (p: CompiledPerformance) => {
+    const piece = derivePiece(p.planHash, characterOf(p));
+    let idx = 7;
+    const pitches: number[] = [];
+    for (let bar = 0; bar < 64; bar++) {
+      const chord = chordAt(piece, bar * piece.chordSeconds * 0.25);
+      for (const beat of [0, 2]) {
+        idx = melodyStep(piece, chord, idx, hash01(`bar:${bar}:${beat}`), beat === 0);
+        pitches.push(piece.scale[idx]!);
+      }
+    }
+    return { piece, pitches };
+  };
+
+  it('moves mostly by step and never leaps further than a fourth', () => {
+    for (const [id, p] of PLANS) {
+      const { pitches } = walk(p);
+      const intervals = pitches.slice(1).map((x, i) => Math.abs(x - pitches[i]!));
+      const moving = intervals.filter((d) => d > 0);
+      const steps = moving.filter((d) => d <= 2).length;
+      expect(moving.length, `${id} actually moves`).toBeGreaterThan(pitches.length * 0.4);
+      expect(steps / moving.length, `${id} stepwise share`).toBeGreaterThan(0.5);
+      // A resolution onto the harmony may be a leap; nothing else may be.
+      expect(Math.max(...intervals), `${id} largest leap`).toBeLessThanOrEqual(7);
+    }
+  });
+
+  it('stays inside the mode and inside a singable range', () => {
+    for (const [id, p] of PLANS) {
+      const { piece, pitches } = walk(p);
+      const inScale = new Set(piece.scale.map((n) => ((n % 12) + 12) % 12));
+      for (const n of pitches) expect(inScale.has(((n % 12) + 12) % 12), `${id} in mode`).toBe(true);
+      expect(Math.max(...pitches) - Math.min(...pitches), `${id} range`).toBeLessThanOrEqual(14);
+    }
+  });
+
+  it('resolves onto the harmony on the downbeat', () => {
+    for (const [id, p] of PLANS) {
+      const piece = derivePiece(p.planHash, characterOf(p));
+      let idx = 7;
+      for (let bar = 0; bar < 32; bar++) {
+        const chord = chordAt(piece, bar * piece.chordSeconds);
+        idx = melodyStep(piece, chord, idx, hash01(`r:${bar}`), true);
+        const tones = new Set(chord.map((c) => ((c % 12) + 12) % 12));
+        expect(tones.has(((piece.scale[idx]! % 12) + 12) % 12), `${id} bar ${bar}`).toBe(true);
+      }
+    }
   });
 });

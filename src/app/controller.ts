@@ -2,7 +2,7 @@ import { batch } from '@preact/signals';
 import { store, updateSettings, toast, announce, type AppError } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
-import { StageRenderer } from '@/renderer/canvas';
+import { StageRenderer, type ManualCamera } from '@/renderer/canvas';
 import { compileInWorker, type CompileHandle } from '@/player/compileClient';
 import { parseRepoUrl, type RepoRef } from '@/github/url';
 import { GitHubClient, GitHubError } from '@/github/adapter';
@@ -644,8 +644,14 @@ export function toggleReducedMotion() {
   toast(store.settings.value.reducedMotion ? 'Reduced motion on' : 'Reduced motion off');
 }
 
-export function panCamera(dx: number, dy: number) {
-  if (!renderer) return;
+/**
+ * Take the camera off the director, starting from exactly where it is now.
+ *
+ * Continuity is the point: whatever framing you were looking at is the framing
+ * you keep, so taking control never moves the picture under you.
+ */
+function takeManualCamera(): ManualCamera | null {
+  if (!renderer) return null;
   if (!renderer.manual) {
     renderer.zoomLock = null;
     store.cameraLocked.value = false;
@@ -653,19 +659,18 @@ export function panCamera(dx: number, dy: number) {
     store.manualCamera.value = true;
     updateSettings({ autoCamera: false });
   }
-  renderer.manual = { ...renderer.manual, x: renderer.manual.x - dx / renderer.manual.scale, y: renderer.manual.y - dy / renderer.manual.scale };
+  return renderer.manual;
+}
+
+export function panCamera(dx: number, dy: number) {
+  const m = takeManualCamera();
+  if (!m || !renderer) return;
+  renderer.manual = { ...m, x: m.x - dx / m.scale, y: m.y - dy / m.scale };
 }
 
 export function zoomCamera(factor: number, sx?: number, sy?: number) {
-  if (!renderer) return;
-  if (!renderer.manual) {
-    renderer.zoomLock = null;
-    store.cameraLocked.value = false;
-    renderer.manual = renderer.currentManual();
-    store.manualCamera.value = true;
-    updateSettings({ autoCamera: false });
-  }
-  const m = renderer.manual;
+  const m = takeManualCamera();
+  if (!m || !renderer) return;
   const before = sx != null && sy != null ? renderer.screenToWorld(sx, sy) : null;
   const scale = Math.max(0.05, Math.min(12, m.scale * factor));
   renderer.manual = { ...m, scale };
@@ -673,6 +678,79 @@ export function zoomCamera(factor: number, sx?: number, sy?: number) {
     const after = renderer.screenToWorld(sx, sy);
     renderer.manual = { ...renderer.manual, x: renderer.manual.x + (before.x - after.x), y: renderer.manual.y + (before.y - after.y) };
   }
+}
+
+/**
+ * Reviewing the finished picture.
+ *
+ * When the performance ends the director frames the whole history at once,
+ * which is the right final image and the wrong way to look at any particular
+ * part of it. These let a viewer travel the finished piece from end to end at
+ * whatever magnification they are already at, rather than having to choose
+ * between seeing everything small and losing their place.
+ */
+let spanCache: { perf: CompiledPerformance; min: number; max: number } | null = null;
+
+/** Horizontal extent of the whole picture, with a little air at both ends. */
+export function contentSpan(): { min: number; max: number } | null {
+  const p = store.perf.value;
+  if (!p || !p.nodes.length) return null;
+  if (spanCache && spanCache.perf === p) return spanCache;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const n of p.nodes) {
+    if (n.x < min) min = n.x;
+    if (n.x > max) max = n.x;
+  }
+  const pad = Math.max(40, (max - min) * 0.015);
+  spanCache = { perf: p, min: min - pad, max: max + pad };
+  return spanCache;
+}
+
+/**
+ * Where the camera sits along that extent, and how much of it is on screen.
+ * The second number is what lets the control show the size of your window on
+ * the history the way a scrollbar does.
+ */
+export function exploreState(): { at: number; visible: number } | null {
+  const span = contentSpan();
+  if (!span || !renderer) return null;
+  const vp = renderer.viewport();
+  const w = Math.max(1, span.max - span.min);
+  return {
+    at: Math.max(0, Math.min(1, (vp.cx - span.min) / w)),
+    visible: Math.max(0.02, Math.min(1, vp.worldW / w)),
+  };
+}
+
+/** Travel to a fraction of the whole picture, holding the zoom you are at. */
+export function exploreTo(f: number) {
+  const span = contentSpan();
+  const m = takeManualCamera();
+  if (!span || !m || !renderer) return;
+  renderer.manual = { ...m, x: span.min + Math.max(0, Math.min(1, f)) * (span.max - span.min) };
+}
+
+/**
+ * The repository's own date at a point in the picture. Layout x is natural
+ * historical time, so the nearest node's landing is the honest answer — and it
+ * is a real commit's date rather than an interpolation between two.
+ */
+export function dateAtFraction(f: number): number | null {
+  const span = contentSpan();
+  const p = store.perf.value;
+  if (!span || !p || !p.nodes.length) return null;
+  const x = span.min + Math.max(0, Math.min(1, f)) * (span.max - span.min);
+  let best = p.nodes[0]!;
+  let bestD = Infinity;
+  for (const n of p.nodes) {
+    const d = Math.abs(n.x - x);
+    if (d < bestD) {
+      bestD = d;
+      best = n;
+    }
+  }
+  return player.historicalAt(best.impact);
 }
 
 export function pickAt(sx: number, sy: number) {
@@ -915,6 +993,12 @@ export function installDebugHook() {
     },
     get zoomLocked() {
       return renderer?.zoomLock != null;
+    },
+    get viewport() {
+      return renderer?.viewport() ?? null;
+    },
+    zoom(factor: number) {
+      zoomCamera(factor);
     },
     get audioStarted() {
       return audio.started;

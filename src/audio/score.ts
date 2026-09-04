@@ -1,5 +1,6 @@
 import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
 import { hash01 } from '@/model/prng';
+import { beatLengthAt } from '@/choreography/clock';
 
 /**
  * The musical decisions, kept pure and away from the Web Audio API.
@@ -66,14 +67,25 @@ export function eventKey(ev: ChoreographyEvent): string {
 }
 
 /** Scale-step patterns, all usable under the same voicing rules. */
-const MODES: Array<{ name: string; steps: number[] }> = [
-  { name: 'aeolian', steps: [0, 2, 3, 5, 7, 8, 10] },
-  { name: 'dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
-  { name: 'harmonic minor', steps: [0, 2, 3, 5, 7, 8, 11] },
-  { name: 'phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
-  { name: 'ionian', steps: [0, 2, 4, 5, 7, 9, 11] },
-  { name: 'mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
-];
+const MODES: Record<string, number[]> = {
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+  'harmonic minor': [0, 2, 3, 5, 7, 8, 11],
+  phrygian: [0, 1, 3, 5, 7, 8, 10],
+  ionian: [0, 2, 4, 5, 7, 9, 11],
+  mixolydian: [0, 2, 4, 5, 7, 9, 10],
+};
+
+/**
+ * Modes grouped by how settled they sound, so the choice can follow the
+ * repository instead of a coin flip. A steady, well-tended library and a
+ * project where every day is a scramble should not open on the same chord.
+ */
+const MODE_BANDS = {
+  settled: ['ionian', 'dorian', 'mixolydian'],
+  mixed: ['dorian', 'aeolian', 'mixolydian'],
+  restless: ['aeolian', 'phrygian', 'harmonic minor'],
+} as const;
 
 /**
  * Four-bar turnarounds by scale degree. Each begins on the tonic so the loop
@@ -89,14 +101,114 @@ const TURNAROUNDS: number[][] = [
   [0, 3, 6, 4],
 ];
 
+/**
+ * What a repository is *like*, measured from its own compiled plan.
+ *
+ * Three numbers, each in 0..1, and none of them a proxy for size alone:
+ *
+ *  - `drive` — how much lands per second. A library that takes a considered
+ *    commit a week is not the same piece as one absorbing twenty a day.
+ *  - `turbulence` — how uneven and contested it is: bursty arrivals, many
+ *    threads at once, constant merging. This is the difference between busy
+ *    and chaotic, which sound nothing alike.
+ *  - `weight` — how much each landing carries. A history of large merges earns
+ *    a heavy left hand; one of small steady commits is buried by it.
+ */
+export interface Character {
+  drive: number;
+  turbulence: number;
+  weight: number;
+}
+
+/** How the piano is written for a given character. */
+export interface Articulation {
+  /** Seconds the left hand is allowed to ring. */
+  leftDecay: number;
+  /** Whether the left hand is doubled at the octave — weighty, and slow. */
+  doubleOctave: boolean;
+  /** Activity at which the rolling figure joins in. */
+  figureAt: number;
+  /** Activity at which the melody fills in the weak beats. */
+  melodyAt: number;
+  /** Gain applied to the whole piano layer. */
+  gain: number;
+}
+
 export interface Piece {
   /** Semitone offset of the tonic from the engine's root. */
   tonic: number;
   mode: string;
-  /** Seconds each chord is held. */
+  /**
+   * Bars each chord is held.
+   *
+   * Harmonic rhythm is counted in bars rather than seconds so it follows the
+   * performance's own tempo: when the history speeds up the beat grid speeds
+   * up, the bars get shorter, and the harmony turns over faster without
+   * anything having to be told to do so. Fixing it in seconds is what made a
+   * busy stretch sound as ponderous as a dormant one.
+   */
+  chordBars: number;
+  /** Nominal seconds per chord at the piece's own mid tempo, for reference. */
   chordSeconds: number;
   /** Voiced chords, in semitones relative to the engine root. */
   chords: number[][];
+  /**
+   * Two octaves of the mode, ascending, for melodic motion.
+   *
+   * Kept separate from `chords` because they answer different questions. The
+   * chord says what the harmony is; the scale says what the next note may be.
+   * Walking the *chord* one place at a time moves in thirds and fourths, which
+   * is an arpeggio, not a tune — the melody has to walk the scale and land on
+   * chord tones, which is what makes a line sound written rather than picked.
+   */
+  scale: number[];
+  character: Character;
+  articulation: Articulation;
+}
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * Measure the character of a compiled performance.
+ *
+ * Everything here comes from the plan itself, so it works for any repository
+ * without being told anything about it — the same reason the spacing rules
+ * live in this file.
+ */
+export function characterOf(p: CompiledPerformance): Character {
+  const seconds = Math.max(1, p.duration);
+  const arrivals = p.nodes.length;
+
+  const drive = clamp01((arrivals / seconds - 0.4) / 2.8);
+
+  // Burstiness: how much the intervals between arrivals vary. A steady cadence
+  // and a series of scrambles can have identical averages.
+  const times = p.nodes.map((n) => n.impact).sort((a, b) => a - b);
+  let mean = 0;
+  const gaps: number[] = [];
+  for (let i = 1; i < times.length; i++) gaps.push(times[i]! - times[i - 1]!);
+  for (const g of gaps) mean += g;
+  mean /= Math.max(1, gaps.length);
+  let variance = 0;
+  for (const g of gaps) variance += (g - mean) * (g - mean);
+  variance /= Math.max(1, gaps.length);
+  const cv = mean > 1e-6 ? Math.sqrt(variance) / mean : 0;
+
+  const parallel = clamp01((p.stats.maxConcurrentThreads - 1) / 7);
+  const merging = clamp01(p.stats.merges / Math.max(1, p.stats.commits) / 0.35);
+  const turbulence = clamp01(clamp01(cv / 1.1) * 0.4 + parallel * 0.3 + merging * 0.3);
+
+  // Weight follows what the merges actually absorb, not how many there are.
+  let absorbed = 0;
+  let merges = 0;
+  for (const n of p.nodes) {
+    if (!n.isMerge) continue;
+    merges++;
+    absorbed += n.mergeVolume;
+  }
+  const weight = merges === 0 ? 0 : clamp01(Math.log2(1 + absorbed / merges) / 4.5);
+
+  return { drive, turbulence, weight };
 }
 
 /**
@@ -107,26 +219,132 @@ export interface Piece {
  * The space is 6 modes x 7 turnarounds x 10 keys x 5 chord lengths, and every
  * choice in it is a musical one, so being different never means being worse.
  */
-export function derivePiece(hash: string): Piece {
-  const mode = MODES[Math.floor(hash01(`mode:${hash}`) * MODES.length) % MODES.length]!;
+export function derivePiece(hash: string, character: Character = { drive: 0.4, turbulence: 0.3, weight: 0.3 }): Piece {
+  const { drive, turbulence, weight } = character;
+
+  // The repository chooses the band; the hash chooses within it. Character
+  // decides what the piece is like, identity decides which one it is.
+  const band = turbulence > 0.55 ? MODE_BANDS.restless : turbulence < 0.3 ? MODE_BANDS.settled : MODE_BANDS.mixed;
+  const modeName = band[Math.floor(hash01(`mode:${hash}`) * band.length) % band.length]!;
+  const steps = MODES[modeName]!;
   const turn = TURNAROUNDS[Math.floor(hash01(`turn:${hash}`) * TURNAROUNDS.length) % TURNAROUNDS.length]!;
   // Keep the key within a comfortable range of the root rather than anywhere
   // in the octave: too high loses the weight, too low loses the pitch.
   const tonic = Math.round(hash01(`key:${hash}`) * 9) - 4;
-  const chordSeconds = 6.5 + Math.round(hash01(`hold:${hash}`) * 4) * 0.6;
+
+  // Harmonic rhythm follows the pace of the work: a settled history can hold a
+  // chord for eight bars, a restless one turns over every two.
+  const bars = drive + turbulence > 1.1 ? 2 : drive + turbulence > 0.6 ? 4 : hash01(`hold:${hash}`) > 0.5 ? 8 : 4;
+  const chordBars = bars;
+  const chordSeconds = Math.max(4.4, Math.min(9.6, 9.4 - 4.4 * drive - 0.8 * turbulence));
 
   const scale = (degree: number): number => {
     const octave = Math.floor(degree / 7);
-    return mode.steps[((degree % 7) + 7) % 7]! + octave * 12;
+    return steps[((degree % 7) + 7) % 7]! + octave * 12;
   };
   // Voice each chord as a spread triad over two octaves: the left hand, the
   // rolling figure and the melody each draw their notes from this one list.
   const chords = turn.map((d) => [0, 2, 4, 7, 9, 11].map((i) => tonic + scale(d + i)));
-  return { tonic, mode: mode.name, chordSeconds, chords };
+  const scaleNotes = Array.from({ length: 15 }, (_, i) => tonic + scale(i));
+
+  // How it is played. A deep doubled left hand ringing for five seconds is a
+  // wonderful sound and completely wrong for a project that never stops for
+  // long enough to hear it, so the weight of the writing is earned rather than
+  // assumed: a history of big merges gets it, a steady stream of small commits
+  // gets a lighter hand and more motion above it.
+  const articulation: Articulation = {
+    leftDecay: 2.2 + 3.2 * weight - 1.0 * drive,
+    doubleOctave: weight > 0.42,
+    figureAt: 0.5 - 0.34 * drive,
+    melodyAt: 0.62 - 0.3 * drive,
+    gain: 0.88 + 0.16 * weight,
+  };
+
+  return { tonic, mode: modeName, chordBars, chordSeconds, chords, scale: scaleNotes, character, articulation };
 }
 
+/**
+ * The performance times at which the harmony turns over, walked from the same
+ * tempo map the choreography uses. Built once per plan.
+ */
+export function buildChordTimes(piece: Piece, tempoMap: Array<[number, number]>, duration: number): number[] {
+  const times: number[] = [0];
+  const beatsPerChord = piece.chordBars * 4;
+  let t = 0;
+  let beat = 0;
+  let guard = 0;
+  while (t < duration && guard++ < 200000) {
+    t += beatLengthAt(tempoMap, t);
+    beat++;
+    if (beat % beatsPerChord === 0) times.push(t);
+  }
+  return times;
+}
+
+/** The chord sounding at a moment, against the plan's own bar lines. */
+export function chordAtTime(plan: ScorePlan, t: number): number[] {
+  const times = plan.chordTimes;
+  const chords = plan.piece.chords;
+  if (times.length < 2) return chords[0]!;
+  const x = Math.max(0, t);
+  let lo = 0;
+  let hi = times.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (times[mid]! <= x) lo = mid;
+    else hi = mid - 1;
+  }
+  return chords[lo % chords.length]!;
+}
+
+/** Nominal, seconds-based lookup. Used where there is no tempo map to follow. */
 export function chordAt(piece: Piece, t: number): number[] {
   return piece.chords[Math.floor(Math.max(0, t) / piece.chordSeconds) % piece.chords.length]!;
+}
+
+/**
+ * Move a melodic voice one scale step, and resolve it onto a chord tone where
+ * the phrase wants resolution.
+ *
+ * `from` and the return value are indices into `piece.scale`, so a move of one
+ * really is a second and not a third. On a strong beat the note is pulled to
+ * the nearest tone of the sounding chord, which is what stops a stepwise line
+ * from wandering out of the harmony.
+ */
+export function melodyStep(piece: Piece, chord: number[], from: number, r: number, resolve: boolean): number {
+  const lo = 4;
+  // A tune lives inside about an octave. A wider range stops sounding like one
+  // voice and starts sounding like the instrument being swept.
+  const hi = Math.min(piece.scale.length - 2, lo + 7);
+  // Mostly conjunct, occasionally still, rarely a third — the proportions of a
+  // written line rather than a random walk.
+  const delta = r < 0.34 ? -1 : r < 0.68 ? 1 : r < 0.84 ? 0 : r < 0.92 ? 2 : -2;
+  let next = Math.max(lo, Math.min(hi, from + delta));
+  if (resolve) {
+    // Resolve to a chord tone, but only one that is nearby: a resolution you
+    // have to leap a sixth to reach is not a resolution, it is a new phrase.
+    const tones = new Set(chord.map((c) => ((c % 12) + 12) % 12));
+    for (let radius = 0; radius <= 3; radius++) {
+      const down = next - radius;
+      const up = next + radius;
+      if (down >= lo && tones.has(((piece.scale[down]! % 12) + 12) % 12)) {
+        next = down;
+        break;
+      }
+      if (up <= hi && tones.has(((piece.scale[up]! % 12) + 12) % 12)) {
+        next = up;
+        break;
+      }
+    }
+    return next;
+  }
+  // Between resolutions the line stays conjunct. Whatever the mode's step
+  // sizes — some have an augmented second in them — the sounding interval
+  // never exceeds a major third.
+  while (next !== from && Math.abs(piece.scale[next]! - piece.scale[from]!) > 4) {
+    next += next > from ? -1 : 1;
+  }
+  return next;
 }
 
 /**
@@ -186,22 +404,50 @@ export function selectFeatured(events: ChoreographyEvent[]): Set<string> {
   return featured;
 }
 
+/**
+ * How the piece is played *right now*.
+ *
+ * The repository's character sets the baseline, but a repository is not one
+ * thing for its whole life: a project has dormant years and months where
+ * everything happens at once, and the piece has to move between them rather
+ * than picking one mood and holding it. `energy` is the choreography's own
+ * activity curve, so the writing thins and thickens exactly where the history
+ * does — the heavy doubled left hand lifts when things get busy, the ring
+ * shortens, and the figure fills in.
+ */
+export function articulationAt(piece: Piece, energy: number): Articulation {
+  const e = clamp01(energy);
+  const base = piece.articulation;
+  return {
+    leftDecay: Math.max(1.1, base.leftDecay * (1.3 - 0.62 * e)),
+    doubleOctave: base.doubleOctave && e < 0.62,
+    figureAt: base.figureAt,
+    melodyAt: base.melodyAt,
+    gain: base.gain * (0.92 + 0.12 * e),
+  };
+}
+
 /** Everything the engine needs in order to decide how to play a given plan. */
 export interface ScorePlan {
   piece: Piece;
   featured: Set<string>;
   accentGap: number;
   mergePressure: number;
+  /** Performance times at which the harmony turns over. */
+  chordTimes: number[];
 }
 
 export function planScore(p: CompiledPerformance | null): ScorePlan {
   if (!p) {
-    return { piece: derivePiece(''), featured: new Set(), accentGap: MIN_NOTE_GAP, mergePressure: 0 };
+    const piece = derivePiece('');
+    return { piece, featured: new Set(), accentGap: MIN_NOTE_GAP, mergePressure: 0, chordTimes: [0] };
   }
+  const piece = derivePiece(p.planHash, characterOf(p));
   return {
-    piece: derivePiece(p.planHash),
+    piece,
     featured: selectFeatured(p.events),
     accentGap: accentGapFor(p.events, p.duration),
     mergePressure: mergePressureFor(p.events, p.duration),
+    chordTimes: buildChordTimes(piece, p.tempoMap, p.duration),
   };
 }
