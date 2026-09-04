@@ -1831,7 +1831,8 @@ kbd {
 }
 
 .view-toggles.bare {
-  bottom: 14px;
+  /* The bare band still carries the date and the slider, so leave room. */
+  bottom: 96px;
 }
 
 .view-toggles:hover,
@@ -1950,4 +1951,12 @@ kbd {
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--text-faint);
+}
+
+/* Controls hidden: the band keeps the date and the travel slider, so it needs
+   far less height and must not paint a tall gradient over the stage. */
+.band.bare {
+  height: auto;
+  padding-bottom: 10px;
+  background: linear-gradient(to top, rgba(7, 8, 12, 0.9) 45%, rgba(7, 8, 12, 0));
 }

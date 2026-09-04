@@ -117,11 +117,16 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await expect(page.getByTestId('commit-rail')).toHaveCount(0);
 
     await page.getByTestId('toggle-controls').click();
-    await expect(page.locator('.band')).toHaveCount(0);
+    await expect(page.getByTestId('timeline')).toHaveCount(0);
+    await expect(page.getByTestId('transport-play')).toHaveCount(0);
+
+    // But not your place in the history: the date says where you are, and the
+    // travel slider is the only way to move once the performance is over.
+    await expect(page.getByTestId('date-hero')).toBeVisible();
 
     // A control that hides itself along with what it hides is a trap.
     await expect(page.getByTestId('view-toggles')).toBeVisible();
     await page.getByTestId('toggle-controls').click();
-    await expect(page.locator('.band')).toBeVisible();
+    await expect(page.getByTestId('timeline')).toBeVisible();
   });
 });

@@ -53,12 +53,16 @@ export function App() {
       {showPlayer && perf && !chromeHidden && view.showRail && <CommitRail />}
       {showPlayer && perf && <FollowButton />}
       {showPlayer && perf && !chromeHidden && <ViewToggles />}
-      {showPlayer && perf && !chromeHidden && view.showControls && (
-        <div class="band" role="region" aria-label="Date, timeline and transport">
+      {showPlayer && perf && !chromeHidden && (
+        // Hiding the controls takes away the player furniture, not your place
+        // in the history. The date says where you are and the travel slider is
+        // how you move once the performance is over — losing either of those
+        // is not a cleaner view, it is a lost one.
+        <div class={`band${view.showControls ? '' : ' bare'}`} role="region" aria-label="Date, timeline and transport">
           <DateBar />
           <ExploreBar />
-          <Timeline />
-          <Transport />
+          {view.showControls && <Timeline />}
+          {view.showControls && <Transport />}
         </div>
       )}
       {showPlayer && banner && !chromeHidden && (

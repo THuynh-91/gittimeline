@@ -841,8 +841,10 @@ export function contentSpan(): { min: number; max: number } | null {
     if (n.x < min) min = n.x;
     if (n.x > max) max = n.x;
   }
-  const pad = Math.max(40, (max - min) * 0.015);
-  spanCache = { perf: p, min: min - pad, max: max + pad };
+  // No padding. The slider's ends are the first and last commit exactly: air
+  // beyond them is travel that shows nothing, and at the right-hand end it
+  // reads as the history having stopped early.
+  spanCache = { perf: p, min, max };
   return spanCache;
 }
 
