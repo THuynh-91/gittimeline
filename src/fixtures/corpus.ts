@@ -352,6 +352,30 @@ export const FIXTURES: Fixture[] = [
       return s.build();
     },
   },
+  {
+    id: '23-back-merge-decade',
+    title: 'Dense with two long-lived lines that merge both ways',
+    build: () => {
+      // What is left after merge bubbles collapse, and the reason the length
+      // has no cap. A release line and a main line that integrate into each
+      // other every few days produce a merge for every second commit, and none
+      // of those merges is a branch that left and came straight back: each side
+      // history contains a merge of its own, so collapsing one would hide a
+      // criss-cross. Every commit here stays on stage and the show runs past
+      // eight minutes, which is what the scope chooser exists to ask about.
+      const s = new Script('23-back-merge-decade', '2014-01-01T00:00:00Z');
+      s.commit('main', 'seed', mara);
+      s.branch('release', 'main');
+      const people = [devi, kofi, ines, yuki, mara];
+      for (let i = 0; i < 480; i++) {
+        s.commit('main', `m${i}`, people[i % people.length]!, { days: 0.3 });
+        s.commit('release', `r${i}`, people[(i + 2) % people.length]!, { days: 0.2 });
+        s.merge('release', 'main', `fwd${i}`, mara, { days: 0.1 });
+        s.merge('main', 'release', `back${i}`, mara, { days: 0.1 });
+      }
+      return s.build();
+    },
+  },
 ];
 
 export function fixtureById(id: string): Fixture | undefined {

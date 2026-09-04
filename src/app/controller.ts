@@ -454,9 +454,10 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     const probe = await probeRepository(repo, probeClient);
     if (run?.id !== probeRun.id) return;
     const tooBig = (probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD;
-    // Dense is not the same as large. A merge-heavy history keeps nearly every
-    // commit on stage because junctions cannot be collapsed, so it can outrun
-    // the ceiling at a size that would be comfortable for a linear project.
+    // Dense is not the same as large. A merge-heavy history can keep nearly
+    // every commit on stage, because a junction only collapses when the branch
+    // was a routine pull request — so it can outrun the ceiling at a size that
+    // would be comfortable for a linear project.
     const tooDense = willOutrunTheCeiling(probe.estimatedCommits, probe.mergeRatio, presetFromSettings().lengthBias);
     if (tooBig || tooDense) {
       // Ask before spending hundreds of requests on something unwatchable.

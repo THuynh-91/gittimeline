@@ -16,7 +16,7 @@ public GitHub URL
            dag/time.ts        causal presentation timestamps (child never before parent)
            dag/spine.ts       primary spine: first-parent chain of the default tip (+ recorded fallbacks)
            dag/threads.ts     thread decomposition (path cover; every parent edge kept)
-           analysis/aggregate.ts   exact aggregation of plain linear runs (protected landmarks never collapse)
+           analysis/aggregate.ts   exact aggregation of plain linear runs and pull-request bubbles (protected landmarks never collapse)
            analysis/activity.ts    repository-relative intensity, smoothing, eras
            choreography/clock.ts   time-warp, tempo regions, beat grid, causal/approach reserves
            layout/layout.ts        lanes (capped), straight spine axis, splines (natural-time x)

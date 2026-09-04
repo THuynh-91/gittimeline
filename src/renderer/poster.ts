@@ -1,5 +1,6 @@
 import type { CompiledPerformance } from '@/model/types';
 import { PALETTE } from './palette';
+import { describeAggregate } from '@/analysis/aggregate';
 
 /**
  * Static SVG poster of the compiled topology — the rendering fallback when
@@ -57,7 +58,7 @@ export function renderPosterSvg(p: CompiledPerformance, upTo = Infinity): string
     const agg = p.aggregates.find((a) => a.boundaryShas[1] === p.nodes[e.child]!.sha);
     if (!agg) continue;
     const mid = e.pts.length >> 2;
-    parts.push(`<text x="${e.pts[mid * 2]}" y="${e.pts[mid * 2 + 1]! - 9}" font-size="9" text-anchor="middle" fill="${PALETTE.textDim}" font-family="system-ui, sans-serif">${agg.memberCount} commits</text>`);
+    parts.push(`<text x="${e.pts[mid * 2]}" y="${e.pts[mid * 2 + 1]! - 9}" font-size="9" text-anchor="middle" fill="${PALETTE.textDim}" font-family="system-ui, sans-serif">${esc(describeAggregate(agg))}</text>`);
   }
   parts.push('</svg>');
   return parts.join('');

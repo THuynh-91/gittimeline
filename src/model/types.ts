@@ -134,6 +134,12 @@ export interface AggregateSpan {
   id: string;
   memberShas: Sha[];
   memberCount: number;
+  /**
+   * How many members are merge commits. A ribbon over a plain linear run holds
+   * none; a ribbon over a run of pull-request bubbles holds one per branch that
+   * left the spine and came straight back, and the caption has to say so.
+   */
+  mergeCount: number;
   /** [entry commit, exit commit] — both remain exact, individually rendered nodes. */
   boundaryShas: Sha[];
   historicalStart: UnixMs | null;

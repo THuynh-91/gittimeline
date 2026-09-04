@@ -14,7 +14,7 @@ GitTimeline is a static, open-source web application. There is no backend: the b
 - **Merges** have an approach (the incoming thread curves toward its destination while a dashed intent line shows where it will land), a synchronized hit with rings and a ripple through nearby geometry, and a release.
 - **Merges are as big as the work they absorbed.** Two commits converging is a small ring; twelve is a wall of light with one spoke per incoming parent and the count written beside it. The pacing follows: the beat before a heavy merge hangs, and the beats after it race away.
 - **Dashed grey** is history that was not loaded. It is labelled and never filled in.
-- **A thick ribbon** is an exact aggregate of many known commits, with the count written on it.
+- **A thick ribbon** is an exact aggregate of many known commits, with the count written on it — "31 merged branches · 74 commits" when what it stands for is a run of pull requests.
 - **The calendar leads.** The repository's own month and year fill the bottom of the screen and advance as the show plays; quiet years spin past in well under a second while busy weeks slow down and fill the stage. A slim scrub line underneath carries the playhead and the landmarks worth jumping to.
 - **The commit ledger** across the top prints each commit as it lands: short SHA in the author's colour, subject and name. Click one to jump back to that moment, or drag the ledger to either side if you would rather keep the top clear.
 - **Each thread has its own muted tint and carries its name**, pinned to the newest commit it has landed, so two branches running side by side are never a guess. Threads whose branch no longer exists are labelled honestly as `thread 07` rather than given an invented name.
@@ -61,18 +61,26 @@ When a repository turns out to be large, GitTimeline says how large **before spe
 
 **How long a show runs** is derived, not fixed. Each visible commit is given 0.26 seconds of stage time — enough for its arrival to read as its own beat — and the history is collapsed into counted ribbons until what remains fits. The automatic length is therefore the size of what survives aggregation. There is **no cap**, because a cap can only be met by making arrivals invisible — a show nobody can follow is not a shorter show, it is a broken one. Choosing an explicit length in Settings overrides the pace exactly.
 
-**Density, not size, decides whether a history can be shown whole.** A merge is a branch point, and a branch point cannot be collapsed into a ribbon without hiding what happened — so a linear repository collapses however long it is, while a pull-request repository keeps nearly all of its commits on stage. Measured on the four histories in the shipped catalog:
+**Density, not size, decides whether a history can be shown whole.** A routine pull request — a branch that left the main line, carried a commit or two and was merged back — collapses into one counted ribbon much as a linear run does, provided the ribbon can hide the branch point along with the branch. What cannot collapse is a branch with a story of its own, a stale branch merged long after it left, or two long-lived lines that integrate into each other: those are branch points, and hiding one hides what happened. Measured on the real histories in the shipped catalog, before and after:
 
-| History | commits | merges | visible after aggregation | at the legible pace |
-|---|---:|---:|---:|---:|
-| ripgrep | 2,299 | 3% | 335 | 97 s |
-| Svelte 2023 | 860 | 3% | 235 | 86 s |
-| public-apis 2021 | 1,796 | 44% | 1,587 | 7 min |
-| mdBook | 3,296 | 32% | 2,584 | 11 min |
+| History | commits | merges | visible before | visible now | before | now |
+|---|---:|---:|---:|---:|---:|---:|
+| ripgrep | 2,299 | 3% | 335 | 335 | 97 s | 97 s |
+| Svelte 2023 | 860 | 3% | 235 | 235 | 86 s | 86 s |
+| public-apis 2021 | 1,796 | 44% | 1,587 | 1,171 | 6.9 min | 5.1 min |
+| mdBook | 3,293 | 32% | 2,581 | 1,207 | 11.3 min | 5.3 min |
 
-The last two run past six minutes, so they are **predicted as such from two probe requests and you are offered a shorter span before anything is fetched**, with the real length on the button — sampling the merge ratio of the most recent hundred commits costs one request and is what separates "large" from "long". Whatever you then pick plays at the legible pace however long it takes, because you picked it. Before this, mdBook was silently truncated to four minutes and played at 0.10 s a commit.
+and on the corpus, where the shape is the clean one:
 
-`tests/unit/pacing.test.ts` holds it with no exceptions: for every history in the corpus the typical arrival holds the stage for at least a quarter of a second, the fastest tenth stays above the flicker threshold, and arrivals stay under 4.5 a second — and any show that runs past six minutes must have been predicted dense, so nobody arrives at a long one unasked. Fixture `22-merge-dense-decade` is as dense as mdBook and runs 10.5 minutes at 0.262 s a commit; without a history that dense the suite only ever tested the comfortable path, which is how the old cap degraded real repositories unnoticed.
+| Fixture | commits | merges | visible before | visible now | before | now |
+|---|---:|---:|---:|---:|---:|---:|
+| `21-pull-request-treadmill` | 561 | 43% | 561 | 164 | 150 s | 82 s |
+| `22-merge-dense-decade` | 2,401 | 50% | 2,401 | 303 | 10.5 min | 97 s |
+| `23-back-merge-decade` | 1,921 | 50% | 1,921 | 1,921 | 8.4 min | 8.4 min |
+
+ripgrep and Svelte are collapsed to the budget either way — a nearly linear history was never the problem — and were not re-measured. The other two land well short of the corpus because a third of their pull requests left the main line long before they were merged back — public-apis' median is sixteen commits and its worst is 888 — and that branch point cannot be hidden unless the ribbon reaches back to cover it. Both are under six minutes now, but the size probe still treats them as dense and **offers a shorter span before anything is fetched**, with the length on the button as an upper bound: sampling the merge ratio of the most recent hundred commits costs one request and separates "large" from "long", but it cannot tell a bubble from a real branch, so it stays pessimistic. Whatever you then pick plays at the legible pace however long it takes, because you picked it. Before any of this, mdBook was silently truncated to four minutes and played at 0.10 s a commit.
+
+`tests/unit/pacing.test.ts` holds it with no exceptions: for every history in the corpus the typical arrival holds the stage for at least a quarter of a second, the fastest tenth stays above the flicker threshold, and arrivals stay under 4.5 a second — and any show that runs past six minutes must have been predicted dense, so nobody arrives at a long one unasked. Fixture `23-back-merge-decade` is the history that cannot be collapsed: 960 merges, none of them a bubble, 8.4 minutes at 0.262 s a commit. Without one that dense the suite only ever tests the comfortable path, which is how the old cap degraded real repositories unnoticed.
 
 Ingestion cost, measured by driving the real interface (`scripts/usertest.mjs`) with a token:
 
@@ -82,7 +90,7 @@ Ingestion cost, measured by driving the real interface (`scripts/usertest.mjs`) 
 | vite | 9,670 | 108 | 47s |
 | React | 22,345 | 244 | ~2 min |
 
-React's entire history loads with a token, at exact coverage. Aggregation collapses long linear runs into counted ribbons so the show stays watchable, and three things keep a very dense project legible rather than a smear: lanes are capped so thousands of short-lived pull-request branches share outer lanes instead of pushing the graph tens of thousands of units tall, the camera will not pull back past a fixed bound and instead stays with the front of the work, and thread names are budgeted so a named branch is labelled while thousands of anonymous ones are not.
+React's entire history loads with a token, at exact coverage. Aggregation collapses long linear runs and runs of pull requests into counted ribbons so the show stays watchable, and three things keep a very dense project legible rather than a smear: lanes are capped so thousands of short-lived pull-request branches share outer lanes instead of pushing the graph tens of thousands of units tall, the camera will not pull back past a fixed bound and instead stays with the front of the work, and thread names are budgeted so a named branch is labelled while thousands of anonymous ones are not.
 
 ## Pre-fetched histories
 
@@ -110,7 +118,7 @@ src/
   audio/         procedural Web Audio score
   player/        playback clock, worker client
   export/        share links, .gittimeline artifacts
-  fixtures/      synthetic history builder, the demo, the 20-fixture corpus
+  fixtures/      synthetic history builder, the demo, the 23-fixture corpus
   workers/       compile worker
   app/           Preact UI (store, controller, stage, timeline, panels)
 tests/unit       Vitest (invariants, property tests, mocked GitHub, artifacts)

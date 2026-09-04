@@ -14,7 +14,7 @@ GitTimeline may exaggerate energy, curvature, timing and impact. It may never ch
 |---|---|---|
 | `exact` | commits, parent edges, refs returned by GitHub | solid nodes and paths |
 | `derived` | threads, timestamps corrected for causality, eras, spine fallbacks | solid geometry, labelled "derived" in the inspector/events |
-| `aggregate` | `AggregateSpan` ribbons | thick ribbon with the member count; entry/exit commits stay exact |
+| `aggregate` | `AggregateSpan` ribbons | thick ribbon with the member count, and the merge count when it holds pull requests; entry/exit commits stay exact |
 | `estimated` | reserved for sampled measures (not used by the GitHub adapter today) | dashed/soft style |
 | `unknown` | parents outside the fetched window, unloaded spans | dashed grey "history not loaded" edge, dashed node ring, warning badge |
 
@@ -27,7 +27,7 @@ The top-bar badge shows `exact`, `partial` or `synthetic`. The **What am I seein
 3. Octopus merges keep every parent; criss-cross merges keep every secondary edge.
 4. Presentation time is corrected only enough that a child never precedes a parent; raw author/committer times are preserved and shown in the inspector. Corrections above one day are surfaced as warnings.
 5. The primary spine is the first-parent chain of the default branch tip. Fallbacks (selected ref, largest current branch, highest-salience tip, derived presentation spine) are recorded in `coverage.warnings`.
-6. Aggregation happens **after** ingestion and only over fully known, plain linear runs (one known parent, one child, no refs, not a junction or thread endpoint). How much is collapsed is decided by the target duration, and a single uniform run-length threshold is applied so similar runs are always treated alike. Boundary edges are kept; members are listed; expansion recovers the exact chain.
+6. Aggregation happens **after** ingestion and over two shapes only: fully known, plain linear runs inside a thread (one known parent, one child, no refs, not a junction or thread endpoint), and **stretches of the primary spine** in which every hidden commit is either plain or a **merge bubble** — a branch that left the spine, carried at most three plain commits, carries no refs or tags, and was merged back. Junctions with real side history, octopus merges, criss-crosses and ref targets never collapse; a stretch also has to *absorb* every branch that left it, so a branch point is never hidden while its branch stays on stage. A ribbon is only created once everything its members touch is another member or one of its two boundaries, so no edge is ever lost, and a ribbon holding merges reports how many as well as how many commits. How much is collapsed is decided by the target duration, and one uniform chunk size is applied to both shapes so similar runs are always treated alike. Boundary edges are kept; members are listed; expansion recovers the exact chain.
 7. Sampling before ingestion never becomes topology: a truncated fetch yields boundaries and the sentence "N recent commits loaded; earlier topology is not yet available".
 8. Contributor identity keys prefer the GitHub numeric id, then login, then a hash of normalized name+email. Raw e-mail addresses are never stored, rendered or exported.
 9. Repository text is hostile: control/bidi characters are stripped, lengths are capped, everything renders as text, only `https://github.com/...` links are navigable, prototype-polluting keys are dropped at every boundary.
