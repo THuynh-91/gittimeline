@@ -150,28 +150,28 @@ export function Landing() {
               {ex.label}
             </button>
           ))}
-          <span>·</span>
-          <button type="button" onClick={() => void loadDemo({ autoplay: true, landing: false })} data-testid="demo-button">
-            the built-in demo
-          </button>
-          <span>·</span>
-          <button type="button" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
-            histories ready to watch
-          </button>
         </div>
         {recent.length > 0 && (
-          <div class="recent" aria-label="Recent repositories">
-            {recent.map((r) => (
-              <button type="button" key={r.slug} onClick={() => void loadRepo(r.slug, { autoplay: true })}>
+          <div class="examples recent" aria-label="Recently opened">
+            <span>Again</span>
+            {recent.slice(0, 3).map((r) => (
+              <button type="button" key={r.slug} onClick={() => void loadRepo(r.slug, { autoplay: true })} title={`${r.commits} commits`}>
                 {r.slug}
               </button>
             ))}
           </div>
         )}
+        <div class="alt-actions">
+          <button type="button" class="alt" onClick={() => void loadDemo({ autoplay: true, landing: false })} data-testid="demo-button">
+            Watch the demo
+          </button>
+          <button type="button" class="alt" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
+            Histories ready to watch
+          </button>
+        </div>
       </form>
       <TokenNote />
       <div class="meta">
-        <span>Fetched from GitHub, rendered on your device. No backend, no account, no upload.</span>
         <span>
           <a href="#" onClick={(e) => { e.preventDefault(); store.panel.value = 'help'; play(); }}>
             How it works

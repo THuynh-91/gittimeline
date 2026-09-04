@@ -636,7 +636,10 @@ a {
   justify-content: center;
   z-index: 7;
   padding: 24px;
-  background: radial-gradient(ellipse at center, rgba(7, 8, 12, 0.62), rgba(7, 8, 12, 0.93) 78%);
+  /* A pool of dark behind the text, not a blanket over the stage. Darkening
+     the whole thing made the form legible and the performance behind it
+     invisible, which is half of what this page is for. */
+  background: radial-gradient(ellipse 62% 52% at 50% 46%, rgba(7, 8, 12, 0.9) 30%, rgba(7, 8, 12, 0.62) 68%, rgba(7, 8, 12, 0.28) 100%);
   /* Centred while it fits, scrollable when it does not. Without this the
      footer links become unreachable on a short window as soon as anything is
      added above them — a shelf of pre-fetched histories, for instance. */
@@ -1902,4 +1905,35 @@ kbd {
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--text-dim);
+}
+
+/* Two ways in that are not examples, so they do not share the examples row's
+   punctuation — that read as one long undifferentiated list of links. */
+.alt-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.alt-actions .alt {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: rgba(13, 15, 22, 0.66);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.alt-actions .alt:hover,
+.alt-actions .alt:focus-visible {
+  color: var(--ivory);
+  border-color: var(--accent);
+}
+
+.examples.recent button {
+  font-family: var(--mono);
+  font-size: 11.5px;
 }

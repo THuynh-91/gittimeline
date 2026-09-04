@@ -1,0 +1,10 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const page = await b.newPage({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 2 });
+await page.goto('http://localhost:4173/');
+await page.waitForFunction(() => window.__gittimeline?.stats);
+await page.evaluate(() => { window.__gittimeline.setToken(null); });
+await page.waitForTimeout(2600);
+await page.screenshot({ path: 'scripts/_ls.png' });
+console.log('captured');
+await b.close();

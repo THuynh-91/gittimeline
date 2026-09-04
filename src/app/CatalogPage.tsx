@@ -1,5 +1,5 @@
 import { Catalog } from './Catalog';
-import { store } from './store';
+import { showLanding } from './controller';
 
 /**
  * The catalog on its own page.
@@ -14,7 +14,7 @@ export function CatalogPage() {
   return (
     <div class="page" data-testid="catalog-page">
       <div class="page-inner">
-        <button type="button" class="page-back" onClick={() => (store.mode.value = 'landing')} data-testid="catalog-back">
+        <button type="button" class="page-back" onClick={showLanding} data-testid="catalog-back">
           ← Back
         </button>
         <h1>Ready to watch</h1>

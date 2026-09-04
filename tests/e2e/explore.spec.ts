@@ -126,4 +126,42 @@ test.describe('travelling the finished picture', () => {
     await page.evaluate(() => window.__gittimeline.seek(1));
     await expect(page.getByTestId('explore-bar')).toHaveCount(0);
   });
+
+  test('a newly loaded history is framed from its own beginning', async ({ page }) => {
+    /**
+     * Manual framing outlives whatever it was framing. Zooming into one corner
+     * of a finished history and then loading a different repository played the
+     * new performance entirely off-screen: it started at the beginning, but
+     * the beginning was not where the camera was pointing.
+     */
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur);
+    await page.evaluate(() => window.__gittimeline.zoom(3.5));
+    await page.getByTestId('explore-range').fill('950');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.__gittimeline.manualCamera)).toBe(true);
+    const parked = await page.evaluate(() => window.__gittimeline.viewport!.cx);
+
+    await page.evaluate(() => window.__gittimeline.loadFixture('05-long-running-side-thread'));
+    await page.waitForFunction(() => window.__gittimeline.stats && window.__gittimeline.stats.commits === 14, { timeout: 30000 });
+    await page.waitForTimeout(300);
+
+    expect(await page.evaluate(() => window.__gittimeline.manualCamera), 'the director has the camera back').toBe(false);
+    expect(await page.evaluate(() => window.__gittimeline.time), 'and it starts at the start').toBeLessThan(2);
+    expect(await page.evaluate(() => window.__gittimeline.viewport!.cx)).not.toBeCloseTo(parked, 0);
+  });
+
+  test('returning to the landing page leaves something moving behind it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    await page.getByTestId('catalog-back').click();
+    await page.getByTestId('url-input').waitFor();
+    await page.waitForTimeout(600);
+    // Not a frozen still of a finished performance, which is what returning
+     // used to leave on the stage.
+    expect(await page.evaluate(() => window.__gittimeline.playing)).toBe(true);
+    expect(await page.evaluate(() => window.__gittimeline.time)).toBeGreaterThan(0);
+  });
 });

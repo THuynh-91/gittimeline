@@ -280,6 +280,7 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset, opts: { au
     else store.banner.value = null;
   });
   player.load(perf, opts.startAt ?? 0);
+  releaseCamera();
   captionPtr = 0;
   renderer?.setPerformance(perf);
   audio.setPerformance(perf);
@@ -314,6 +315,47 @@ export async function loadDemo(opts: { autoplay: boolean; landing: boolean; star
     store.error.value = null;
   });
   await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: 'synthetic', isDemo: true });
+  // Behind the landing form, open on the demo's most alive moment. The first
+  // second of any history is a single commit on an otherwise empty stage,
+  // which is the least interesting thing the app can show.
+  if (opts.landing && opts.startAt == null) seekToLiveliest();
+}
+
+/**
+ * Jump to where the current performance looks like something.
+ *
+ * The widest parallel phrase is the most *interesting* moment, but early in a
+ * history it can still be three commits on an empty stage. Taking the later of
+ * that and roughly two-thirds through means most of the graph has been drawn
+ * and the picture still has movement in it, rather than the settled, dimmed
+ * final tableau.
+ */
+function seekToLiveliest() {
+  const p0 = store.perf.value;
+  if (!p0) return;
+  const widest = p0.events
+    .filter((e) => e.type === 'PARALLEL_PHRASE')
+    .sort((a, b) => b.performanceEnd - b.performanceStart - (a.performanceEnd - a.performanceStart))[0];
+  const phrase = widest ? Math.max(0, widest.performanceStart - 1.5) : 0;
+  player.seek(Math.max(phrase, p0.duration * 0.62));
+}
+
+/**
+ * Back to the landing page, with something worth looking at behind it.
+ *
+ * Returning used to leave whatever had been loaded frozen on the stage, so the
+ * page a visitor came back to was a still frame of a finished performance
+ * rather than the moving one they arrived at.
+ */
+export function showLanding() {
+  if (store.isDemo.value && store.perf.value) {
+    store.mode.value = 'landing';
+    releaseCamera();
+    seekToLiveliest();
+    player.play();
+    return;
+  }
+  void loadDemo({ autoplay: true, landing: true });
 }
 
 export async function loadFixture(id: string, autoplay = true) {
@@ -617,6 +659,24 @@ export function play() {
 }
 
 /**
+ * Hand the camera back to the director.
+ *
+ * Manual framing outlives whatever it was framing. A viewer who zoomed into
+ * one corner of a finished history and then loaded a different repository got
+ * the new performance played entirely off-screen — it started at the
+ * beginning, but the beginning was not where they were looking.
+ */
+function releaseCamera() {
+  if (renderer) {
+    renderer.manual = null;
+    renderer.zoomLock = null;
+  }
+  store.manualCamera.value = false;
+  store.cameraLocked.value = false;
+  updateSettings({ autoCamera: true });
+}
+
+/**
  * Back to the top, and back to the director.
  *
  * Seeking alone is not enough. If the viewer had been travelling the finished
@@ -625,13 +685,7 @@ export function play() {
  */
 function restart() {
   player.seek(0);
-  if (renderer) {
-    renderer.manual = null;
-    renderer.zoomLock = null;
-  }
-  store.manualCamera.value = false;
-  store.cameraLocked.value = false;
-  updateSettings({ autoCamera: true });
+  releaseCamera();
   audio.reset();
 }
 
@@ -1136,6 +1190,9 @@ export function installDebugHook() {
     get nodeX() {
       return store.perf.value ? store.perf.value.nodes.map((n) => n.x) : null;
     },
+    loadFixture(id: string) {
+      void loadFixture(id);
+    },
     zoom(factor: number) {
       zoomCamera(factor);
     },
@@ -1212,14 +1269,4 @@ export async function boot() {
   }
   // Landing: the demo performs softly behind the form.
   await loadDemo({ autoplay: true, landing: true });
-  // Open on the demo's most alive moment rather than on an empty stage. The
-  // landing page is the first thing anyone sees and the first second of any
-  // history is one commit; the widest parallel phrase is what the app is for.
-  const p0 = store.perf.value;
-  if (p0) {
-    const widest = p0.events
-      .filter((e) => e.type === 'PARALLEL_PHRASE')
-      .sort((a, b) => b.performanceEnd - b.performanceStart - (a.performanceEnd - a.performanceStart))[0];
-    if (widest) player.seek(Math.max(0, widest.performanceStart - 1.5));
-  }
 }
