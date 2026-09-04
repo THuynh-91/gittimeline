@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks';
 import { store, isBusy } from './store';
 import { cancel, retry, playCachedPartial, loadDemo } from './controller';
 import { formatReset } from '@/github/ratelimit';
@@ -10,6 +11,47 @@ const STAGES: Array<{ key: string; label: string }> = [
 ];
 
 /** Loading is the opening of the show: honest stage progress, cancellable, never a fake percentage. */
+/**
+ * GitHub allows roughly sixty anonymous requests an hour per network, which is
+ * a few thousand commits. A free read-only token raises that to about five
+ * thousand — enough for a large open-source project. Offering it exactly where
+ * the limit bites is far more useful than burying it in settings.
+ */
+function TokenEscape({ resetAt }: { resetAt: number | null }) {
+  const [value, setValue] = useState('');
+  return (
+    <div>
+      <p>
+        {resetAt ? `It resets ${formatReset(resetAt)}. ` : ''}That limit is GitHub's, not GitDance's, and applies to your whole network. A free fine-grained token with read-only public access raises it from about 60 requests an hour to about 5,000, which is the difference between a few thousand commits and a large project's whole history.
+      </p>
+      <div class="token-inline">
+        <input
+          type="text"
+          autoComplete="off"
+          spellcheck={false}
+          aria-label="GitHub token"
+          placeholder="github_pat_… (kept in this tab only)"
+          value={value}
+          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+        />
+        <button
+          type="button"
+          class="btn primary small"
+          onClick={() => {
+            store.token.value = value.trim() || null;
+            retry();
+          }}
+        >
+          Use token
+        </button>
+      </div>
+      <p>
+        Create one at <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens</a> with no extra permissions. It stays in memory for this tab, is sent only to api.github.com, and is never stored, logged or put in a shared link.
+      </p>
+    </div>
+  );
+}
+
 export function Prelude() {
   const busy = isBusy.value;
   const error = store.error.value;
@@ -27,7 +69,7 @@ export function Prelude() {
               Accepted forms: <code>github.com/owner/repository</code>, <code>owner/repository</code>, or an https link. Private repositories are not supported by this hosted viewer.
             </p>
           )}
-          {error.kind === 'rate-limited' && error.resetAt && <p>Reset {formatReset(error.resetAt)}.</p>}
+          {(error.kind === 'rate-limited' || error.kind === 'secondary-limit') && <TokenEscape resetAt={error.resetAt} />}
           <div class="actions">
             {error.canPlayPartial && (
               <button type="button" class="btn primary" onClick={() => void playCachedPartial()}>

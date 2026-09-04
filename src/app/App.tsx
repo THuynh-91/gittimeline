@@ -11,6 +11,7 @@ import { CommitRail } from './CommitRail';
 import { Timeline } from './Timeline';
 import { Transport } from './Transport';
 import { Panels } from './Panels';
+import { FollowButton } from './FollowButton';
 
 export function App() {
   useEffect(() => {
@@ -43,6 +44,7 @@ export function App() {
       <Prelude />
       {showPlayer && perf && !chromeHidden && <TopBar />}
       {showPlayer && perf && !chromeHidden && <CommitRail />}
+      {showPlayer && perf && <FollowButton />}
       {showPlayer && perf && !chromeHidden && (
         <div class="band" role="region" aria-label="Date, timeline and transport">
           <DateBar />

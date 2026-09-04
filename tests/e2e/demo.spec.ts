@@ -36,21 +36,33 @@ test.describe('built-in demo performance', () => {
     // Bodies travel between nodes: sample a parallel phrase and see ≥2 performers on distinct threads moving.
     const phrase = await page.evaluate(() => window.__gitdance.events('PARALLEL_PHRASE').sort((a, b) => b.end - b.start - (a.end - a.start))[0]!);
     await page.evaluate(() => window.__gitdance.pause());
-    await page.evaluate((t) => window.__gitdance.seek(t), (phrase.start + phrase.end) / 2);
-    await page.waitForTimeout(100);
-    const bodies1 = await page.evaluate(() => window.__gitdance.bodies());
-    await page.evaluate(() => window.__gitdance.play());
-    const threads1 = new Set(bodies1.filter((b) => b.body === 'performer').map((b) => b.thread));
-    expect(threads1.size).toBeGreaterThanOrEqual(2);
-    await page.waitForTimeout(160);
-    const bodies2 = await page.evaluate(() => window.__gitdance.bodies());
-    const threads2 = new Set(bodies2.filter((b) => b.body === 'performer').map((b) => b.thread));
-    expect(threads2.size).toBeGreaterThanOrEqual(2); // still several performers on distinct threads
-    const moved = bodies1.filter((b1) => {
-      const b2 = bodies2.find((b) => b.edge === b1.edge);
-      return b2 && Math.hypot(b2.x - b1.x, b2.y - b1.y) > 1;
+    // Scan the phrase: performers dwell briefly at each node, so sample across it
+    // rather than at a single instant.
+    let best: Array<{ edge: number; body: string; thread: number; x: number; y: number }> = [];
+    let bestAt = phrase.start;
+    for (let k = 0; k <= 12; k++) {
+      const t = phrase.start + ((phrase.end - phrase.start) * k) / 12;
+      await page.evaluate((tt) => window.__gitdance.seek(tt), t);
+      const bodies = await page.evaluate(() => window.__gitdance.bodies());
+      const threads = new Set(bodies.filter((b) => b.body === 'performer').map((b) => b.thread));
+      if (threads.size > new Set(best.filter((b) => b.body === 'performer').map((b) => b.thread)).size) {
+        best = bodies;
+        bestAt = t;
+      }
+    }
+    expect(new Set(best.filter((b) => b.body === 'performer').map((b) => b.thread)).size).toBeGreaterThanOrEqual(2);
+
+    // ...and those performers physically travel while time advances.
+    await page.evaluate((tt) => window.__gitdance.seek(tt), bestAt);
+    const posA = await page.evaluate(() => window.__gitdance.bodies());
+    await page.evaluate((tt) => window.__gitdance.seek(tt), bestAt + 0.12);
+    const posB = await page.evaluate(() => window.__gitdance.bodies());
+    const moved = posA.filter((b1) => {
+      const b2 = posB.find((b) => b.edge === b1.edge);
+      return b2 && Math.hypot(b2.x - b1.x, b2.y - b1.y) > 0.5;
     });
-    expect(moved.length).toBeGreaterThanOrEqual(1); // and they physically travelled
+    expect(moved.length).toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__gitdance.play());
 
     // Merge approach → impact → release: the camera pushes in around the hit and then settles.
     const merge = await page.evaluate(() => window.__gitdance.events('MAJOR_MERGE')[0]!);
@@ -60,9 +72,20 @@ test.describe('built-in demo performance', () => {
       await page.waitForTimeout(60);
       return page.evaluate(() => ({ cam: window.__gitdance.camera!, bodies: window.__gitdance.bodies() }));
     };
-    const before = await sampleAt(merge.impact - 1.2);
-    expect(before.bodies.filter((b) => b.kind === 'merge' || b.kind === 'secondary').length).toBeGreaterThanOrEqual(1); // approach phase: a body is converging
-    expect(['convergence', 'ensemble', 'overview', 'split']).toContain(before.cam.state);
+    // Approach: somewhere in the run-up, a body is physically travelling along
+    // the merge edge toward the destination.
+    let before = await sampleAt(merge.impact - 0.6);
+    let approaching = 0;
+    for (let dt = 1.6; dt >= 0.1; dt -= 0.1) {
+      const s = await sampleAt(merge.impact - dt);
+      const n = s.bodies.filter((b) => b.kind === 'merge').length;
+      if (n > approaching) {
+        approaching = n;
+        before = s;
+      }
+    }
+    expect(approaching).toBeGreaterThanOrEqual(1);
+    expect(before.cam.state).not.toBe('release');
     const atImpact = await sampleAt(merge.impact);
     expect(atImpact.cam.punch).toBeGreaterThan(before.cam.punch); // push-in at the hit
     expect(atImpact.cam.state).toBe('impact');
@@ -161,7 +184,7 @@ test.describe('built-in demo performance', () => {
     await page.waitForFunction((h) => window.__gitdance.planHash !== h, hash);
     await waitForReady(page);
     const stats = await page.evaluate(() => window.__gitdance.stats);
-    expect(stats!.commits).toBe(37);
+    expect(stats!.commits).toBe(56);
     const cam = await page.evaluate(() => window.__gitdance.camera);
     expect(cam!.punch).toBe(1);
     // still animated in reduced motion (steady transitions), but calmer

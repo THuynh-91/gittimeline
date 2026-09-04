@@ -51,6 +51,15 @@ interface ViewTransform {
 
 const HEAVY = new Set(['MERGE_IMPACT', 'MAJOR_MERGE', 'OCTOPUS_MERGE']);
 
+/**
+ * Twenty commits converging must look unmistakably bigger than two. Volume is
+ * the count of commits unique to the merged side(s), so this grows with the
+ * real weight of the work rather than with a normalized score.
+ */
+function volumeScale(volume: number): number {
+  return 1 + Math.min(2.6, Math.log2(1 + Math.max(0, volume)) * 0.42);
+}
+
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
   private glow: HTMLCanvasElement;
@@ -548,16 +557,16 @@ export class StageRenderer {
     ctx.lineTo(b.x, b.y);
   }
 
-  private activeRipples(t: number): Array<{ x: number; y: number; age: number; amp: number }> {
+  private activeRipples(t: number): Array<{ x: number; y: number; age: number; amp: number; reach: number }> {
     if (this.settings.reducedMotion) return [];
-    const out: Array<{ x: number; y: number; age: number; amp: number }> = [];
+    const out: Array<{ x: number; y: number; age: number; amp: number; reach: number }> = [];
     for (const ev of this.impactEvents) {
       if (!HEAVY.has(ev.type)) continue;
       const age = t - ev.performanceImpact;
       if (age < 0 || age > 2.4) continue;
       const nd = this.nodeBySha.get(ev.subjectIds[0]!);
       if (!nd) continue;
-      out.push({ x: nd.x, y: nd.y, age, amp: (4 + 9 * ev.salience) * ev.effectBudget });
+      out.push({ x: nd.x, y: nd.y, age, amp: (4 + 9 * ev.salience) * ev.effectBudget * volumeScale(nd.mergeVolume), reach: 220 * volumeScale(nd.mergeVolume) });
     }
     return out;
   }
@@ -567,7 +576,7 @@ export class StageRenderer {
     glow: CanvasRenderingContext2D | null,
     nd: NodeGeom,
     t: number,
-    ripples: Array<{ x: number; y: number; age: number; amp: number }>,
+    ripples: Array<{ x: number; y: number; age: number; amp: number; reach: number }>,
     ivory: string,
     slate: string,
     focusIdx: number,
@@ -579,8 +588,8 @@ export class StageRenderer {
     // Existing geometry reacts: radial ripple from merge impacts, and a faint breath.
     for (const r of ripples) {
       const d = Math.hypot(x - r.x, y - r.y);
-      if (d < 4 || d > 260) continue;
-      const wave = Math.sin((d / 34 - r.age * 6.5) * 1.0) * Math.exp(-r.age * 1.6) * (1 - d / 260);
+      if (d < 4 || d > r.reach) continue;
+      const wave = Math.sin((d / 34 - r.age * 6.5) * 1.0) * Math.exp(-r.age * 1.6) * (1 - d / r.reach);
       const k = (r.amp * wave) / d;
       x += (x - r.x) * k;
       y += (y - r.y) * k;
@@ -595,7 +604,7 @@ export class StageRenderer {
     const selected = this.settings.selectedNode === nd.idx || this.settings.hoverNode === nd.idx;
     const threadSel = this.settings.selectedThread != null && nd.threadIdx === this.settings.selectedThread;
     const structural = nd.isSpine ? ivory : threadSel ? PALETTE.accent : slate;
-    const baseR = nd.isMerge ? 5.2 : nd.isSpine ? 4.1 : 3.2;
+    const baseR = nd.isMerge ? 5.2 * Math.min(2.1, volumeScale(nd.mergeVolume)) : nd.isSpine ? 4.1 : 3.2;
     const r = baseR * pop * (1 + nd.salience * 0.5);
 
     // arrival halo in the contributor's color, fading — human energy touching structure
@@ -790,8 +799,9 @@ export class StageRenderer {
         if (age < 0) {
           // anticipation: tightening ring converging on the merge node
           const a = 1 + age / 0.6;
+          const vsA = volumeScale(nd.mergeVolume);
           ctx.beginPath();
-          ctx.arc(nd.x, nd.y, 26 * (1 - a) + 6, 0, Math.PI * 2);
+          ctx.arc(nd.x, nd.y, (26 * (1 - a) + 6) * vsA, 0, Math.PI * 2);
           ctx.strokeStyle = rgba(ivory, 0.35 * a * budget);
           ctx.lineWidth = 1;
           ctx.stroke();
@@ -799,11 +809,12 @@ export class StageRenderer {
         }
         const release = Math.max(0.6, ev.performanceEnd - ev.performanceImpact);
         const a = Math.min(1, age / release);
-        const radius = (12 + (reduced ? 36 : 96) * Math.sqrt(a) * (0.6 + ev.salience * 0.7)) * budget;
+        const vs = volumeScale(nd.mergeVolume);
+        const radius = (12 + (reduced ? 36 : 96) * Math.sqrt(a) * (0.6 + ev.salience * 0.7)) * budget * vs;
         ctx.beginPath();
         ctx.arc(nd.x, nd.y, radius, 0, Math.PI * 2);
         ctx.strokeStyle = rgba(PALETTE.merge, (1 - a) * (1 - a) * 0.75 * budget);
-        ctx.lineWidth = 1.8 * (1 - a) + 0.5;
+        ctx.lineWidth = (1.8 * (1 - a) + 0.5) * Math.min(2.4, vs);
         ctx.stroke();
         if (ev.type !== 'MERGE_IMPACT' && !reduced) {
           ctx.beginPath();
@@ -812,18 +823,34 @@ export class StageRenderer {
           ctx.lineWidth = 1;
           ctx.stroke();
         }
+        // Spokes: one per converging parent, so an octopus reads instantly.
+        if (!reduced && age < 0.7 && nd.parentCount > 1) {
+          const k = 1 - age / 0.7;
+          const spokes = Math.min(12, nd.parentCount);
+          for (let i = 0; i < spokes; i++) {
+            const ang = (i / spokes) * Math.PI * 2 + nd.idx;
+            const r0 = 8 + 26 * (1 - k) * vs;
+            const r1 = r0 + 16 * k * vs;
+            ctx.beginPath();
+            ctx.moveTo(nd.x + Math.cos(ang) * r0, nd.y + Math.sin(ang) * r0);
+            ctx.lineTo(nd.x + Math.cos(ang) * r1, nd.y + Math.sin(ang) * r1);
+            ctx.strokeStyle = rgba(PALETTE.merge, 0.5 * k * budget);
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+          }
+        }
         if (age < 0.28 && !noFlash && !reduced) {
           const k = 1 - age / 0.28;
           ctx.save();
           ctx.globalCompositeOperation = 'lighter';
           ctx.beginPath();
-          ctx.arc(nd.x, nd.y, 10 + 22 * (1 - k), 0, Math.PI * 2);
+          ctx.arc(nd.x, nd.y, (10 + 22 * (1 - k)) * Math.min(2, vs), 0, Math.PI * 2);
           ctx.fillStyle = rgba(PALETTE.merge, 0.55 * k * budget);
           ctx.fill();
           ctx.restore();
           if (glow) {
             glow.beginPath();
-            glow.arc(nd.x, nd.y, 26 * k * (0.5 + ev.salience), 0, Math.PI * 2);
+            glow.arc(nd.x, nd.y, 26 * k * (0.5 + ev.salience) * Math.min(2, vs), 0, Math.PI * 2);
             glow.fillStyle = rgba(PALETTE.merge, 0.9 * k * budget);
             glow.fill();
           }
@@ -897,6 +924,17 @@ export class StageRenderer {
       if (first && first.impact <= t) {
         const s = this.worldToScreen(first.x, first.y);
         place(s.x - 8 - ctx.measureText(spine.label).width, s.y, spine.label, 0.8, PALETTE.ivory);
+      }
+    }
+    // how much converged, on the merges big enough to warrant saying so
+    if (labels !== 'minimal') {
+      for (const nd of p.nodes) {
+        if (!nd.isMerge || nd.mergeVolume < 6 || nd.impact > t) continue;
+        const age = t - nd.impact;
+        const alpha = Math.max(0, Math.min(1, 1 - (age - 2.2) / 1.2));
+        if (alpha <= 0) continue;
+        const s = this.worldToScreen(nd.x, nd.y);
+        place(s.x + 12, s.y + 16, `${nd.mergeVolume} commits converge`, alpha, PALETTE.merge);
       }
     }
     // tags & aggregates

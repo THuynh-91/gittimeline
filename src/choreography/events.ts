@@ -28,6 +28,7 @@ export interface EventContext {
   aggregateEdge: Int32Array; // aggregate idx → edge idx
   eras: Era[];
   mergeSalience: Float32Array; // per node
+  mergeVolume: Int32Array; // per node
   beatLen: Float32Array; // per node
   gaps: Map<number, number>; // node idx → historical gap ms
   presentation: Float64Array; // per commit
@@ -198,8 +199,11 @@ export function buildEvents(ctx: EventContext): EventPlan {
         historicalTime: h,
         beat: nd.beat,
       });
-      const release = bl * (1.5 + 2 * sal);
-      const ev = push(type, nd.impact - 0.2, nd.impact, nd.impact + release, subjects, sal, `${type === 'OCTOPUS_MERGE' ? `Octopus merge of ${parents.length} parents` : type === 'MAJOR_MERGE' ? 'Major merge' : 'Merge'} · ${who(nd)} · ${subjectOf(nd)} · ${fmtDate(h)}`, {
+      const volume = ctx.mergeVolume[nd.idx] ?? 0;
+      const release = bl * (1.5 + 2 * sal) * (1 + Math.min(1.2, Math.log2(1 + volume) * 0.16));
+      const scaleWord = type === 'OCTOPUS_MERGE' ? `Octopus merge of ${parents.length} parents` : type === 'MAJOR_MERGE' ? 'Major merge' : 'Merge';
+      const volumeWord = volume > 0 ? ` · ${volume} commit${volume === 1 ? '' : 's'} converge` : '';
+      const ev = push(type, nd.impact - 0.2, nd.impact, nd.impact + release, subjects, sal, `${scaleWord}${volumeWord} · ${who(nd)} · ${subjectOf(nd)} · ${fmtDate(h)}`, {
         historicalTime: h,
         beat: nd.beat,
         variant: parents.length > 2 ? 'octopus' : sal >= 0.72 ? 'major' : 'standard',

@@ -12,7 +12,7 @@ GitDance is a static, open-source web application. There is no backend: the brow
 - **Slate paths** are real threads: ancestry that diverged where the graph diverges and merged where a merge commit says so. Nothing is invented.
 - **Moving sparks** are people. A contributor's colour and glyph travel *through* the structure and never recolour it. Handoffs cross-fade one signature into the next.
 - **Merges** have an approach (the incoming thread curves toward its destination while a dashed intent line shows where it will land), a synchronized hit with rings and a ripple through nearby geometry, and a release.
-- **Rings** are merge commits; a double ring has more than two parents (octopus).
+- **Merges are as big as the work they absorbed.** Two commits converging is a small ring; twelve is a wall of light with one spoke per incoming parent and the count written beside it. The pacing follows: the beat before a heavy merge hangs, and the beats after it race away.
 - **Dashed grey** is history that was not loaded. It is labelled and never filled in.
 - **A thick ribbon** is an exact aggregate of many known commits, with the count written on it.
 - **The calendar leads.** The repository's own month and year fill the bottom of the screen and advance as the show plays; quiet years spin past in well under a second while busy weeks slow down and fill the stage. A slim scrub line underneath carries the playhead and the landmarks worth jumping to.
@@ -47,6 +47,14 @@ Useful URL parameters (everything lives in the hash so static hosting needs no r
 `Space` play/pause · `←/→` step by beat (or commit / second) · `Shift+←/→` landmarks · `↑/↓` walk active threads · `Home/End` · `M` sound on/off (off by default) · `C` camera: free look → follow at your zoom → auto · `R` reduced motion · `E` events · `I` what am I seeing? · `?` help · `Esc` close.
 
 Zoom out with the wheel, then press `C`: the performance keeps playing and keeps that wider view instead of springing back.
+
+## Large repositories and GitHub's rate limit
+
+GitHub allows roughly **60 anonymous requests an hour per network** — its limit, not GitDance's, and not something any browser app can bypass. That is a few thousand commits. GitDance stretches it as far as it honestly can: 100 commits per request, ETag revalidation (an unchanged page returns 304 and **does not count** against the limit), an IndexedDB cache across visits, and a budget that stops before exhaustion and plays a truthful partial performance.
+
+For a large open-source project, supply a **free fine-grained token** with read-only public access. That raises the ceiling to about **5,000 requests an hour** — enough for a whole project history — and GitDance then reads up to 400 pages instead of 40. The app offers the token field exactly where the limit bites, keeps it in memory for that tab only, sends it solely to `api.github.com`, and never stores, logs or shares it.
+
+However much is loaded, the show still fits its target duration: aggregation collapses long linear runs into counted ribbons rather than making you watch ten thousand identical dots.
 
 ## Truth model
 

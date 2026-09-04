@@ -69,7 +69,7 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByRole('alertdialog')).toContainText('did not expose this repository publicly');
     await page.getByRole('button', { name: 'Play the demo instead' }).click();
     await waitForReady(page);
-    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(37);
+    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(56);
   });
 
   test('empty repository shows the dormant seed, not an error', async ({ page }) => {

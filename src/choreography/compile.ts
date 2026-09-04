@@ -93,6 +93,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   // Merge salience (spec §18.4).
   const mergeRaw = new Float32Array(n);
+  const mergeVolume = new Int32Array(n);
   let maxMergeRaw = 0;
   for (let i = 0; i < n; i++) {
     const ps = g.parents[i]!;
@@ -108,6 +109,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
         oldest = Math.min(oldest, presentation[s]!);
       }
     }
+    mergeVolume[i] = unique;
     const ageDays = (presentation[i]! - oldest) / 86_400_000;
     let raw = 0.25 + 0.22 * Math.log2(1 + unique) + 0.12 * Math.log2(1 + contribs.size) + 0.08 * Math.log2(1 + ageDays);
     if (commits[i]!.parentShas.length > 2) raw += 0.6;
@@ -210,6 +212,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     return {
       h: presentation[cid]!,
       intensity: activity.nodeIntensity[cid]!,
+      volume: mergeVolume[cid]!,
       thread: th.threadOf[cid]!,
       after,
       weight,
@@ -259,6 +262,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
       isSpine: spineSet.has(cid),
       isMerge: c.parentShas.length > 1,
       parentCount: c.parentShas.length,
+      mergeVolume: mergeVolume[cid]!,
       tagLabels: tags,
       refLabels: refsOf.get(cid) ?? [],
       aggregateIdx: aggByEntry.get(cid) ?? null,
@@ -429,10 +433,12 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   }));
 
   onProgress('events');
+  const mergeVolumeN = new Int32Array(nodes.length);
   const mergeSalienceN = new Float32Array(nodes.length);
   const gapsN = new Map<number, number>();
   nodes.forEach((nd, nid) => {
     mergeSalienceN[nid] = mergeSalienceC[commitOfNode[nid]!]!;
+    mergeVolumeN[nid] = mergeVolume[commitOfNode[nid]!]!;
     const gap = clock.gaps.get(nid);
     if (gap !== undefined) gapsN.set(nid, gap);
   });
@@ -448,6 +454,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     aggregateEdge,
     eras,
     mergeSalience: mergeSalienceN,
+    mergeVolume: mergeVolumeN,
     beatLen: beatLenN,
     gaps: gapsN,
     presentation,

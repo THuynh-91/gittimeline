@@ -34,8 +34,9 @@ The top-bar badge shows `exact`, `partial` or `synthetic`. The **What am I seein
 
 ## Partial history, rate limits, offline
 
-- Anonymous GitHub access is limited per network (about 60 requests/hour). Ingestion reads the real headers, keeps a reserve, and stops honestly. A partial dataset is compiled and labelled; the banner states the reset time GitHub reported.
-- Pages are cached in IndexedDB with their ETag and next-page link, so repeat visits use conditional requests (304s are free) and offline visits replay cached pagination, marked "served from your local cache".
+- Anonymous GitHub access is limited per network (about 60 requests/hour, 100 commits per request). Ingestion reads the real headers, keeps a reserve, and stops honestly. A partial dataset is compiled and labelled; the banner states the reset time GitHub reported.
+- A fine-grained read-only token raises the ceiling to about 5,000 requests/hour and the page budget from 40 to 400. It is offered inline on the rate-limit error, held in memory for the tab only, and never persisted, logged or shared.
+- Pages are cached in IndexedDB with their ETag and next-page link, so repeat visits use conditional requests (GitHub does not charge a 304 against the limit) and offline visits replay cached pagination, marked "served from your local cache".
 - A rate limit before any data yields an error card with the reset time and, when available, an offer to play the cached copy. Nothing pretends to bypass GitHub.
 
 ## Two clocks

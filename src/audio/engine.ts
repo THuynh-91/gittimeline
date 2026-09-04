@@ -195,25 +195,25 @@ export class AudioEngine {
       case 'COMMIT_STEP': {
         if (!this.takeVoice(ev.performanceImpact)) break;
         const octave = node?.isSpine ? 1 : 2;
-        pluck(ctx, fx, when, ROOT_HZ * octave * Math.pow(2, degree / 12), 0.07 + 0.03 * ev.salience, 0.5, contributorJitter);
+        pluck(ctx, fx, when, ROOT_HZ * octave * Math.pow(2, degree / 12), 0.075 + 0.03 * ev.salience, 1.6, contributorJitter);
         break;
       }
       case 'COMMIT_CLUSTER': {
         const count = 6;
         const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
-        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[i % 5]! / 12), 0.045, 0.3, contributorJitter);
+        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[i % 5]! / 12), 0.04, 0.9, contributorJitter);
         break;
       }
       case 'DIVERGENCE':
-        pluck(ctx, fx, when - 0.09, ROOT_HZ * 2 * Math.pow(2, (degree + 2) / 12), 0.12 * budget, 0.18, contributorJitter);
-        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, (degree + 7) / 12), 0.16 * budget, 0.3, contributorJitter);
+        pluck(ctx, fx, when - 0.1, ROOT_HZ * 2 * Math.pow(2, (degree + 2) / 12), 0.1 * budget, 1, contributorJitter);
+        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, (degree + 7) / 12), 0.13 * budget, 1.6, contributorJitter);
         swish(ctx, fx, when - 0.05, 0.25, 0.06 * budget);
         break;
       case 'THREAD_ACTIVATE':
-        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, degree / 12), 0.1, 0.35, contributorJitter);
+        pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, degree / 12), 0.09, 1.4, contributorJitter);
         break;
       case 'CONTRIBUTOR_ENTER':
-        pluck(ctx, fx, when, ROOT_HZ * 4 * Math.pow(2, (degree + 4) / 12), 0.06, 0.4, contributorJitter);
+        pluck(ctx, fx, when, ROOT_HZ * 4 * Math.pow(2, (degree + 4) / 12), 0.05, 1.2, contributorJitter);
         break;
       case 'MERGE_APPROACH':
         break; // scheduled by start in schedule()
@@ -223,7 +223,11 @@ export class AudioEngine {
         const big = ev.type !== 'MERGE_IMPACT';
         thump(ctx, fx, when, big ? 0.55 * budget : 0.32 * budget, big ? 48 : 60);
         chord(ctx, fx, when, ROOT_HZ, big ? 0.16 * budget : 0.1 * budget, big ? 1.4 : 0.8);
-        if (ev.type === 'OCTOPUS_MERGE') for (let i = 1; i < 3; i++) pluck(ctx, fx, when + i * 0.07, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[(i * 2) % 5]! / 12), 0.1, 0.3, 0.5);
+        // Roll the chord out of the impact: more voices the more work converged.
+        const voices = Math.min(6, 2 + Math.round(Math.log2(1 + (node ? node.mergeVolume : 0))));
+        for (let i = 0; i < voices; i++) {
+          pluck(ctx, fx, when + i * 0.045, ROOT_HZ * (i < 3 ? 1 : 2) * Math.pow(2, PENTATONIC[i % PENTATONIC.length]! / 12), (big ? 0.1 : 0.07) * budget, 2.2, 0.4);
+        }
         break;
       }
       case 'TAG_LANDMARK':
@@ -264,34 +268,57 @@ function lowerBound(events: ChoreographyEvent[], t: number): number {
 function pluck(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, decay: number, timbre: number) {
   if (when < ctx.currentTime - 0.05) return;
   const t0 = Math.max(when, ctx.currentTime);
-  const o = ctx.createOscillator();
-  o.type = 'sine';
-  o.frequency.value = freq;
-  o.detune.value = (timbre - 0.5) * 6;
-  // One quiet partial in exact ratio: colour without the beating that made the
-  // old voice sound like a notification.
-  const o2 = ctx.createOscillator();
-  o2.type = 'sine';
-  o2.frequency.value = freq * (timbre < 0.5 ? 2 : 3);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
-  const g2 = ctx.createGain();
-  g2.gain.value = 0.1 + timbre * 0.12;
-  const lp = ctx.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.setValueAtTime(3200, t0);
-  lp.frequency.exponentialRampToValueAtTime(900, t0 + decay);
-  o.connect(g);
-  o2.connect(g2);
-  g2.connect(g);
-  g.connect(lp);
-  lp.connect(out);
-  o.start(t0);
-  o2.start(t0);
-  o.stop(t0 + decay + 0.05);
-  o2.stop(t0 + decay + 0.05);
+  // A struck string: partials slightly sharp of the harmonic series, the higher
+  // ones dying away first, plus a short hammer knock. This is what makes it read
+  // as a piano rather than a beep.
+  const body = ctx.createGain();
+  body.gain.value = 1;
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(Math.min(9000, freq * 9), t0);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(320, freq * 2.2), t0 + decay * 0.8);
+  body.connect(tone);
+  tone.connect(out);
+
+  const partials: Array<[number, number, number]> = [
+    [1, 1, 1],
+    [2, 0.4, 0.62],
+    [3, 0.2, 0.42],
+    [4, 0.11, 0.3],
+    [5, 0.06, 0.22],
+    [6, 0.035, 0.16],
+  ];
+  const inharmonicity = 0.00045 + timbre * 0.0004;
+  for (const [ratio, amp, decayScale] of partials) {
+    const f = freq * ratio * Math.sqrt(1 + inharmonicity * ratio * ratio);
+    if (f > 12000) continue;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    const d = Math.max(0.09, decay * decayScale);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * amp), t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.connect(g);
+    g.connect(body);
+    o.start(t0);
+    o.stop(t0 + d + 0.05);
+  }
+  // Hammer knock: a very short filtered noise burst that gives the attack its felt.
+  const n = noise(ctx, 0.05);
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'bandpass';
+  nf.frequency.value = Math.min(6000, freq * 3.5);
+  nf.Q.value = 0.9;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(gain * 0.5, t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+  n.connect(nf);
+  nf.connect(ng);
+  ng.connect(body);
+  n.start(t0);
+  n.stop(t0 + 0.08);
 }
 
 function thump(ctx: AudioContext, out: AudioNode, when: number, gain: number, freq: number) {

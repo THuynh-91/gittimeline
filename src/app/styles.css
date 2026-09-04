@@ -886,6 +886,56 @@ a {
   color: var(--text-dim);
 }
 
+.follow-btn {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--band) + 26px);
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: var(--ivory);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+}
+
+.follow-btn:hover {
+  background: #fff6e2;
+}
+
+.follow-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.token-inline {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.token-inline input {
+  flex: 1;
+  background: rgba(20, 24, 36, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  min-width: 0;
+}
+
 .toast {
   position: absolute;
   bottom: calc(var(--band) + 56px);

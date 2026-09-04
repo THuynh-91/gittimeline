@@ -283,6 +283,8 @@ export interface NodeGeom {
   isSpine: boolean;
   isMerge: boolean;
   parentCount: number;
+  /** Commits unique to the non-first-parent side(s): how much work this merge absorbed. */
+  mergeVolume: number;
   tagLabels: string[];
   refLabels: string[];
   aggregateIdx: number | null;

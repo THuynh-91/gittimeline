@@ -30,6 +30,8 @@ export interface ClockItem {
   isDivergence: boolean;
   /** Merge salience in 0..1 (adds dramatic room). */
   salience: number;
+  /** Commits absorbed by this merge, if it is one. */
+  volume?: number;
 }
 
 export interface ClockResult {
@@ -76,7 +78,9 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     const it = items[i]!;
     const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.6);
     let s = (1.02 - 0.9 * d) * Math.max(1, it.weight);
-    if (it.isMerge) s += 0.3 + 0.55 * it.salience; // the climb before the drop
+    // A merge that absorbs twenty commits deserves visibly more room than one
+    // that absorbs two: the pause before it is part of the drama.
+    if (it.isMerge) s += 0.28 + 0.5 * it.salience + Math.min(0.9, 0.16 * Math.log2(1 + (it.volume ?? 0)));
     if (i > 0) {
       const dh = it.h - items[i - 1]!.h;
       if (dh > GAP_THRESHOLD) {
@@ -90,14 +94,19 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     step[i] = s;
     natural += s;
   }
-  // Release: the beats immediately after a big impact race away from it.
+  // Climb and drop. The beat before a big impact hangs; the beats after it
+  // race away. This is the shape that makes a sequence feel like a ride.
   for (let i = 0; i < n; i++) {
-    if (!items[i]!.isMerge || items[i]!.salience < 0.55) continue;
-    for (let k = 1; k <= 3 && i + k < n; k++) {
+    const it = items[i]!;
+    if (!it.isMerge || it.salience < 0.5) continue;
+    if (i > 0 && !gaps.has(i)) step[i - 1] = step[i - 1]! * (1 + 0.55 * it.salience);
+    for (let k = 1; k <= 4 && i + k < n; k++) {
       if (gaps.has(i + k)) break;
-      step[i + k] = step[i + k]! * (0.6 + 0.12 * k);
+      step[i + k] = step[i + k]! * (0.5 + 0.11 * k);
     }
   }
+  natural = 0;
+  for (let i = 0; i < n; i++) natural += step[i]!;
 
   // 2. Quantize in natural time.
   // The first item lands at t=0 (natural); step[i] is the interval preceding item i.

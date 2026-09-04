@@ -342,6 +342,7 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
       client,
       signal: r.abort.signal,
       includeBranches: store.settings.value.includeBranches,
+      maxPages: store.token.value ? 400 : 40,
       pinnedTip: opts.tip ?? null,
       onProgress: (p) => {
         if (run?.id !== r.id) return;
