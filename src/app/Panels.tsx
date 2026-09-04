@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { store, updateSettings, type PanelId } from './store';
+import { MusicCredit } from './MusicCredit';
 import {
   seek,
   selectNode,
@@ -260,6 +261,13 @@ function HelpPanel() {
     <div>
       <p>
         GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Nothing is uploaded anywhere.
+      </p>
+
+      <h3>Sound</h3>
+      <p>
+        The soundtrack is real recorded music, not a generated score, and there are no sound effects — nothing is triggered by a commit or a
+        merge. The repository chooses which of three tracks plays: a project that merges constantly gets something relentless, a long quiet one
+        something unhurried. <MusicCredit />
       </p>
 
       <h3>Reading the stage</h3>

@@ -145,28 +145,25 @@ The length follows the history rather than a fixed target: a handful of commits 
 
 ## Sound
 
-Every repository gets its own piece, chosen to fit rather than at random. Three things are measured from the history — how much lands per second, how bursty and contested it is, and how much each merge absorbs — and they decide the mode, the harmonic rhythm and how heavily the piano is written. The plan hash then picks which piece within that character, so a project always sounds like itself.
+The soundtrack is **real recorded music**, and there are no sound effects at all — nothing is triggered by a commit, a merge or a tag.
 
-**It follows the timeline.** Harmony turns over in bars rather than seconds, counted on the performance's own beat grid, so a busy stretch changes chord faster and a dormant one holds. The writing moves with the activity curve too: the deep doubled left hand lifts and the ring shortens when things get busy, the rolling figure fills in, and it drops to half-time when the tempo outruns the ear. A repository is not one mood for its whole life.
+It used to be synthesised: a piano piece derived from the repository's own hash, with a small orchestra answering individual events — harp on every commit, woodwind at a branch point, timpani and brass on every merge. Every voice was tied to something true about the history, all of it was measured and spaced against the corpus, and it was still hard to listen to. That is the only test a soundtrack has to pass.
 
-**It is in movements.** A four-chord loop held for four minutes is monotonous however well it is voiced, so the performance is divided and the piece modulates between the parts. The seams are the repository's own chapters, and the direction says what happened: a busier era than the last lifts the key, a quieter one drops it. A history with no chapters still gets movements, because nothing stays in one key for more than about a minute.
+There is no public-domain rock — the genre is entirely inside copyright, composition and recording both — but there is a great deal of freely licensed instrumental music. Three tracks ship, chosen for range:
 
-The melody walks the scale, resolves onto chord tones on the downbeat, and restates a three-interval motif at the head of every phrase — recurrence is what makes a line memorable rather than merely well behaved. Nothing is sampled and nothing drones.
+| Register | Track | For |
+|---|---|---|
+| frantic | *Volatile Reaction* | a history that never stops moving |
+| driving | *Exit the Premises* | steady, sustained work |
+| calm | *Chill Wave* | a long, quiet history |
 
-| Section | Carries |
-|---|---|
-| Piano | the piece itself: a low doubled left hand, a rolling figure, a melody on the strong beats |
-| Strings | the harmony, swelling in on each chord change and receding before the next |
-| Basses | one deep root per chord, giving the harmony a floor |
-| Harp | a touch of light on each commit, brighter on the main line |
-| Woodwind | a rising pair where a branch diverges |
-| Timpani | the impact under a merge, pitched to the chord root |
-| Brass | merges that genuinely absorbed something, and the closing tutti |
-| Cymbal | tags and the final cadence only |
+Music by [Kevin MacLeod](https://incompetech.com/), licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/). The credit appears in the app's help panel, which is the condition the licence attaches to using it at all.
 
-**The score adjusts itself to the repository.** How much air an accent needs, how often a merge is played at full force, and how wide the pacing's dynamic range can be are all derived from the plan's own measured shape — never from anything about a particular project. A history that produces two events a second keeps the minimum spacing; one that merges a pull request every other commit spaces them out until they can be heard as separate things happening, and its routine merges join the harmony instead of each taking a downbeat. Nothing is silenced: an unfeatured merge still sounds, it just stops being an event.
+**The repository picks the register.** `characterOf` measures how much lands per second and how bursty and contested it is; those add, so either can reach the top on its own. A pull-request treadmill lands on *frantic*; a sparse, long-running history lands on *calm*. `tests/unit/score.test.ts` asserts that over every history in the corpus.
 
-Measured across the corpus in a real browser, attacks land between 0.8 and 3.5 per second with median gaps from 292 ms to 1.3 s. These rules are pure functions in `src/audio/score.ts`, asserted against every history in the corpus at once, which is what stops them being tuned to one example.
+**The honest cost.** A recording cannot follow the timeline. It does not accelerate through a busy year and it does not land a cymbal on a merge, because a fixed recording has its own tempo and time-stretching one in a browser sounds worse than the problem it solves. It is a soundtrack over the performance rather than a score of it. The music holds while you scrub and picks up where it left off, rather than being dragged through at pointer speed.
+
+The tracks are fetched at build time rather than committed — twenty megabytes of audio does not belong in a git history — by `scripts/build-music.mjs`, the same way the catalog is built. A build without music is quiet, not broken.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — pipeline from API record to rendered frame, module boundaries, worker split.

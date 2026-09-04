@@ -25,8 +25,8 @@ public GitHub URL
       ↓  CompiledPerformance (typed arrays transferred back to the main thread)
       ↓  src/player/player.ts        performance clock: play / pause / seek / loop / landmarks
       ↓  src/renderer/canvas.ts      Canvas2D stage: every pixel is a function of (plan, t)
-      ↓  src/audio/score.ts          pure musical decisions: this repo's piece, accent spacing, which merges are events
-      ↓  src/audio/engine.ts         Web Audio realisation of those decisions, scheduled from the same event plan
+      ↓  src/audio/score.ts          measures the repository's character and picks a soundtrack register
+      ↓  src/audio/engine.ts         plays the chosen recording; no synthesis, no effects
       ↓  src/app/*                   Preact UI: landing, prelude, timeline, transport, panels
 ```
 

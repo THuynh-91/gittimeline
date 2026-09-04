@@ -39,6 +39,14 @@ jobs:
           npx playwright test tests/e2e/demo.spec.ts --grep "pressing Play"
         env:
           CI: 'true'
+      - name: Fetch the soundtrack
+        # Freely licensed instrumental music, Creative Commons Attribution 4.0.
+        # Fetched rather than committed: twenty megabytes of audio does not
+        # belong in a git history. Best effort — a build without music is
+        # quiet, not broken.
+        continue-on-error: true
+        run: node scripts/build-music.mjs public/music
+
       - name: Build the pre-fetched catalog
         # GitHub gives an anonymous visitor about 60 requests an hour, and a
         # large repository needs hundreds. Shipping a token would not fix that:

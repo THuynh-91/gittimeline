@@ -54,62 +54,27 @@ Since bubbles collapse, that junction bound is an over-estimate for a treadmill 
 
 The prediction is an estimate of a repository's *current* habits, since the sample is recent. A project that adopted pull requests late reads denser than its whole history really is — a bias that points the safe way.
 
-## Sound (`src/audio/score.ts`, `src/audio/engine.ts`)
+## Sound (`src/audio/score.ts`, `src/audio/engine.ts`, `scripts/build-music.mjs`)
 
-Sound is on by default, is never required to understand anything, and **nothing drones**: every voice is a struck or bowed gesture with an envelope that ends.
+The soundtrack is real recorded music and **there are no sound effects**. No voice is triggered by an event; the repository chooses which track plays and after that the music is simply music.
 
-The musical *decisions* live in `score.ts`, which is pure and DOM-free; `engine.ts` only realises them through the Web Audio API. That split exists so the rules below can be asserted against every history in the corpus without a browser — the failure they guard against is a constant quietly tuned until one example sounds right.
+This replaced a generated score: a key, mode and four-bar turnaround derived from the plan hash, a melody that walked the scale, and an orchestra of harp, woodwind, strings, basses, timpani, brass and cymbal answering individual events. Every part of it was derived from something true about the history, all of it was measured and spaced, and it was still hard to listen to — which is the only test a soundtrack has to pass. Roughly nine hundred lines of synthesis were deleted.
 
-### The piece
+### The tracks
 
-Every repository gets its own, and it is chosen to *fit* rather than at random. `characterOf` measures three things from the compiled plan — `drive` (how much lands per second), `turbulence` (how bursty, parallel and merge-heavy it is) and `weight` (how much each merge actually absorbs) — and `derivePiece` turns those into a piece. Character picks the mode band (settled histories draw from ionian, dorian and mixolydian; restless ones from aeolian, phrygian and harmonic minor) and the harmonic rhythm; the plan hash picks which piece within that band, so a project always sounds like itself.
+There is no public-domain rock, so nothing here is a famous recording. Kevin MacLeod's library is released under Creative Commons Attribution 4.0, which permits redistribution and requires credit; the credit is rendered in the help panel by `MusicCredit`, next to the explanation of what the sound is. Three tracks ship, tagged `frantic`, `driving` and `calm`.
 
-**Harmonic rhythm is counted in bars, not seconds.** `buildChordTimes` walks the same `tempoMap` the choreography uses, so when the history speeds up the bars shorten and the harmony turns over faster without being told to. Fixing it in seconds was what made a busy stretch sound as ponderous as a dormant one.
+`scripts/build-music.mjs` fetches them into `public/music/` at build time and writes an index carrying each track's source URL and licence. They are gitignored for the same reason the catalog is: twenty megabytes of audio does not belong in a git history, and a deploy that fetches its own assets stays reproducible. The step is best effort — a build without music is quiet, not broken, and `loadCatalogue` returning an empty list simply means nothing plays.
 
-**The writing follows the activity curve too.** `articulationAt` blends the baseline with the current intensity: the deep doubled left hand lifts when things get busy, the ring shortens, the rolling figure fills in. A repository is not one mood for its whole life, and the piece moves between them rather than picking one and holding it.
+### Choosing
 
-**The piece is in movements.** A four-chord loop held for four minutes is monotonous however well it is voiced, so `buildSections` divides the performance and modulates between the parts. The seams are the choreography's eras — the repository's own chapters — and the *direction* says what happened: an era busier than the last lifts the key, a quieter one drops it. A history with no chapters at all, such as a pull-request treadmill, still gets movements, because no stretch may stay in one key for more than 52 seconds. Each section carries its own transposed chords **and its own scale**, so the melody modulates with the harmony instead of singing in the key the piece has just left.
+`characterOf` still measures the plan: `drive` is how much lands per second, `turbulence` is how bursty, parallel and merge-heavy it is, `weight` is how much each merge absorbs. `registerFor` adds drive and turbulence, so either can reach the top register alone — a project can land a great deal steadily, or very little in violent bursts, and both deserve to be pushed. `public-apis` at 44% merges lands on `frantic`; a long dormant history lands on `calm` however many commits it eventually accumulated.
 
-**The melody has a motif.** Three intervals, fixed per piece, restated at the head of every four-bar phrase from wherever the harmony has moved to, with free stepwise motion in between. A line that never repeats itself is not a tune however well behaved each note is; recurrence is what a listener actually remembers.
+### What a recording cannot do
 
-**The piano plays that piece continuously.** It is not triggered by the data: it is sequenced on the performance's own beat grid (`seekGrid` places the cursor after a seek, `playBar` renders one beat), so it accelerates through a busy year and eases into a merge with the picture, and survives seeking without drifting. Past a certain speed it drops to half-time, the way a pianist feels a fast bar in two rather than four.
+It cannot follow the timeline. The old score was laid on the performance's own beat grid and accelerated with the picture; a recording has its own fixed tempo, and time-stretching one in a browser sounds worse than the problem it solves. So the music does not respond to the speed control, does not mark merges, and does not resynchronise on a seek. It is a soundtrack over the performance rather than a score of it.
 
-**The melody walks the scale, not the chord.** `piece.scale` exists separately from `piece.chords` for exactly this reason: adjacent entries in a voiced chord are a third apart, so a melody that moved one place at a time through the chord array leapt on every single note and never sounded like a line. `melodyStep` moves by scale degree, keeps the sounding interval inside a major third between resolutions, stays within about an octave, and resolves onto a nearby chord tone on the downbeat. `tests/unit/score.test.ts` asserts all of that over every history in the corpus.
-
-Around it the orchestra plays the event plan, and deliberately sparsely. Strings carry the harmony, entering on each chord change with a bowed swell. Basses take one deep root per chord. Harp puts a touch of light on each commit and rolls a short arpeggio for an aggregated run. Woodwind answers a divergence with a rising pair. Timpani marks merges; **brass is reserved for merges that genuinely absorbed something**, and a cymbal only for tags and the closing tutti, because unpitched noise carries no musical information and is the first thing to cut when the ask is that it sound composed. Measured in a browser, non-piano notes run at 0.5-1.1 per second and the piano stays inside 3-6 pitch classes of a single mode.
-
-### Adjusting to the repository
-
-None of the spacing rules are constants, because a quiet history and one built on pull requests produce wildly different numbers of events per second.
-
-- **`accentGapFor`** — how much air one accent needs, scaled by the plan's own accent rate between 0.13 s (below which the ear stops separating notes) and 0.34 s.
-- **`selectFeatured`** — merges and branch points *compete* for the downbeat rather than each taking one. Walking them in time order, one is featured only if enough time has passed since the last, and an important merge earns the right to interrupt sooner than a routine one, so what survives is the shape of the history rather than an arbitrary sample. Nothing is silenced: an unfeatured merge still sounds as a soft chord tone under the accent gate.
-- **`mergePressureFor`** — the more a repository merges, the less each merge shouts.
-- **`rangeK`** in `clock.ts` — the pacing's dynamic range narrows as the number of arrivals grows, because speeding up is only expressive while there is room to do it in.
-
-The problem these solve was real and specific: `public-apis/public-apis` merges a pull request roughly every other commit, which at speed is several downbeats a second and reads as an unbroken barrage. None of the rules take any input about a particular project.
-
-### Spacing
-
-The piece has right of way. `takeVoice` rejects an accent that would land within the current gap of the previous accent *or* of any beat the piano has already scheduled, which the engine tracks in `pianoAt` and prunes behind the playhead. A single monotone cursor is not enough: accepting an accent must not pull the cursor back behind notes the piano has already committed to.
-
-Gestures that occupy time reserve it. An aggregated run rolls **forward** from its landing, never backward — scheduling behind `ctx.currentTime` clamps every note to *now* and turns a roll into one smeared flam — and the roll is only as long as the span the run actually owns. A featured merge is snapped onto the nearest piano beat within 70 ms, so it lands as the downbeat of the bar rather than as a flam beside one.
-
-Measured by instrumenting oscillator starts in a real browser, fusing onsets within 30 ms the way the ear does:
-
-| Fixture | Attacks/s | Median gap |
-|---|---|---|
-| 13 contributor handoff | 0.8 | 1334 ms |
-| 01 linear | 1.0 | 1320 ms |
-| 07 octopus merge | 1.3 | 670 ms |
-| 05 long-running side thread | 1.5 | 823 ms |
-| 12 merge storm | 1.7 | 513 ms |
-| Built-in demo | 2.3 | 343 ms |
-| 19 million-node synthetic | 2.5 | 374 ms |
-| 21 pull-request treadmill | 3.0 | 323 ms |
-| 11 dense linear burst | 3.5 | 292 ms |
-
-Dynamics follow the activity curve, and a compressor guarantees headroom.
+What it does do is hold while the viewer scrubs — dragging the scrubber used to pull the audio through at whatever speed the pointer moved — and pick up where it left off.
 
 ## Reduced motion
 

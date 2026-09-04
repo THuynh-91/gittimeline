@@ -705,6 +705,17 @@ export function seek(t: number) {
   player.seek(t);
 }
 
+/**
+ * Hold the music while the viewer drags the scrubber.
+ *
+ * Dragging used to pull the soundtrack through at whatever speed the pointer
+ * moved, which is unpleasant and says nothing about the history. It holds and
+ * picks up where it left off.
+ */
+export function setScrubbing(active: boolean) {
+  audio.setScrubbing(active);
+}
+
 export function seekHistorical(ms: number) {
   player.seekHistorical(ms);
 }
@@ -1207,6 +1218,10 @@ export function installDebugHook() {
     },
     get audioStarted() {
       return audio.started;
+    },
+    get music() {
+      const now = audio.nowPlaying;
+      return now ? { title: now.title, artist: now.artist, playing: audio.playing } : null;
     },
     /** Bodies (performers/pulses) travelling at the current time, with their screen positions. */
     bodies() {

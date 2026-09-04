@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { store, updateSettings } from './store';
-import { seek, setLoop, jumpLandmark, stepUnit } from './controller';
+import { seek, setLoop, jumpLandmark, stepUnit, setScrubbing } from './controller';
 import { mapMonotone } from '@/choreography/clock';
 import { fmtClock, fmtDate } from '@/choreography/events';
 import type { CompiledPerformance } from '@/model/types';
@@ -50,6 +50,7 @@ export function Timeline() {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const time = toTime(e);
     drag.current = { start: time, shift: e.shiftKey };
+    setScrubbing(true);
     if (!e.shiftKey) seek(time);
   };
   const onMove = (e: PointerEvent) => {
@@ -62,6 +63,7 @@ export function Timeline() {
     }
   };
   const onUp = (e: PointerEvent) => {
+    setScrubbing(false);
     if (drag.current?.shift) {
       const time = toTime(e);
       if (Math.abs(time - drag.current.start) < 0.5) setLoop(null);
