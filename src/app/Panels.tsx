@@ -7,6 +7,7 @@ import {
   focusContributor,
   scheduleRecompile,
   applySettingsToRuntime,
+  refetchCurrent,
 } from './controller';
 import { fmtClock, fmtDate } from '@/choreography/events';
 import { Icons } from './icons';
@@ -204,6 +205,12 @@ function SettingsPanel() {
       <Toggle label="Loop" value={s.loopPerformance} onChange={(v) => updateSettings({ loopPerformance: v })} />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
       <Toggle label="High contrast" value={s.highContrast} onChange={(v) => { updateSettings({ highContrast: v }); applySettingsToRuntime(); }} />
+
+      {store.perf.value?.source.provider === 'github' && (
+        <button type="button" class="btn small" onClick={refetchCurrent} data-testid="refetch">
+          Fetch latest commits
+        </button>
+      )}
 
       <h3>Large repositories</h3>
       <TokenField />

@@ -170,6 +170,19 @@ export function updateSettings(patch: Partial<Settings>) {
 }
 
 let toastTimer: number | null = null;
+/**
+ * Whether the performance has finished playing.
+ *
+ * Reads signals, so components calling it re-render when it changes. It gates
+ * the controls that only make sense while something is still moving.
+ */
+export function performanceEnded(): boolean {
+  const perf = store.perf.value;
+  if (!perf) return false;
+  if (store.playing.value || store.loopRange.value) return false;
+  return store.time.value >= perf.duration - 0.05;
+}
+
 export function toast(message: string) {
   store.toast.value = message;
   if (toastTimer) clearTimeout(toastTimer);

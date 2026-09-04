@@ -16,6 +16,7 @@ declare global {
       manualCamera: boolean;
       zoomLocked: boolean;
       viewport: { cx: number; cy: number; scale: number; worldW: number; worldH: number } | null;
+      nodeX: number[] | null;
       zoom(factor: number): void;
       audioStarted: boolean;
       bodies(): Array<{ edge: number; kind: string; body: string; thread: number; contributor: number; progress: number; x: number; y: number }>;

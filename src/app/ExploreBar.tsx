@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { store } from './store';
+import { performanceEnded, store } from './store';
 import { exploreState, exploreTo, dateAtFraction } from './controller';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -21,13 +21,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  */
 export function ExploreBar() {
   const perf = store.perf.value;
-  const t = store.time.value;
-  const playing = store.playing.value;
   const [pos, setPos] = useState(0.5);
   const [visible, setVisible] = useState(1);
   const dragging = useRef(false);
 
-  const ended = !!perf && !playing && !store.loopRange.value && t >= perf.duration - 0.05;
+  const ended = performanceEnded();
 
   // The camera keeps moving for reasons of its own — the tableau settles, the
   // viewer scrolls to zoom, the follow button hands control back — so the
@@ -47,11 +45,12 @@ export function ExploreBar() {
     return () => cancelAnimationFrame(raf);
   }, [ended]);
 
-  if (!ended) return null;
+  if (!ended || !perf) return null;
 
   // Nothing to travel through when the whole picture already fits on screen.
   const whole = visible >= 0.995;
   const ms = dateAtFraction(pos);
+
   const d = ms != null && Number.isFinite(ms) ? new Date(ms) : null;
 
   const onInput = (e: Event) => {
@@ -66,7 +65,7 @@ export function ExploreBar() {
       <label class="explore-label" for="explore-range">
         {whole ? 'Zoom in to travel the history' : 'Travel the finished history'}
       </label>
-      <div class="explore-track" style={{ '--window': `${Math.round(visible * 100)}%`, '--at': `${Math.round(pos * 100)}%` }}>
+      <div class={`explore-track${whole ? ' whole' : ''}`} style={{ '--window': `${(visible * 100).toFixed(2)}%`, '--at': pos.toFixed(4) }}>
         <input
           id="explore-range"
           class="explore-range"

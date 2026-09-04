@@ -1564,65 +1564,86 @@ kbd {
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(7, 8, 12, 0.5);
+  overflow: hidden;
 }
-/* A translucent bar the width of what is actually on screen, so the control
-   reads as a window on the history rather than as a second playhead. */
+
+.explore-track:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(127, 214, 255, 0.25);
+}
+
+/* The window on the history: a rectangle the width of what is actually on
+   screen, travelling inside the rectangle of the whole. Because the travel is
+   bounded by the window rather than by its centre, the two edges meet exactly
+   at the start and the end and there is nowhere further to go. */
 .explore-track::before {
   content: '';
   position: absolute;
-  top: 50%;
-  left: clamp(0px, calc(var(--at) - var(--window) / 2), calc(100% - var(--window)));
+  top: 2px;
+  bottom: 2px;
   width: var(--window);
-  height: 8px;
-  transform: translateY(-50%);
-  border-radius: 5px;
-  background: rgba(127, 214, 255, 0.22);
+  left: calc(var(--at) * (100% - var(--window)));
+  border-radius: 2px;
+  background: rgba(127, 214, 255, 0.3);
+  border: 1px solid rgba(127, 214, 255, 0.55);
   pointer-events: none;
 }
+
+.explore-track.whole::before {
+  background: rgba(230, 225, 214, 0.08);
+  border-color: var(--line);
+}
+
+/* The native control stays for the keyboard and the pointer, but the window
+   rectangle above is the thing you see, so its own furniture is hidden. */
 .explore-range {
-  position: relative;
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: 18px;
+  height: 100%;
   margin: 0;
   appearance: none;
   background: transparent;
   cursor: ew-resize;
 }
+
 .explore-range::-webkit-slider-runnable-track {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line);
+  height: 100%;
+  background: transparent;
 }
+
 .explore-range::-moz-range-track {
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line);
+  height: 100%;
+  background: transparent;
 }
+
 .explore-range::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
-  margin-top: -5.5px;
-  border-radius: 50%;
-  border: 2px solid var(--ink);
-  background: var(--accent);
+  width: 2px;
+  height: 18px;
+  background: transparent;
 }
+
 .explore-range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid var(--ink);
-  background: var(--accent);
+  width: 2px;
+  height: 18px;
+  border: 0;
+  background: transparent;
 }
+
 .explore-range:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline: none;
 }
+
 .explore-range:disabled {
   cursor: default;
-  opacity: 0.4;
 }
+
 .explore-at {
   flex: 0 0 auto;
   min-width: 68px;

@@ -381,13 +381,11 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     if (cached?.dataset?.commits.length) {
       const r0 = newRun();
       const perf = await compileAndLoad(r0, cached.dataset, { autoplay: opts.autoplay ?? true, startAt: opts.startAt, outcome: cached.dataset.coverage.completeness === 'exact' ? 'complete' : 'partial', isDemo: false });
-      if (perf) {
-        store.banner.value = {
-          kind: 'info',
-          message: `Loaded from your last visit on ${new Date(cached.fetchedAt).toLocaleDateString()} — no requests used.`,
-          action: { label: 'Fetch again', run: () => void loadRepo(input, { ...opts, forceRefresh: true }) },
-        };
-      }
+      // Said once and gone. A permanent bar for a thing that went *right* is
+      // just clutter over the stage; the banners that stay are the ones
+      // reporting that the history is partial, which the viewer needs.
+      // Re-fetching lives in Settings.
+      if (perf) toast(`Loaded from your last visit — no requests used.`);
       return;
     }
   }
@@ -505,7 +503,7 @@ export async function loadArtifactFile(file: File) {
     }
     lastRepo = null;
     await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false });
-    store.banner.value = { kind: 'info', message: `Loaded from a .gittimeline artifact (${dataset.coverage.summary})` };
+    toast(`Loaded from a .gittimeline artifact`);
   } catch (err) {
     if (run?.id !== r.id) return;
     fail({ kind: 'artifact', title: 'Could not import artifact', message: err instanceof Error ? err.message : String(err), resetAt: null, canPlayPartial: false, retry: false });
@@ -712,23 +710,51 @@ export function contentSpan(): { min: number; max: number } | null {
  * The second number is what lets the control show the size of your window on
  * the history the way a scrollbar does.
  */
-export function exploreState(): { at: number; visible: number } | null {
+/**
+ * The range the camera centre may occupy.
+ *
+ * The travel is bounded by the *window*, not by the centre: at either extreme
+ * the edge of what you can see lines up with the edge of the history, so there
+ * is no way to slide off into blank space. When the whole picture already fits
+ * on screen the range collapses and there is nothing to travel.
+ */
+function exploreRange(worldW: number): { lo: number; hi: number; span: number } | null {
   const span = contentSpan();
-  if (!span || !renderer) return null;
+  if (!span) return null;
+  const width = Math.max(1, span.max - span.min);
+  const half = Math.min(worldW, width) / 2;
+  const lo = span.min + half;
+  const hi = span.max - half;
+  return { lo, hi: Math.max(lo, hi), span: width };
+}
+
+/**
+ * Where the camera sits along that extent, and how much of it is on screen.
+ * The second number is what lets the control show the size of your window on
+ * the history the way a scrollbar does.
+ */
+export function exploreState(): { at: number; visible: number } | null {
+  if (!renderer) return null;
   const vp = renderer.viewport();
-  const w = Math.max(1, span.max - span.min);
+  const r = exploreRange(vp.worldW);
+  if (!r) return null;
+  const travel = r.hi - r.lo;
   return {
-    at: Math.max(0, Math.min(1, (vp.cx - span.min) / w)),
-    visible: Math.max(0.02, Math.min(1, vp.worldW / w)),
+    at: travel < 1e-6 ? 0.5 : Math.max(0, Math.min(1, (vp.cx - r.lo) / travel)),
+    visible: Math.max(0.02, Math.min(1, vp.worldW / r.span)),
   };
 }
 
-/** Travel to a fraction of the whole picture, holding the zoom you are at. */
+/**
+ * Travel to a fraction of the whole picture, holding the zoom you are at and
+ * never letting the view leave the history.
+ */
 export function exploreTo(f: number) {
-  const span = contentSpan();
   const m = takeManualCamera();
-  if (!span || !m || !renderer) return;
-  renderer.manual = { ...m, x: span.min + Math.max(0, Math.min(1, f)) * (span.max - span.min) };
+  if (!m || !renderer) return;
+  const r = exploreRange(renderer.viewport().worldW);
+  if (!r) return;
+  renderer.manual = { ...m, x: r.lo + Math.max(0, Math.min(1, f)) * (r.hi - r.lo) };
 }
 
 /**
@@ -737,10 +763,10 @@ export function exploreTo(f: number) {
  * is a real commit's date rather than an interpolation between two.
  */
 export function dateAtFraction(f: number): number | null {
-  const span = contentSpan();
   const p = store.perf.value;
-  if (!span || !p || !p.nodes.length) return null;
-  const x = span.min + Math.max(0, Math.min(1, f)) * (span.max - span.min);
+  const r = renderer ? exploreRange(renderer.viewport().worldW) : null;
+  if (!r || !p || !p.nodes.length) return null;
+  const x = r.lo + Math.max(0, Math.min(1, f)) * (r.hi - r.lo);
   let best = p.nodes[0]!;
   let bestD = Infinity;
   for (const n of p.nodes) {
@@ -751,6 +777,13 @@ export function dateAtFraction(f: number): number | null {
     }
   }
   return player.historicalAt(best.impact);
+}
+
+/** Re-fetch the current repository, ignoring anything already cached. */
+export function refetchCurrent() {
+  const src = store.perf.value?.source;
+  if (!src || src.provider !== 'github') return;
+  void loadRepo(`${src.owner}/${src.name}`, { autoplay: true, forceRefresh: true });
 }
 
 export function pickAt(sx: number, sy: number) {
@@ -996,6 +1029,9 @@ export function installDebugHook() {
     },
     get viewport() {
       return renderer?.viewport() ?? null;
+    },
+    get nodeX() {
+      return store.perf.value ? store.perf.value.nodes.map((n) => n.x) : null;
     },
     zoom(factor: number) {
       zoomCamera(factor);

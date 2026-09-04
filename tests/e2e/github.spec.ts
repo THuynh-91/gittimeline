@@ -129,11 +129,15 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     // Second visit: nothing already fetched should be fetched again.
     await open();
     expect(mock.requests.length).toBe(firstVisit);
-    await expect(page.locator('.banner')).toContainText('from your last visit');
+    // Said once, in passing — a permanent bar for a thing that went right is
+    // clutter over the stage.
+    await expect(page.locator('.toast')).toContainText('from your last visit');
+    await expect(page.locator('.banner')).toHaveCount(0);
     expect(await page.evaluate(() => window.__gittimeline.stats!.commits)).toBe(9);
 
     // Asking for it again does go to GitHub, and uses conditional requests.
-    await page.getByRole('button', { name: 'Fetch again' }).click();
+    await page.getByTestId('settings-button').click();
+    await page.getByTestId('refetch').click();
     await waitForReady(page);
     expect(mock.requests.length).toBeGreaterThan(firstVisit);
     expect(mock.conditional).toBeGreaterThan(0);

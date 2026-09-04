@@ -1,13 +1,17 @@
-import { store } from './store';
+import { performanceEnded, store } from './store';
 import { toggleAutoCamera } from './controller';
 
 /**
  * A way back. Once you have panned or zoomed away, the performance keeps
  * playing wherever it is, so this stays on screen until you rejoin it — and it
  * rejoins at the zoom you chose rather than snapping to the director's framing.
+ *
+ * It disappears when the performance ends: there is nothing left to rejoin,
+ * and by then the slider below is the way to move around the finished picture.
  */
 export function FollowButton() {
   if (!store.manualCamera.value) return null;
+  if (performanceEnded()) return null;
   return (
     <button type="button" class="follow-btn" onClick={toggleAutoCamera} data-testid="follow-button">
       <svg viewBox="0 0 24 24" aria-hidden="true">

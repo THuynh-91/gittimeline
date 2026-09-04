@@ -49,6 +49,46 @@ test.describe('travelling the finished picture', () => {
     await expect(page.getByTestId('explore-at')).not.toBeEmpty();
   });
 
+  test('the view cannot travel past the beginning or the end', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur);
+    await page.evaluate(() => window.__gittimeline.zoom(3));
+    await page.waitForTimeout(120);
+
+    const bounds = await page.evaluate(() => {
+      const xs = window.__gittimeline.nodeX!;
+      return { min: Math.min(...xs), max: Math.max(...xs) };
+    });
+    const range = page.getByTestId('explore-range');
+
+    await range.fill('0');
+    await page.waitForTimeout(120);
+    const atStart = await page.evaluate(() => window.__gittimeline.viewport!);
+    // The left edge of what you can see sits at the start of the history, not
+    // in blank space before it.
+    expect(atStart.cx - atStart.worldW / 2).toBeLessThanOrEqual(bounds.min + 1);
+    expect(atStart.cx - atStart.worldW / 2).toBeGreaterThan(bounds.min - bounds.max);
+
+    await range.fill('1000');
+    await page.waitForTimeout(120);
+    const atEnd = await page.evaluate(() => window.__gittimeline.viewport!);
+    expect(atEnd.cx + atEnd.worldW / 2).toBeGreaterThanOrEqual(bounds.max - 1);
+  });
+
+  test('the follow button is gone once there is nothing left to follow', async ({ page }) => {
+    await page.goto('/#demo=1&autoplay=1');
+    await waitForReady(page);
+    await page.evaluate(() => window.__gittimeline.zoom(2));
+    await expect(page.getByTestId('follow-button')).toBeVisible();
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur);
+    await page.evaluate(() => window.__gittimeline.pause());
+    await expect(page.getByTestId('follow-button')).toHaveCount(0);
+    await expect(page.getByTestId('explore-bar')).toBeVisible();
+  });
+
   test('it disappears again once the performance is playing', async ({ page }) => {
     await page.goto('/#demo=1');
     await waitForReady(page);
