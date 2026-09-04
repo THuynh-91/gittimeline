@@ -137,7 +137,13 @@ export function mockGitHub(repo: MockRepo | null, opts: MockOptions = {}) {
     base.etag = etag;
     const inm = Object.entries(reqHeaders).find(([k]) => k.toLowerCase() === 'if-none-match')?.[1];
     if (inm) state.conditional++;
-    if (inm === etag) return { status: 304, body: null, headers: base };
+    if (inm === etag) {
+      // Faithful to GitHub: a 304 carries the validators and the rate headers
+      // and *no Link header*. Sending one here made the mock kinder than the
+      // real API and hid a truncation bug that only appeared against it.
+      const { link: _dropped, ...notModified } = base;
+      return { status: 304, body: null, headers: notModified };
+    }
     return { status: 200, body, headers: base };
   };
 

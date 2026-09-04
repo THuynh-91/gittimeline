@@ -71,24 +71,39 @@ for (const entry of entries) {
     const file = `${entry.slug.replace('/', '-')}.gittimeline.gz`;
     writeFileSync(join(outDir, file), bytes);
 
+    // A thumbnail of the actual shape. A shelf of names tells you nothing;
+    // the silhouette of a history is the thing worth choosing between.
+    const svg = await page.evaluate(() => window.__gittimeline.posterSvg());
+    const svgFile = `${entry.slug.replace('/', '-')}.svg`;
+    if (svg) writeFileSync(join(outDir, svgFile), svg);
+
     const stats = await page.evaluate(() => window.__gittimeline.stats);
-    const coverage = await page.evaluate(() => window.__gittimeline.source?.coverage ?? null);
+    // Coverage must be recorded honestly: a truncated fetch shipped as a
+    // catalog entry would misrepresent the repository to every visitor.
+    const coverage = await page.getByTestId('quality-badge').textContent().catch(() => null);
+    const banner = await page.locator('.banner').first().textContent().catch(() => null);
+    if (coverage && coverage.trim() !== 'exact' && !entry.scope) {
+      console.warn(`  ${entry.slug}: coverage is "${coverage.trim()}"${banner ? ` — ${banner.replace(/\s+/g, ' ').trim().slice(0, 160)}` : ''}`);
+    }
     index.push({
       slug: entry.slug,
       title: entry.title ?? entry.slug,
       blurb: entry.blurb ?? '',
       scope: entry.scope ?? null,
       file,
+      poster: svg ? svgFile : null,
+      posterBytes: svg ? Buffer.byteLength(svg) : 0,
       bytes: bytes.length,
       commits: stats.commits,
       merges: stats.merges,
       contributors: stats.contributors,
-      coverage,
+      coverage: coverage ? coverage.trim() : null,
       builtAt: new Date().toISOString(),
     });
     console.log(
       `${entry.slug}${entry.scope ? ` (${entry.scope})` : ''}: ${stats.commits} commits, ` +
-        `${requests} requests, ${(bytes.length / 1e6).toFixed(2)} MB, ${((Date.now() - started) / 1000).toFixed(0)}s`,
+        `${requests} requests, ${(bytes.length / 1e6).toFixed(2)} MB` +
+        `${svg ? ` + ${(Buffer.byteLength(svg) / 1024).toFixed(0)} KB poster` : ''}, ${((Date.now() - started) / 1000).toFixed(0)}s`,
     );
   } catch (err) {
     // One repository failing must not cost the whole catalog: ship what worked.

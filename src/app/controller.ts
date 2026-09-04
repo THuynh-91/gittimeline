@@ -3,6 +3,7 @@ import { store, updateSettings, toast, announce, type AppError } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
 import { StageRenderer, type ManualCamera } from '@/renderer/canvas';
+import { renderPosterSvg } from '@/renderer/poster';
 import { compileInWorker, type CompileHandle } from '@/player/compileClient';
 import { parseRepoUrl, type RepoRef } from '@/github/url';
 import { GitHubClient, GitHubError } from '@/github/adapter';
@@ -1123,6 +1124,11 @@ export function installDebugHook() {
       let bin = '';
       for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
       return btoa(bin);
+    },
+    /** A static SVG of this history's shape, for catalog thumbnails. */
+    posterSvg(): string | null {
+      const perf = store.perf.value;
+      return perf ? renderPosterSvg(perf) : null;
     },
     get waveform() {
       return store.perf.value ? Array.from(store.perf.value.waveform) : null;

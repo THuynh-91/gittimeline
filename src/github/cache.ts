@@ -1,5 +1,6 @@
 import type { Dataset } from '@/model/types';
 import { safeJsonClone } from '@/model/sanitize';
+import type { LinkRels } from './ratelimit';
 
 /**
  * IndexedDB cache: API pages keyed by URL (with ETag for conditional
@@ -14,6 +15,15 @@ export interface CachedPage {
   fetchedAt: number;
   /** Next page URL from the Link header, so cached pagination can be followed offline. */
   next?: string | null;
+  /**
+   * The whole parsed Link header.
+   *
+   * A 304 response carries no body and no Link header, so everything about
+   * pagination has to survive here or it is lost on revalidation — including
+   * `lastPage`, which is how the size probe counts a repository's commits.
+   * `next` is kept alongside for entries written before this field existed.
+   */
+  link?: LinkRels;
 }
 
 export interface CachedDataset {

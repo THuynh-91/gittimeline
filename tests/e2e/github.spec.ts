@@ -157,4 +157,28 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await waitForReady(page);
     expect(await page.evaluate(() => window.__gittimeline.planHash)).toBe(hash1);
   });
+
+  test('a multi-page history is fetched whole, even when the cache answers a page', async ({ page }) => {
+    /**
+     * The regression this guards is invisible from the outside: every page
+     * arrives and looks complete, but pagination stops early and the result is
+     * labelled partial for no reason the viewer can see.
+     *
+     * A 304 carries no body and no Link header, so a page served from the
+     * cache has to take its pagination from the cache entry. It did not — and
+     * the size probe samples the same first page ingestion is about to walk,
+     * so priming that one entry truncated every repository. mdBook went from
+     * 3,296 commits to 401.
+     */
+    const mock = await routeGitHub(page, bigRepo(350));
+    await page.goto('/');
+    await page.getByTestId('url-input').fill('acme/widget');
+    await page.getByTestId('play-button').click();
+    await waitForReady(page);
+
+    expect(mock.conditional, 'the probe primes a page that ingestion then revalidates').toBeGreaterThan(0);
+    const stats = await page.evaluate(() => window.__gittimeline.stats);
+    expect(stats!.commits, 'every page of the history is loaded').toBe(350);
+    await expect(page.getByTestId('quality-badge')).toHaveText('exact');
+  });
 });

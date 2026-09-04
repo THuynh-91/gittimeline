@@ -1,6 +1,17 @@
 import { parseLinkHeader, parseRateHeaders, type LinkRels, type RateInfo } from './ratelimit';
-import type { ApiCache } from './cache';
+import type { ApiCache, CachedPage } from './cache';
 import { safeJsonClone } from '@/model/sanitize';
+
+/**
+ * Pagination as recorded when the page was actually fetched.
+ *
+ * Entries written before the whole Link header was stored only kept `next`,
+ * so fall back to that rather than losing pagination for anyone with a warm
+ * cache from an older build.
+ */
+function linkOf(cached: CachedPage): LinkRels {
+  return cached.link ?? { next: cached.next ?? null, last: null, lastPage: null };
+}
 
 /**
  * Thin, honest GitHub REST client for the browser:
@@ -73,7 +84,7 @@ export class GitHubClient {
       } catch (err) {
         if (this.opts.signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) throw new GitHubError('aborted', 'Cancelled');
         if (cached && cached.data !== undefined) {
-          return { data: safeJsonClone(cached.data) as T, status: cached.status, rate: this.rate, link: { next: cached.next ?? null, last: null, lastPage: null }, fromCache: true, stale: true };
+          return { data: safeJsonClone(cached.data) as T, status: cached.status, rate: this.rate, link: linkOf(cached), fromCache: true, stale: true };
         }
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
         throw new GitHubError(offline ? 'offline' : 'network', offline ? 'You appear to be offline and this repository is not cached yet.' : 'GitHub could not be reached (network or DNS problem).');
@@ -86,7 +97,12 @@ export class GitHubClient {
       const link = parseLinkHeader(res.headers.get('link'));
 
       if (res.status === 304 && cached) {
-        return { data: safeJsonClone(cached.data) as T, status: cached.status, rate, link, fromCache: true, stale: false };
+        // A 304 has no body *and no Link header*. Reading pagination off the
+        // empty response ends it after the first page — silently, because the
+        // page itself arrives from the cache and looks complete. Anything that
+        // primes the cache for a URL ingestion is about to walk (the size
+        // probe samples the same first page) would truncate the history.
+        return { data: safeJsonClone(cached.data) as T, status: cached.status, rate, link: linkOf(cached), fromCache: true, stale: false };
       }
       if (res.ok) {
         const text = await res.text();
@@ -98,7 +114,7 @@ export class GitHubClient {
           throw new GitHubError('malformed', 'GitHub returned a response that could not be parsed.');
         }
         const etag = res.headers.get('etag');
-        if (this.opts.cache) void this.opts.cache.putPage({ url, etag, status: res.status, data, fetchedAt: Date.now(), next: link.next });
+        if (this.opts.cache) void this.opts.cache.putPage({ url, etag, status: res.status, data, fetchedAt: Date.now(), next: link.next, link });
         return { data: data as T, status: res.status, rate, link, fromCache: false, stale: false };
       }
 
