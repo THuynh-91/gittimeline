@@ -1,12 +1,79 @@
 {
+  "$comment": "Histories built ahead of time so a visitor can watch a large repository with no GitHub token and no API requests at all. `since`/`until` take an arbitrary span; `scope` is only its label. Keep entries under roughly 8,000 commits: each one is a real download for every visitor who opens it.",
   "entries": [
+    {
+      "slug": "BurntSushi/ripgrep",
+      "title": "ripgrep",
+      "blurb": "A search tool grown by one author, then a community."
+    },
+    {
+      "slug": "public-apis/public-apis",
+      "title": "public-apis",
+      "blurb": "A pull-request treadmill: a decade, half of it merges."
+    },
     {
       "slug": "torvalds/linux",
       "title": "Linux",
-      "scope": "Jan–Aug 2026",
-      "since": "2026-01-01T00:00:00Z",
-      "until": "2026-08-01T00:00:00Z",
-      "blurb": "Eight months of the largest project there is — 59,000 commits."
+      "scope": "August 2026",
+      "since": "2026-08-01T00:00:00Z",
+      "until": "2026-09-01T00:00:00Z",
+      "blurb": "One month of the largest project there is — 7,000 commits."
+    },
+    {
+      "slug": "git/git",
+      "title": "Git",
+      "scope": "2024",
+      "since": "2024-01-01T00:00:00Z",
+      "until": "2025-01-01T00:00:00Z",
+      "blurb": "A year of the tool this is all built on, merged in topic branches."
+    },
+    {
+      "slug": "jquery/jquery",
+      "title": "jQuery",
+      "blurb": "Sixteen years of a library that changed the web, start to finish."
+    },
+    {
+      "slug": "sveltejs/svelte",
+      "title": "Svelte",
+      "scope": "2023",
+      "since": "2023-01-01T00:00:00Z",
+      "until": "2024-01-01T00:00:00Z",
+      "blurb": "A framework rewriting itself in public."
+    },
+    {
+      "slug": "rust-lang/mdBook",
+      "title": "mdBook",
+      "blurb": "A steady, long-running tool with a small core team."
+    }
+  ],
+  "candidates": [
+    {
+      "slug": "torvalds/linux",
+      "note": "1,481,850 commits in full — about 14,800 requests and ~260MB, so only ever a slice. A month is ~7,000."
+    },
+    {
+      "slug": "python/cpython",
+      "note": "133,027 commits, almost no merges. A year is ~5,000 and would aggregate well."
+    },
+    {
+      "slug": "git/git",
+      "note": "82,135 commits, 42% merges. A year at a time; 2024 is 3,973."
+    },
+    {
+      "slug": "curl/curl",
+      "note": "39,653 commits, linear. Whole history is ~400 requests and ~7MB — scope it."
+    },
+    {
+      "slug": "neovim/neovim",
+      "note": "37,992 commits, 6% merges."
+    },
+    {
+      "slug": "ziglang/zig",
+      "note": "36,058 commits, 11% merges."
+    },
+    {
+      "slug": "redis/redis",
+      "note": "13,275 commits, entirely linear — would collapse to very few ribbons."
     }
   ]
 }
