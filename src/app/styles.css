@@ -979,6 +979,30 @@ a {
   color: var(--text-dim);
 }
 
+.banner .banner-action {
+  color: var(--accent);
+  border: 1px solid rgba(127, 214, 255, 0.4);
+  border-radius: 999px;
+  padding: 2px 12px;
+  white-space: nowrap;
+}
+
+.scope-card {
+  max-width: 620px;
+}
+
+.scope-years {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+}
+
+.scope-years .btn {
+  font-variant-numeric: tabular-nums;
+  padding: 6px 14px;
+}
+
 .follow-btn {
   position: absolute;
   left: 50%;

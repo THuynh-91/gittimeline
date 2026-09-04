@@ -12,6 +12,7 @@ import { Timeline } from './Timeline';
 import { Transport } from './Transport';
 import { Panels } from './Panels';
 import { FollowButton } from './FollowButton';
+import { ScopeChooser } from './ScopeChooser';
 
 export function App() {
   useEffect(() => {
@@ -41,6 +42,7 @@ export function App() {
     <div class={`app${chromeHidden ? ' chrome-hidden' : ''}`}>
       <Stage />
       {mode === 'landing' && <Landing />}
+      <ScopeChooser />
       <Prelude />
       {showPlayer && perf && !chromeHidden && <TopBar />}
       {showPlayer && perf && !chromeHidden && <CommitRail />}
@@ -55,6 +57,11 @@ export function App() {
       {showPlayer && banner && !chromeHidden && (
         <div class={`banner ${banner.kind}`} role="status">
           <span>{banner.message}</span>
+          {banner.action && (
+            <button type="button" class="banner-action" onClick={banner.action.run}>
+              {banner.action.label}
+            </button>
+          )}
           <button type="button" aria-label="Dismiss" onClick={() => (store.banner.value = null)}>
             ×
           </button>

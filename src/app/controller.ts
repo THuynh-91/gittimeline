@@ -7,7 +7,7 @@ import { compileInWorker, type CompileHandle } from '@/player/compileClient';
 import { parseRepoUrl, type RepoRef } from '@/github/url';
 import { GitHubClient, GitHubError } from '@/github/adapter';
 import { ApiCache } from '@/github/cache';
-import { ingestRepository, type IngestOutcome } from '@/github/ingest';
+import { ingestRepository, probeRepository, type IngestOutcome } from '@/github/ingest';
 import { formatReset } from '@/github/ratelimit';
 import { buildDemoDataset } from '@/fixtures/demo';
 import { fixtureById } from '@/fixtures/corpus';
@@ -39,6 +39,10 @@ let returnToLanding = false;
 let partialDataset: Dataset | null = null;
 let recompileTimer: number | null = null;
 let recorder: MediaRecorder | null = null;
+/** The repository a scope question is about, held while the viewer decides. */
+let pendingScope: { repo: RepoRef; autoplay: boolean; startAt?: number; tip?: string | null } | null = null;
+/** How many commits make a repository worth asking about before fetching it. */
+const SCOPE_THRESHOLD = 3500;
 let recordedChunks: Blob[] = [];
 
 const LENGTH_BIAS = { brief: 0.62, natural: 1, extended: 1.55 } as const;
@@ -317,7 +321,39 @@ export async function loadFixture(id: string, autoplay = true) {
   await compileAndLoad(r, fx.build(), { autoplay, outcome: 'synthetic', isDemo: false });
 }
 
-export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: string | null; startAt?: number } = {}): Promise<void> {
+/** Turn any ingestion failure into an honest, actionable error card. */
+function reportGitHubError(err: unknown) {
+  if (!(err instanceof GitHubError)) {
+    fail({ kind: 'unknown', title: 'Something went wrong', message: err instanceof Error ? err.message : String(err), resetAt: null, canPlayPartial: false, retry: true });
+    return;
+  }
+  if (err.kind === 'aborted') return;
+  const titles: Record<string, string> = {
+    'not-found': 'Repository not available',
+    'rate-limited': 'GitHub rate limit reached',
+    'secondary-limit': 'GitHub asked us to slow down',
+    'empty-repository': 'No commits yet',
+    network: 'GitHub unreachable',
+    offline: 'You are offline',
+    blocked: 'Repository unavailable',
+    server: 'GitHub error',
+    malformed: 'Unexpected response',
+    unauthorized: 'Token rejected',
+  };
+  const rateMsg = err.kind === 'rate-limited' ? ` It resets ${formatReset(err.rate?.resetAt ?? null)}. Anonymous requests are limited per network by GitHub; GitDance cannot bypass that.` : '';
+  fail({ kind: err.kind, title: titles[err.kind] ?? 'Something went wrong', message: err.message + rateMsg, resetAt: err.rate?.resetAt ?? null, canPlayPartial: false, retry: err.kind !== 'not-found' && err.kind !== 'blocked' });
+}
+
+/** Continue a load once the viewer has chosen how much history to fetch. */
+export function chooseScope(choice: { since: string | null; until: string | null; label: string }) {
+  const pending = pendingScope;
+  store.scope.value = null;
+  pendingScope = null;
+  if (!pending) return;
+  void runIngest(pending.repo, { autoplay: pending.autoplay, tip: pending.tip ?? null, startAt: pending.startAt, since: choice.since, until: choice.until, scopeLabel: choice.label });
+}
+
+export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: string | null; startAt?: number; forceRefresh?: boolean } = {}): Promise<void> {
   const parsed = parseRepoUrl(input);
   if (!parsed.ok) {
     store.inputError.value = parsed.hint;
@@ -329,14 +365,71 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
   lastInputForRetry = input;
   returnToLanding = store.mode.value === 'landing';
   primeAudio();
-  const r = newRun();
-  partialDataset = null;
   batch(() => {
     store.mode.value = 'player';
     store.phase.value = 'FETCHING_METADATA';
     store.error.value = null;
     store.banner.value = null;
-    store.progress.value = { phase: 'validating', message: 'Validating…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
+    store.scope.value = null;
+  });
+
+  // Anything already fetched plays immediately. Re-reading a repository you
+  // watched yesterday should not cost a single request, so the stored dataset
+  // is used as-is and refreshing is an explicit choice.
+  if (!opts.forceRefresh) {
+    const cached = await cache.getDataset(repo.slug);
+    if (cached?.dataset?.commits.length) {
+      const r0 = newRun();
+      const perf = await compileAndLoad(r0, cached.dataset, { autoplay: opts.autoplay ?? true, startAt: opts.startAt, outcome: cached.dataset.coverage.completeness === 'exact' ? 'complete' : 'partial', isDemo: false });
+      if (perf) {
+        store.banner.value = {
+          kind: 'info',
+          message: `Loaded from your last visit on ${new Date(cached.fetchedAt).toLocaleDateString()} — no requests used.`,
+          action: { label: 'Fetch again', run: () => void loadRepo(input, { ...opts, forceRefresh: true }) },
+        };
+      }
+      return;
+    }
+  }
+
+  const probeRun = newRun();
+  const probeClient = new GitHubClient({
+    cache: cache.available ? cache : null,
+    token: store.token.value,
+    signal: probeRun.abort.signal,
+    onRate: (rate) => {
+      if (run?.id === probeRun.id) store.rate.value = rate;
+    },
+  });
+  store.progress.value = { phase: 'metadata', message: 'Reading repository…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
+  try {
+    const probe = await probeRepository(repo, probeClient);
+    if (run?.id !== probeRun.id) return;
+    if ((probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD) {
+      // Ask before spending hundreds of requests on something unwatchable.
+      pendingScope = { repo, autoplay: opts.autoplay ?? true, startAt: opts.startAt, tip: opts.tip ?? null };
+      batch(() => {
+        store.progress.value = null;
+        store.scope.value = { displayName: probe.displayName, estimatedCommits: probe.estimatedCommits, firstYear: probe.firstYear, lastYear: probe.lastYear };
+      });
+      return;
+    }
+  } catch (err) {
+    if (run?.id !== probeRun.id) return;
+    reportGitHubError(err);
+    return;
+  }
+  await runIngest(repo, { autoplay: opts.autoplay ?? true, tip: opts.tip ?? null, startAt: opts.startAt, since: null, until: null });
+}
+
+async function runIngest(repo: RepoRef, opts: { autoplay: boolean; tip: string | null; startAt?: number; since: string | null; until: string | null; scopeLabel?: string }): Promise<void> {
+  const r = newRun();
+  partialDataset = null;
+  batch(() => {
+    store.mode.value = 'player';
+    store.phase.value = 'FETCHING_TOPOLOGY';
+    store.error.value = null;
+    store.progress.value = { phase: 'metadata', message: 'Reading repository…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
   });
   const client = new GitHubClient({
     cache: cache.available ? cache : null,
@@ -352,7 +445,9 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
       signal: r.abort.signal,
       includeBranches: store.settings.value.includeBranches,
       maxPages: store.token.value ? 600 : 40,
-      pinnedTip: opts.tip ?? null,
+      pinnedTip: opts.tip,
+      since: opts.since,
+      until: opts.until,
       onProgress: (p) => {
         if (run?.id !== r.id) return;
         store.progress.value = p;
@@ -363,8 +458,9 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     const ds = result.dataset;
     void cache.putDataset({ slug: repo.slug, dataset: ds, fetchedAt: Date.now(), tip: ds.source.selectedTipSha });
     void cache.touchRecent({ slug: repo.slug, name: repo.slug, lastOpened: Date.now(), commits: ds.commits.length }).then(refreshRecent);
-    const perf = await compileAndLoad(r, ds, { autoplay: opts.autoplay ?? true, startAt: opts.startAt, outcome: result.outcome, isDemo: false });
+    const perf = await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: result.outcome, isDemo: false });
     if (perf && result.outcome === 'rate-limited') store.banner.value = { kind: 'rate-limited', message: `${ds.coverage.summary} GitHub’s request limit was reached; it resets ${formatReset(result.resetAt)}.` };
+    else if (perf && opts.scopeLabel && opts.since) store.banner.value = { kind: 'partial', message: `Showing ${opts.scopeLabel}. ${ds.coverage.summary}` };
   } catch (err) {
     if (run?.id !== r.id) return;
     if (err instanceof GitHubError) {
@@ -377,20 +473,7 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
         fail({ kind: err.kind, title: err.kind === 'rate-limited' ? 'GitHub rate limit reached' : 'GitHub unreachable', message, resetAt: err.rate?.resetAt ?? null, canPlayPartial: true, retry: true });
         return;
       }
-      const titles: Record<string, string> = {
-        'not-found': 'Repository not available',
-        'rate-limited': 'GitHub rate limit reached',
-        'secondary-limit': 'GitHub asked us to slow down',
-        'empty-repository': 'No commits yet',
-        network: 'GitHub unreachable',
-        offline: 'You are offline',
-        blocked: 'Repository unavailable',
-        server: 'GitHub error',
-        malformed: 'Unexpected response',
-        unauthorized: 'Token rejected',
-      };
-      const rateMsg = err.kind === 'rate-limited' ? ` It resets ${formatReset(err.rate?.resetAt ?? null)}. Anonymous requests are limited per network by GitHub; GitDance cannot bypass that.` : '';
-      fail({ kind: err.kind, title: titles[err.kind] ?? 'Something went wrong', message: err.message + rateMsg, resetAt: err.rate?.resetAt ?? null, canPlayPartial: false, retry: err.kind !== 'not-found' && err.kind !== 'blocked' });
+      reportGitHubError(err);
       return;
     }
     fail({ kind: 'unknown', title: 'Something went wrong', message: err instanceof Error ? err.message : String(err), resetAt: null, canPlayPartial: false, retry: true });

@@ -2,10 +2,25 @@ import type { ChoreographyEvent, CompiledPerformance } from '@/model/types';
 import { hash01 } from '@/model/prng';
 
 /**
- * Procedural, original score. Voices are synthesized from the same event
- * plan the visuals use; nothing is sampled. The engine only exists after a
- * user gesture, is fully muteable, and carries a limiter so dense history
- * cannot clip. No information is available only through audio.
+ * A small synthetic orchestra, written from the same event plan the visuals use.
+ * Nothing is sampled and nothing drones: every sound is a struck or bowed
+ * gesture with an envelope that ends.
+ *
+ * The sections, and what each is for:
+ *
+ *   strings    the harmony. Enters on each chord change with a bowed swell and
+ *              recedes before the next, so the score breathes in phrases rather
+ *              than sitting on a held tone.
+ *   basses     one deep root at each chord change, giving the harmony a floor.
+ *   woodwind   the melody, carried by the main line. Moves by step through the
+ *              sounding chord so it reads as a tune rather than as lookups.
+ *   harp       side threads, answering above the melody.
+ *   brass      merges, weighted by how many commits actually converged.
+ *   timpani    the impact under a merge, pitched to the chord root.
+ *   cymbal     tags and the largest merges, as a filtered shimmer.
+ *
+ * Dynamics follow the repository's own activity curve, so a quiet era plays
+ * quietly and a busy one opens up. Nothing is conveyed by sound alone.
  */
 export interface AudioLevels {
   master: number;
@@ -13,20 +28,16 @@ export interface AudioLevels {
   muted: boolean;
 }
 
-/**
- * The score is written, not scattered. A slow four-chord progression in A minor
- * runs underneath the whole performance, turning over every few phrases, and
- * every voice draws its pitches from the chord currently sounding. A thread's
- * lane picks which chord tone it takes, so two branches running in parallel
- * harmonize instead of colliding, and a merge simply plays the chord.
- */
+/** A slow four-chord progression in A minor: i · VI · iv · VII. */
 const PROGRESSION: number[][] = [
-  [0, 3, 7, 12, 15, 19], // i
-  [8, 12, 15, 20, 24, 27], // VI
-  [5, 8, 12, 17, 20, 24], // iv
-  [10, 14, 17, 22, 26, 29], // VII
+  [0, 3, 7, 12, 15, 19],
+  [8, 12, 15, 20, 24, 27],
+  [5, 8, 12, 17, 20, 24],
+  [10, 14, 17, 22, 26, 29],
 ];
 const CHORD_SECONDS = 7.5;
+/** Below about an eighth of a second the ear stops hearing separate notes. */
+const MIN_NOTE_GAP = 0.13;
 const ROOT_HZ = 220; // A3
 
 function chordAt(t: number): number[] {
@@ -41,6 +52,8 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private fx: GainNode | null = null;
+  private hall: ConvolverNode | null = null;
+  private hallSend: GainNode | null = null;
   private scheduledUntil = -1;
   private lastT = -1;
   private perf: CompiledPerformance | null = null;
@@ -48,11 +61,14 @@ export class AudioEngine {
   private approachPtr = 0;
   private approaches: ChoreographyEvent[] = [];
   private intensity = 0;
-  private voiceSlot = -1;
-  private voiceCount = 0;
+  private lastNoteAt = -Infinity;
+  private lastChordIndex = -1;
+  /** Where each melodic voice currently sits within the sounding chord. */
+  private leadIdx = 2;
+  private counterIdx = 4;
+
   levels: AudioLevels = { master: 0.7, effects: 0.7, muted: false };
-  /** Dynamic range: 'quiet' | 'standard' | 'dramatic' */
-  dynamics: 'quiet' | 'standard' | 'dramatic' = 'standard';
+  dynamics: 'quiet' | 'standard' | 'dramatic' = 'dramatic';
 
   get available(): boolean {
     return typeof window !== 'undefined' && !!(window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
@@ -77,18 +93,26 @@ export class AudioEngine {
     }
     const ctx = this.ctx;
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -14;
-    limiter.knee.value = 8;
-    limiter.ratio.value = 14;
-    limiter.attack.value = 0.003;
-    limiter.release.value = 0.18;
+    limiter.threshold.value = -16;
+    limiter.knee.value = 10;
+    limiter.ratio.value = 12;
+    limiter.attack.value = 0.004;
+    limiter.release.value = 0.22;
     this.master = ctx.createGain();
     this.master.connect(limiter);
     limiter.connect(ctx.destination);
     this.fx = ctx.createGain();
     this.fx.connect(this.master);
-    // There is no ambient bed and no held tone of any kind. Every sound in
-    // GitDance is a discrete event with a decay; nothing drones.
+
+    // A short synthetic hall. An orchestra in a dry room sounds like a synth;
+    // a little tail is most of what makes a section read as a section.
+    this.hall = ctx.createConvolver();
+    this.hall.buffer = impulse(ctx, 2.1);
+    this.hallSend = ctx.createGain();
+    this.hallSend.gain.value = 0.32;
+    this.hallSend.connect(this.hall);
+    this.hall.connect(this.master);
+
     this.applyLevels();
     return true;
   }
@@ -96,9 +120,9 @@ export class AudioEngine {
   applyLevels() {
     if (!this.ctx || !this.master || !this.fx) return;
     const now = this.ctx.currentTime;
-    const range = this.dynamics === 'quiet' ? 0.6 : this.dynamics === 'dramatic' ? 1.25 : 1;
-    this.master.gain.setTargetAtTime(this.levels.muted ? 0 : this.levels.master * range, now, 0.03);
-    this.fx.gain.setTargetAtTime(this.levels.effects, now, 0.03);
+    const range = this.dynamics === 'quiet' ? 0.6 : this.dynamics === 'dramatic' ? 1.2 : 1;
+    this.master.gain.setTargetAtTime(this.levels.muted ? 0 : this.levels.master * range, now, 0.04);
+    this.fx.gain.setTargetAtTime(this.levels.effects, now, 0.04);
   }
 
   setPerformance(p: CompiledPerformance | null) {
@@ -108,6 +132,8 @@ export class AudioEngine {
     this.approaches = p ? p.events.filter((e) => e.type === 'MERGE_APPROACH').sort((a, b) => a.performanceStart - b.performanceStart) : [];
     this.scheduledUntil = -1;
     this.lastT = -1;
+    this.lastNoteAt = -Infinity;
+    this.lastChordIndex = -1;
   }
 
   /** Called on seek/pause so nothing from the old position leaks. */
@@ -116,6 +142,8 @@ export class AudioEngine {
     this.lastT = -1;
     this.eventPtr = 0;
     this.approachPtr = 0;
+    this.lastNoteAt = -Infinity;
+    this.lastChordIndex = -1;
   }
 
   suspend() {
@@ -126,7 +154,10 @@ export class AudioEngine {
     if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
-  /** Schedule voices for events whose impact falls in (lastT, t + lookahead]. */
+  private send(node: AudioNode) {
+    if (this.hallSend) node.connect(this.hallSend);
+  }
+
   schedule(t: number, rate: number, intensity: number) {
     const ctx = this.ctx;
     const p = this.perf;
@@ -134,24 +165,40 @@ export class AudioEngine {
       this.lastT = t;
       return;
     }
-    this.intensity += (intensity - this.intensity) * 0.1;
-    const lookahead = 0.16 * rate;
+    const out = this.fx;
+    this.intensity += (intensity - this.intensity) * 0.08;
+    const lookahead = 0.18 * rate;
     if (this.lastT < 0 || t < this.lastT || t - this.lastT > 1.5) {
-      // fresh start or seek: re-anchor the pointer just after t
       this.eventPtr = lowerBound(p.events, t);
-      this.approachPtr = this.approaches.findIndex((e) => e.performanceStart > t);
-      if (this.approachPtr < 0) this.approachPtr = this.approaches.length;
+      const idx = this.approaches.findIndex((e) => e.performanceStart > t);
+      this.approachPtr = idx < 0 ? this.approaches.length : idx;
       this.scheduledUntil = t;
-    }
-    // Merge approaches are scheduled by their *start* so the swell rises before the hit.
-    while (this.approachPtr < this.approaches.length && this.approaches[this.approachPtr]!.performanceStart <= t + lookahead) {
-      const ev = this.approaches[this.approachPtr++]!;
-      if (ev.performanceStart <= this.scheduledUntil && this.scheduledUntil > t) continue;
-      const len = Math.max(0.3, Math.min(2.5, ev.performanceImpact - ev.performanceStart)) / Math.max(0.05, rate);
-      const when = ctx.currentTime + Math.max(0, (ev.performanceStart - t) / Math.max(0.05, rate));
-      swell(ctx, this.fx, when, len, 0.1 + 0.16 * ev.salience * ev.effectBudget);
+      this.lastChordIndex = Math.floor(Math.max(0, t) / CHORD_SECONDS);
     }
     const until = t + lookahead;
+
+    // The harmony turns over: strings re-voice and the basses take the new root.
+    const chordIndex = Math.floor(Math.max(0, t) / CHORD_SECONDS);
+    if (chordIndex !== this.lastChordIndex) {
+      this.lastChordIndex = chordIndex;
+      const chord = chordAt(t);
+      const when = ctx.currentTime + 0.02;
+      const len = (CHORD_SECONDS * 0.92) / Math.max(0.05, rate);
+      this.send(strings(ctx, out, when, chord, 0.05 + 0.09 * this.intensity, len));
+      this.send(bass(ctx, out, when, noteHz(chord[0]!, 0.5), 0.075 + 0.03 * this.intensity, len * 0.7));
+      this.leadIdx = 2;
+      this.counterIdx = 4;
+    }
+
+    // Merge approaches are scheduled by their start so the crescendo rises first.
+    while (this.approachPtr < this.approaches.length && this.approaches[this.approachPtr]!.performanceStart <= until) {
+      const ev = this.approaches[this.approachPtr++]!;
+      if (ev.performanceStart <= this.scheduledUntil && this.scheduledUntil > t) continue;
+      const len = Math.max(0.35, Math.min(2.6, ev.performanceImpact - ev.performanceStart)) / Math.max(0.05, rate);
+      const when = ctx.currentTime + Math.max(0, (ev.performanceStart - t) / Math.max(0.05, rate));
+      this.send(crescendo(ctx, out, when, chordAt(ev.performanceImpact), len, (0.05 + 0.1 * ev.salience) * ev.effectBudget));
+    }
+
     const events = p.events;
     while (this.eventPtr < events.length && events[this.eventPtr]!.performanceImpact <= until) {
       const ev = events[this.eventPtr++]!;
@@ -163,99 +210,104 @@ export class AudioEngine {
     this.lastT = t;
   }
 
-  /** At most a handful of note-level voices per half second: dense history should read as a flurry, not a machine gun. */
+  /** Notes need air: anything closer than MIN_NOTE_GAP is dropped, not stacked. */
   private takeVoice(at: number): boolean {
-    const slot = Math.floor(at * 2);
-    if (slot !== this.voiceSlot) {
-      this.voiceSlot = slot;
-      this.voiceCount = 0;
-    }
-    if (this.voiceCount >= 3) return false;
-    this.voiceCount++;
+    if (at - this.lastNoteAt < MIN_NOTE_GAP) return false;
+    this.lastNoteAt = at;
     return true;
+  }
+
+  /** Step a melodic voice through the chord, so the line has contour. */
+  private step(chord: number[], key: string, lead: boolean): number {
+    const r = hash01(key);
+    const delta = r < 0.36 ? -1 : r < 0.72 ? 1 : 0;
+    const lo = lead ? 0 : 2;
+    const hi = lead ? chord.length - 3 : chord.length - 1;
+    const cur = lead ? this.leadIdx : this.counterIdx;
+    const next = Math.max(lo, Math.min(hi, cur + delta));
+    if (lead) this.leadIdx = next;
+    else this.counterIdx = next;
+    return chord[next]!;
   }
 
   private voice(ev: ChoreographyEvent, when: number) {
     const p = this.perf!;
-    const fx = this.fx!;
     const ctx = this.ctx!;
+    const out = this.fx!;
     const node = p.nodes.find((n) => n.sha === ev.subjectIds[0]);
     const chord = chordAt(ev.performanceImpact);
-    const lane = node ? Math.abs(p.threads[node.threadIdx]?.lane ?? 0) : 0;
-    const degree = chord[lane % chord.length]!;
-    const contributorJitter = node ? hash01(`voice:${p.contributors[node.contributorIdx]?.id ?? ''}`) : 0.5;
     const budget = ev.effectBudget;
+    const colour = node ? hash01(`voice:${p.contributors[node.contributorIdx]?.id ?? ''}`) : 0.5;
+
     switch (ev.type) {
       case 'COMMIT_STEP': {
         if (!this.takeVoice(ev.performanceImpact)) break;
-        // The main line sings in the middle register; side threads answer above it.
-        const octave = node?.isSpine ? 1 : 2;
-        pluck(ctx, fx, when, noteHz(degree, octave), 0.075 + 0.03 * ev.salience, 1.6, contributorJitter);
+        // The main line is the tune, given to the winds; side threads answer
+        // above it on the harp. Both move by step through the sounding chord.
+        const lead = !!node?.isSpine;
+        const pitch = this.step(chord, ev.id, lead);
+        if (lead) this.send(woodwind(ctx, out, when, noteHz(pitch, 1), 0.075 + 0.03 * ev.salience, 0.75 + 0.5 * colour));
+        else this.send(harp(ctx, out, when, noteHz(pitch, 2), 0.05 + 0.02 * ev.salience, 1.5, colour));
         break;
       }
       case 'COMMIT_CLUSTER': {
         if (!this.takeVoice(ev.performanceImpact)) break;
-        const count = 4;
         const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
-        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, noteHz(chord[i % chord.length]!, 2), 0.04, 0.9, contributorJitter);
+        for (let i = 0; i < 4; i++) this.send(harp(ctx, out, when - (span * (4 - i)) / 4, noteHz(chord[i % chord.length]!, 2), 0.03, 0.8, colour));
         break;
       }
-      case 'DIVERGENCE':
+      case 'DIVERGENCE': {
         if (!this.takeVoice(ev.performanceImpact)) break;
-        // A rising pickup out of the chord: the branch asks a question.
-        pluck(ctx, fx, when - 0.1, noteHz(chord[lane % chord.length]!, 2), 0.09 * budget, 1, contributorJitter);
-        pluck(ctx, fx, when, noteHz(chord[(lane + 2) % chord.length]!, 2), 0.12 * budget, 1.6, contributorJitter);
-        swish(ctx, fx, when - 0.05, 0.25, 0.06 * budget);
+        // A rising figure in the winds: the branch asks a question.
+        this.send(woodwind(ctx, out, when - 0.11, noteHz(chord[1]!, 2), 0.05 * budget, 0.5));
+        this.send(woodwind(ctx, out, when, noteHz(chord[3]!, 2), 0.07 * budget, 0.9));
         break;
+      }
       case 'THREAD_ACTIVATE':
         if (!this.takeVoice(ev.performanceImpact)) break;
-        pluck(ctx, fx, when, noteHz(degree, 2), 0.09, 1.4, contributorJitter);
+        this.send(harp(ctx, out, when, noteHz(chord[2]!, 2), 0.05, 1.3, colour));
         break;
       case 'CONTRIBUTOR_ENTER':
         if (!this.takeVoice(ev.performanceImpact)) break;
-        pluck(ctx, fx, when, noteHz(chord[(lane + 1) % chord.length]!, 4), 0.045, 1.2, contributorJitter);
+        this.send(harp(ctx, out, when, noteHz(chord[chord.length - 1]!, 2), 0.035, 1.1, colour));
         break;
       case 'MERGE_APPROACH':
-        break; // scheduled by start in schedule()
+        break; // scheduled by start, above
       case 'MERGE_IMPACT':
       case 'MAJOR_MERGE':
       case 'OCTOPUS_MERGE': {
         const big = ev.type !== 'MERGE_IMPACT';
         const vol = node ? node.mergeVolume : 0;
-        // Weight follows the work absorbed, so a two-commit merge is a footstep
-        // and a twenty-commit one is the downbeat of the phrase.
+        // Weight follows the work absorbed: a two-commit merge is a footstep,
+        // a twenty-commit one is the downbeat of the phrase.
         const weight = Math.min(1, 0.22 + Math.log2(1 + vol) * 0.2);
-        thump(ctx, fx, when, (big ? 0.42 : 0.26) * weight * budget, big ? 46 : 58);
-        pad(ctx, fx, when, chord, (0.05 + 0.09 * weight) * budget, 1 + 1.6 * weight);
-        // Roll the chord out of the impact: more voices the more work converged.
-        const voices = Math.max(1, Math.min(6, Math.round(Math.log2(1 + vol) * 1.3)));
-        for (let i = 0; i < voices; i++) {
-          pluck(ctx, fx, when + i * 0.05, noteHz(chord[i % chord.length]!, i < 3 ? 1 : 2), (big ? 0.085 : 0.06) * weight * budget, 2.2, 0.4);
-        }
+        this.send(timpani(ctx, out, when, (big ? 0.4 : 0.24) * weight * budget, noteHz(chord[0]!, 0.5)));
+        this.send(brass(ctx, out, when, chord, (0.045 + 0.075 * weight) * budget, 0.9 + 1.6 * weight));
+        if (big && weight > 0.6) this.send(cymbal(ctx, out, when, 0.05 * weight * budget, 1.6));
         break;
       }
       case 'TAG_LANDMARK':
-        // A cadence: the root arrives high over the sounding chord.
-        bell(ctx, fx, when, noteHz(0, 4), 0.12 * budget);
-        pad(ctx, fx, when, chord, 0.06, 2.4);
+        // A cadence: brass on the root, with a shimmer over it.
+        this.send(brass(ctx, out, when, [chord[0]!, chord[2]!, chord[0]! + 12], 0.075 * budget, 1.8));
+        this.send(cymbal(ctx, out, when, 0.045 * budget, 2));
         break;
-      case 'ERA_TRANSITION':
-        // The harmony turns over: a low root under a new colour.
-        pluck(ctx, fx, when, noteHz(chordAt(ev.performanceImpact + CHORD_SECONDS)[0]!, 0.5), 0.085, 3.2, 0.3);
-        pad(ctx, fx, when + 0.12, chordAt(ev.performanceImpact + CHORD_SECONDS), 0.055, 3);
+      case 'ERA_TRANSITION': {
+        const next = chordAt(ev.performanceImpact + CHORD_SECONDS);
+        this.send(strings(ctx, out, when, next, 0.075, 3.2));
+        this.send(bass(ctx, out, when, noteHz(next[0]!, 0.5), 0.07, 2.4));
         break;
+      }
       case 'REPO_BIRTH':
       case 'MULTI_ROOT_REVEAL':
-        bell(ctx, fx, when, noteHz(0, 2), 0.12);
-        thump(ctx, fx, when, 0.16, 44);
+        this.send(strings(ctx, out, when, chord, 0.06, 3));
+        this.send(woodwind(ctx, out, when + 0.25, noteHz(chord[0]!, 1), 0.075, 1.4));
         break;
       case 'REPO_PRESENT':
-        // Final cadence: home to the tonic, held.
-        pad(ctx, fx, when, PROGRESSION[0]!, 0.1, 3.4);
-        bell(ctx, fx, when + 0.35, noteHz(0, 4), 0.085);
-        break;
-      case 'QUIET_GAP':
-        swish(ctx, fx, when - 0.6, 0.9, 0.05);
+        // Tutti, home to the tonic, and let it ring.
+        this.send(strings(ctx, out, when, PROGRESSION[0]!, 0.1, 4));
+        this.send(brass(ctx, out, when + 0.15, PROGRESSION[0]!, 0.07, 3));
+        this.send(timpani(ctx, out, when, 0.22, noteHz(0, 0.5)));
+        this.send(cymbal(ctx, out, when, 0.05, 3));
         break;
       default:
         break;
@@ -274,189 +326,279 @@ function lowerBound(events: ChoreographyEvent[], t: number): number {
   return lo;
 }
 
-function pluck(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, decay: number, timbre: number) {
-  if (when < ctx.currentTime - 0.05) return;
+/* ------------------------------- sections ------------------------------- */
+
+/** Bowed strings: slow attack, gentle vibrato, a section made of detuned pairs. */
+function strings(ctx: AudioContext, out: AudioNode, when: number, semitones: number[], gain: number, length: number): GainNode {
   const t0 = Math.max(when, ctx.currentTime);
-  // A struck string: partials slightly sharp of the harmonic series, the higher
-  // ones dying away first, plus a short hammer knock. This is what makes it read
-  // as a piano rather than a beep.
-  const body = ctx.createGain();
-  body.gain.value = 1;
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + Math.min(0.9, length * 0.3));
+  bus.gain.setValueAtTime(Math.max(0.0002, gain), t0 + length * 0.62);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
   const tone = ctx.createBiquadFilter();
   tone.type = 'lowpass';
-  tone.frequency.setValueAtTime(Math.min(9000, freq * 9), t0);
-  tone.frequency.exponentialRampToValueAtTime(Math.max(320, freq * 2.2), t0 + decay * 0.8);
-  body.connect(tone);
+  tone.frequency.value = 1900;
+  tone.Q.value = 0.6;
+  bus.connect(tone);
   tone.connect(out);
 
-  const partials: Array<[number, number, number]> = [
+  const vib = ctx.createOscillator();
+  vib.frequency.value = 4.6;
+  const vibAmt = ctx.createGain();
+  vibAmt.gain.value = 3.2;
+  vib.connect(vibAmt);
+  vib.start(t0);
+  vib.stop(t0 + length + 0.1);
+
+  for (const semi of semitones.slice(0, 4)) {
+    for (const detune of [-6, 6]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = noteHz(semi, 1);
+      o.detune.value = detune;
+      vibAmt.connect(o.detune);
+      const g = ctx.createGain();
+      g.gain.value = 0.12;
+      o.connect(g);
+      g.connect(bus);
+      o.start(t0);
+      o.stop(t0 + length + 0.1);
+    }
+  }
+  return bus;
+}
+
+/** Double basses: one deep, slowly decaying root. */
+function bass(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, length: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.12);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 420;
+  bus.connect(lp);
+  lp.connect(out);
+  for (const [ratio, amp] of [
+    [1, 1],
+    [2, 0.28],
+    [3, 0.1],
+  ] as const) {
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = freq * ratio;
+    const g = ctx.createGain();
+    g.gain.value = amp * 0.5;
+    o.connect(g);
+    g.connect(bus);
+    o.start(t0);
+    o.stop(t0 + length + 0.1);
+  }
+  return bus;
+}
+
+/** Woodwind: a soft, breathy singing tone for the melody. */
+function woodwind(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, length: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.07);
+  bus.gain.setValueAtTime(Math.max(0.0002, gain), t0 + length * 0.55);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
+  bus.connect(out);
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.value = freq;
+  const o2 = ctx.createOscillator();
+  o2.type = 'triangle';
+  o2.frequency.value = freq * 2;
+  const g2 = ctx.createGain();
+  g2.gain.value = 0.12;
+  o.connect(bus);
+  o2.connect(g2);
+  g2.connect(bus);
+  o.start(t0);
+  o2.start(t0);
+  o.stop(t0 + length + 0.1);
+  o2.stop(t0 + length + 0.1);
+  // A little breath at the attack.
+  const n = noise(ctx);
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'bandpass';
+  nf.frequency.value = Math.min(9000, freq * 2.4);
+  nf.Q.value = 1.1;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(Math.max(0.0002, gain * 0.3), t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+  n.connect(nf);
+  nf.connect(ng);
+  ng.connect(bus);
+  n.start(t0);
+  n.stop(t0 + 0.2);
+  return bus;
+}
+
+/** Harp: a plucked string with inharmonic partials and a soft transient. */
+function harp(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number, decay: number, timbre: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const bus = ctx.createGain();
+  bus.gain.value = 1;
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.setValueAtTime(Math.min(9000, freq * 8), t0);
+  tone.frequency.exponentialRampToValueAtTime(Math.max(320, freq * 2), t0 + decay * 0.8);
+  bus.connect(tone);
+  tone.connect(out);
+  const inharmonic = 0.0004 + timbre * 0.0004;
+  for (const [ratio, amp, ds] of [
     [1, 1, 1],
-    [2, 0.4, 0.62],
-    [3, 0.2, 0.42],
-    [4, 0.11, 0.3],
-    [5, 0.06, 0.22],
-    [6, 0.035, 0.16],
-  ];
-  const inharmonicity = 0.00045 + timbre * 0.0004;
-  for (const [ratio, amp, decayScale] of partials) {
-    const f = freq * ratio * Math.sqrt(1 + inharmonicity * ratio * ratio);
+    [2, 0.36, 0.6],
+    [3, 0.17, 0.4],
+    [4, 0.09, 0.28],
+    [5, 0.05, 0.2],
+  ] as const) {
+    const f = freq * ratio * Math.sqrt(1 + inharmonic * ratio * ratio);
     if (f > 12000) continue;
     const o = ctx.createOscillator();
     o.type = 'sine';
     o.frequency.value = f;
     const g = ctx.createGain();
-    const d = Math.max(0.09, decay * decayScale);
+    const d = Math.max(0.09, decay * ds);
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * amp), t0 + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
     o.connect(g);
-    g.connect(body);
+    g.connect(bus);
     o.start(t0);
     o.stop(t0 + d + 0.05);
   }
-  // Hammer knock: a very short filtered noise burst that gives the attack its felt.
-  const n = noise(ctx, 0.05);
-  const nf = ctx.createBiquadFilter();
-  nf.type = 'bandpass';
-  nf.frequency.value = Math.min(6000, freq * 3.5);
-  nf.Q.value = 0.9;
-  const ng = ctx.createGain();
-  ng.gain.setValueAtTime(gain * 0.5, t0);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
-  n.connect(nf);
-  nf.connect(ng);
-  ng.connect(body);
-  n.start(t0);
-  n.stop(t0 + 0.08);
+  return bus;
 }
 
-function thump(ctx: AudioContext, out: AudioNode, when: number, gain: number, freq: number) {
+/** Brass: a detuned saw stack opening through a filter. */
+function brass(ctx: AudioContext, out: AudioNode, when: number, semitones: number[], gain: number, length: number): GainNode {
   const t0 = Math.max(when, ctx.currentTime);
-  const o = ctx.createOscillator();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(freq * 2.2, t0);
-  o.frequency.exponentialRampToValueAtTime(freq, t0 + 0.12);
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.55);
-  o.connect(g);
-  g.connect(out);
-  o.start(t0);
-  o.stop(t0 + 0.6);
-  // short noise transient
-  const n = noise(ctx, 0.12);
-  const ng = ctx.createGain();
-  ng.gain.setValueAtTime(gain * 0.12, t0);
-  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
-  const f = ctx.createBiquadFilter();
-  f.type = 'bandpass';
-  f.frequency.value = 900;
-  n.connect(f);
-  f.connect(ng);
-  ng.connect(out);
-  n.start(t0);
-  n.stop(t0 + 0.2);
-}
-
-/** A soft sustained voicing of a chord: the harmonic bed under an event. */
-function pad(ctx: AudioContext, out: AudioNode, when: number, semitones: number[], gain: number, length: number) {
-  const t0 = Math.max(when, ctx.currentTime);
-  for (const semi of semitones.slice(0, 4)) {
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = noteHz(semi, 1);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain / 3, t0 + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(2400, t0);
-    f.frequency.exponentialRampToValueAtTime(300, t0 + length);
-    o.connect(f);
-    f.connect(g);
-    g.connect(out);
-    o.start(t0);
-    o.stop(t0 + length + 0.1);
-  }
-}
-
-function bell(ctx: AudioContext, out: AudioNode, when: number, freq: number, gain: number) {
-  const t0 = Math.max(when, ctx.currentTime);
-  for (const [ratio, amp, decay] of [
-    [1, 1, 1.6],
-    [2.4, 0.4, 1.0],
-    [5.1, 0.15, 0.5],
-  ] as const) {
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = freq * ratio;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain * amp, t0 + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
-    o.connect(g);
-    g.connect(out);
-    o.start(t0);
-    o.stop(t0 + decay + 0.05);
-  }
-}
-
-function swell(ctx: AudioContext, out: AudioNode, when: number, length: number, gain: number) {
-  const t0 = Math.max(when, ctx.currentTime);
-  const end = Math.max(t0 + 0.2, when + length);
-  const o = ctx.createOscillator();
-  o.type = 'triangle';
-  o.frequency.value = ROOT_HZ / 2;
-  const o2 = ctx.createOscillator();
-  o2.type = 'triangle';
-  o2.frequency.value = ROOT_HZ / 2;
-  o2.detune.value = 8;
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.09);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
   const f = ctx.createBiquadFilter();
   f.type = 'lowpass';
-  f.frequency.setValueAtTime(180, t0);
-  f.frequency.exponentialRampToValueAtTime(1500, end);
-  f.Q.value = 1.6;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, end);
-  g.gain.exponentialRampToValueAtTime(0.0001, end + 0.12);
-  o.connect(f);
-  o2.connect(f);
-  f.connect(g);
-  g.connect(out);
-  o.start(t0);
-  o2.start(t0);
-  o.stop(end + 0.2);
-  o2.stop(end + 0.2);
+  f.frequency.setValueAtTime(500, t0);
+  f.frequency.exponentialRampToValueAtTime(3200, t0 + 0.16);
+  f.frequency.exponentialRampToValueAtTime(700, t0 + length);
+  f.Q.value = 1.4;
+  bus.connect(f);
+  f.connect(out);
+  for (const semi of semitones.slice(0, 3)) {
+    for (const detune of [-8, 8]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = noteHz(semi, 1);
+      o.detune.value = detune;
+      const g = ctx.createGain();
+      g.gain.value = 0.16;
+      o.connect(g);
+      g.connect(bus);
+      o.start(t0);
+      o.stop(t0 + length + 0.1);
+    }
+  }
+  return bus;
 }
 
-function swish(ctx: AudioContext, out: AudioNode, when: number, length: number, gain: number) {
+/** Timpani: a pitched drum that bends down onto its note. */
+function timpani(ctx: AudioContext, out: AudioNode, when: number, gain: number, freq: number): GainNode {
   const t0 = Math.max(when, ctx.currentTime);
-  const n = noise(ctx, length);
-  const f = ctx.createBiquadFilter();
-  f.type = 'bandpass';
-  f.frequency.setValueAtTime(600, t0);
-  f.frequency.exponentialRampToValueAtTime(3200, t0 + length);
-  f.Q.value = 1.2;
+  const bus = ctx.createGain();
+  bus.gain.value = 1;
+  bus.connect(out);
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq * 2.1, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, freq), t0 + 0.14);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + length * 0.5);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
-  n.connect(f);
-  f.connect(g);
-  g.connect(out);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.9);
+  o.connect(g);
+  g.connect(bus);
+  o.start(t0);
+  o.stop(t0 + 1);
+  const n = noise(ctx);
+  const nf = ctx.createBiquadFilter();
+  nf.type = 'lowpass';
+  nf.frequency.value = 700;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(Math.max(0.0002, gain * 0.4), t0);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+  n.connect(nf);
+  nf.connect(ng);
+  ng.connect(bus);
+  n.start(t0);
+  n.stop(t0 + 0.3);
+  return bus;
+}
+
+/** Cymbal: a filtered shimmer that swells and fades. */
+function cymbal(ctx: AudioContext, out: AudioNode, when: number, gain: number, length: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + length * 0.25);
+  bus.gain.exponentialRampToValueAtTime(0.0001, t0 + length);
+  bus.connect(out);
+  const n = noise(ctx);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 5200;
+  n.connect(hp);
+  hp.connect(bus);
   n.start(t0);
   n.stop(t0 + length + 0.1);
+  return bus;
 }
 
+/** Strings rising into a merge. */
+function crescendo(ctx: AudioContext, out: AudioNode, when: number, semitones: number[], length: number, gain: number): GainNode {
+  const t0 = Math.max(when, ctx.currentTime);
+  const end = Math.max(t0 + 0.25, when + length);
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, t0);
+  bus.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), end);
+  bus.gain.exponentialRampToValueAtTime(0.0001, end + 0.18);
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.setValueAtTime(320, t0);
+  f.frequency.exponentialRampToValueAtTime(2600, end);
+  f.Q.value = 1.2;
+  bus.connect(f);
+  f.connect(out);
+  for (const semi of semitones.slice(0, 3)) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.value = noteHz(semi, 1);
+    o.detune.value = 5;
+    const g = ctx.createGain();
+    g.gain.value = 0.18;
+    o.connect(g);
+    g.connect(bus);
+    o.start(t0);
+    o.stop(end + 0.3);
+  }
+  return bus;
+}
+
+/* -------------------------------- sources ------------------------------- */
+
 let noiseBuffer: AudioBuffer | null = null;
-function noise(ctx: AudioContext, length: number): AudioBufferSourceNode {
+function noise(ctx: AudioContext): AudioBufferSourceNode {
   if (!noiseBuffer || noiseBuffer.sampleRate !== ctx.sampleRate) {
     noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
-    // deterministic xorshift noise (no Math.random)
+    // Deterministic xorshift noise: no Math.random anywhere in the engine.
     let s = 0x9e3779b9;
     for (let i = 0; i < data.length; i++) {
       s ^= s << 13;
@@ -468,6 +610,23 @@ function noise(ctx: AudioContext, length: number): AudioBufferSourceNode {
   const src = ctx.createBufferSource();
   src.buffer = noiseBuffer;
   src.loop = true;
-  void length;
   return src;
+}
+
+/** A decaying-noise impulse response: enough hall to make a section cohere. */
+function impulse(ctx: AudioContext, seconds: number): AudioBuffer {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  let s = 0x2545f491;
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      const white = ((s >>> 0) / 4294967296) * 2 - 1;
+      data[i] = white * Math.pow(1 - i / len, 2.6);
+    }
+  }
+  return buf;
 }

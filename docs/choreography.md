@@ -34,11 +34,11 @@ The viewer can override it: zooming or dragging enters free look, and pressing `
 
 ## Sound (`src/audio/engine.ts`)
 
-Sound is **off by default**, is never required to understand anything, and **nothing drones**: there is no ambient bed, and every voice is a discrete event with a decay.
+Sound is on by default, is never required to understand anything, and **nothing drones**: every voice is a struck or bowed gesture with an envelope that ends.
 
-The score is composed rather than scattered. A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds beneath the whole performance, and every voice draws its pitches from the chord currently sounding. A thread's lane index selects which chord tone it takes, so parallel branches harmonize; the main line sings an octave below the side threads.
+A small synthetic orchestra plays the same event plan as the visuals. Strings carry the harmony, entering on each chord change with a bowed swell and receding before the next. Basses take one deep root per chord. Woodwind carries the melody on the main line; harp answers above it on side threads. Brass and timpani mark merges, weighted by how many commits converged, and a cymbal shimmer marks tags and the largest merges. A short convolution hall ties the sections together.
 
-Voices, scheduled from the same event plan with a 160 ms look-ahead: struck-string piano tones for commits (six inharmonic partials with per-partial decay plus a hammer knock), a rising pickup for divergence, a filtered swell through the merge approach, a low thump plus a chord roll at impact whose weight and voice count follow how many commits converged, a bell cadence on tags, a low root and new colour at era changes, and a held tonic at the end. A per-half-second voice budget keeps dense history a flurry rather than a machine gun, and a compressor guarantees headroom.
+A four-chord progression in A minor (i, VI, iv, VII) turns over every 7.5 seconds. Both melodic voices *walk* that chord by step, holding or moving one place at a time, rather than indexing a pitch from a thread's lane — that difference is what makes the line read as a tune instead of as leaps wherever the graph happens to branch. Two notes closer than an eighth of a second never sound together: the later one is dropped, because below that gap the ear stops separating them. Dynamics follow the activity curve, and a compressor guarantees headroom.
 
 ## Reduced motion
 

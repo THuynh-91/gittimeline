@@ -88,7 +88,8 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByRole('alertdialog')).toContainText('cannot bypass');
 
     await page.unrouteAll();
-    await routeGitHub(page, bigRepo(350), { rateLimitAfter: 3 });
+    // Two of these are the size probe that runs before any history is fetched.
+    await routeGitHub(page, bigRepo(350), { rateLimitAfter: 5 });
     await page.goto('/');
     await page.getByTestId('url-input').fill('acme/widget');
     await page.getByTestId('play-button').click();
@@ -113,26 +114,29 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByTestId('url-input')).toBeVisible();
   });
 
-  test('a second visit uses the local cache and works offline', async ({ page }) => {
+  test('a repository already loaded is reused, and a forced refresh revalidates', async ({ page }) => {
     const mock = await routeGitHub(page, sampleRepo());
-    await page.goto('/');
-    await page.getByTestId('url-input').fill('acme/widget');
-    await page.getByTestId('play-button').click();
+    const open = async () => {
+      await page.goto('/');
+      await page.getByTestId('url-input').fill('acme/widget');
+      await page.getByTestId('play-button').click();
+      await waitForReady(page);
+    };
+    await open();
+    const firstVisit = mock.requests.length;
+    expect(firstVisit).toBeGreaterThan(0);
+
+    // Second visit: nothing already fetched should be fetched again.
+    await open();
+    expect(mock.requests.length).toBe(firstVisit);
+    await expect(page.locator('.banner')).toContainText('from your last visit');
+    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(9);
+
+    // Asking for it again does go to GitHub, and uses conditional requests.
+    await page.getByRole('button', { name: 'Fetch again' }).click();
     await waitForReady(page);
-    const requestsBefore = mock.requests.length;
-    await page.goto('/');
-    await page.getByTestId('url-input').fill('acme/widget');
-    await page.getByTestId('play-button').click();
-    await waitForReady(page);
-    expect(mock.requests.length).toBeGreaterThan(requestsBefore);
+    expect(mock.requests.length).toBeGreaterThan(firstVisit);
     expect(mock.conditional).toBeGreaterThan(0);
-    // offline: pages come from the cache and the banner says so
-    mock.offline = true;
-    await page.goto('/');
-    await page.getByTestId('url-input').fill('acme/widget');
-    await page.getByTestId('play-button').click();
-    await waitForReady(page);
-    await expect(page.locator('.banner')).toContainText('local cache');
     expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(9);
   });
 

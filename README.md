@@ -57,6 +57,8 @@ For a large open-source project, supply a **free fine-grained token** with read-
 
 Measured end to end with a token:
 
+When a repository turns out to be large, GitDance says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. A year of React is 31 requests and paces at 0.34s per commit; the full history is 232 requests and runs dense at the ceiling. Anything already fetched is reused on the next visit with **no requests at all**, with a "fetch again" action when you want fresh data.
+
 Measured by driving the real interface (`scripts/usertest.mjs`), not by simulation:
 
 | Repository | Commits | Requests | Load | Show |
@@ -112,7 +114,19 @@ The length follows the history rather than a fixed target: a handful of commits 
 
 ## Sound
 
-On by default, and there is no drone: every sound is a discrete event with a decay. A slow four-chord progression in A minor runs underneath the performance and turns over every few phrases, and every voice takes its pitches from the chord currently sounding — a thread's lane picks which chord tone it gets, so parallel branches harmonize instead of colliding. Commits are struck-string piano tones; a merge plays the chord, weighted by how much work it absorbed.
+A small synthetic orchestra, written from the same event plan as the visuals. Nothing is sampled and nothing drones: every sound is a struck or bowed gesture that ends.
+
+| Section | Carries |
+|---|---|
+| Strings | the harmony, swelling in on each chord change and receding before the next |
+| Basses | one deep root per chord, giving the harmony a floor |
+| Woodwind | the melody, carried by the main line, moving by step through the chord |
+| Harp | side threads answering above the melody |
+| Brass | merges, weighted by how many commits converged |
+| Timpani | the impact under a merge, pitched to the chord root |
+| Cymbal | tags and the largest merges |
+
+A four-chord progression in A minor turns over underneath, and both melodic voices walk it by step rather than leaping to whatever pitch a lane indexes, so the line reads as a tune. Notes closer together than an eighth of a second are dropped rather than stacked, because below that the ear stops hearing them separately. Dynamics follow the repository's own activity curve, and a short synthetic hall ties the sections together.
 
 ## Documentation
 

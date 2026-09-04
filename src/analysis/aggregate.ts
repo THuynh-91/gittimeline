@@ -81,38 +81,47 @@ export function aggregateLinearRuns(
   });
   if (!candidates.length) return { spans, aggregateOf, collapsedFrom: Infinity };
 
-  // 2. Pick one uniform threshold: collapse every run at least `L` long, with
-  //    `L` as large as possible while still fitting the budget. Treating all
-  //    similar runs identically keeps the picture consistent and deterministic.
-  const lengths = [...new Set(candidates.map((c) => c.inner.length))].sort((a, b) => a - b);
-  const visibleIf = (L: number) => n - candidates.reduce((s, c) => s + (c.inner.length >= L ? c.inner.length : 0), 0);
-  let threshold = lengths[0]!;
-  for (let i = lengths.length - 1; i >= 0; i--) {
-    if (visibleIf(lengths[i]!) <= visibleBudget) {
-      threshold = lengths[i]!;
-      break;
+  // 2. Aim *at* the budget rather than merely under it.
+  //
+  // Collapsing a run whole satisfies any budget, which is how a scoped fetch of
+  // a nearly linear year turned two thousand commits into two ribbons and a
+  // nine-second show. Instead, long runs are cut into chunks with a real commit
+  // kept between each, so the visible count lands near the budget and the
+  // ribbons each stand for a comparable amount of work.
+  const collapsible = candidates.reduce((sum, c) => sum + c.inner.length, 0);
+  const fixed = n - collapsible; // commits that can never be collapsed
+  const ribbonsAffordable = Math.max(1, visibleBudget - fixed);
+  const chunk = Math.max(2, Math.ceil(collapsible / ribbonsAffordable));
+
+  // 3. Materialize, in a stable order.
+  const ordered = [...candidates].sort((a, b) => presentation[a.entry]! - presentation[b.entry]! || (g.shas[a.entry]! < g.shas[b.entry]! ? -1 : 1));
+  for (const c of ordered) {
+    const seq = [c.entry, ...c.inner, c.exit];
+    let kept = 0;
+    while (kept < seq.length - 1) {
+      const remaining = seq.length - 1 - kept;
+      const take = Math.min(chunk, remaining - 1);
+      if (take < 2) break; // a ribbon standing for one commit is worse than the commit
+      const segment = seq.slice(kept + 1, kept + 1 + take);
+      const nextKept = kept + 1 + take;
+      const contributors = new Set<string>();
+      for (const id of segment) contributors.add(contributorIds[contributorOf[id]!]!);
+      const idx = spans.length;
+      for (const id of segment) aggregateOf[id] = idx;
+      spans.push({
+        id: `agg-${c.threadIdx}-${idx}`,
+        memberShas: segment.map((id) => g.shas[id]!),
+        memberCount: segment.length,
+        boundaryShas: [g.shas[seq[kept]!]!, g.shas[seq[nextKept]!]!],
+        historicalStart: presentation[segment[0]!]!,
+        historicalEnd: presentation[segment[segment.length - 1]!]!,
+        level: 1,
+        expandable: true,
+        contributorIds: [...contributors].sort(),
+        provenance: 'aggregate',
+      });
+      kept = nextKept;
     }
   }
-
-  // 3. Materialize the spans, in a stable order.
-  const chosen = candidates.filter((c) => c.inner.length >= threshold).sort((a, b) => presentation[a.entry]! - presentation[b.entry]! || (g.shas[a.entry]! < g.shas[b.entry]! ? -1 : 1));
-  for (const c of chosen) {
-    const contributors = new Set<string>();
-    for (const id of c.inner) contributors.add(contributorIds[contributorOf[id]!]!);
-    const idx = spans.length;
-    for (const id of c.inner) aggregateOf[id] = idx;
-    spans.push({
-      id: `agg-${c.threadIdx}-${idx}`,
-      memberShas: c.inner.map((id) => g.shas[id]!),
-      memberCount: c.inner.length,
-      boundaryShas: [g.shas[c.entry]!, g.shas[c.exit]!],
-      historicalStart: presentation[c.inner[0]!]!,
-      historicalEnd: presentation[c.inner[c.inner.length - 1]!]!,
-      level: 1,
-      expandable: true,
-      contributorIds: [...contributors].sort(),
-      provenance: 'aggregate',
-    });
-  }
-  return { spans, aggregateOf, collapsedFrom: chosen.length ? threshold : Infinity };
+  return { spans, aggregateOf, collapsedFrom: spans.length ? chunk : Infinity };
 }

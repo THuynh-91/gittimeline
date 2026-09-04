@@ -35,6 +35,9 @@ export interface IngestOptions {
   reserve?: number;
   includeBranches?: boolean;
   pinnedTip?: string | null;
+  /** ISO timestamps limiting the commits fetched, for scoping a huge history. */
+  since?: string | null;
+  until?: string | null;
 }
 
 export type IngestOutcome = 'complete' | 'partial' | 'rate-limited' | 'offline-cached';
@@ -71,6 +74,41 @@ interface ApiCommit {
 interface ApiRef {
   name: string;
   commit?: { sha?: string };
+}
+
+export interface RepoProbe {
+  /** Roughly how many commits the default branch has, from the pagination header. */
+  estimatedCommits: number | null;
+  defaultBranch: string | null;
+  firstYear: number | null;
+  lastYear: number | null;
+  displayName: string;
+}
+
+/**
+ * Two requests that tell us how big a job this is going to be. GitHub does not
+ * expose a commit count, but the last page number of a one-per-page listing is
+ * exactly that, so this costs two calls instead of hundreds.
+ */
+export async function probeRepository(repo: RepoRef, client: GitHubClient): Promise<RepoProbe> {
+  const meta = await client.get<RepoMeta>(repo.apiUrl);
+  const defaultBranch = typeof meta.data?.default_branch === 'string' ? cleanText(meta.data.default_branch, LIMITS.refName) : null;
+  const created = typeof meta.data?.created_at === 'string' ? new Date(meta.data.created_at) : null;
+  const pushed = typeof meta.data?.pushed_at === 'string' ? new Date(meta.data.pushed_at) : null;
+  let estimatedCommits: number | null;
+  try {
+    const head = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=1${defaultBranch ? `&sha=${encodeURIComponent(defaultBranch)}` : ''}`);
+    estimatedCommits = head.link.lastPage ?? (Array.isArray(head.data) ? head.data.length : null);
+  } catch {
+    estimatedCommits = null;
+  }
+  return {
+    estimatedCommits,
+    defaultBranch,
+    firstYear: created && Number.isFinite(created.getTime()) ? created.getUTCFullYear() : null,
+    lastYear: pushed && Number.isFinite(pushed.getTime()) ? pushed.getUTCFullYear() : new Date().getUTCFullYear(),
+    displayName: typeof meta.data?.full_name === 'string' ? cleanText(meta.data.full_name, 160) : repo.slug,
+  };
 }
 
 export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Promise<IngestResult> {
@@ -148,7 +186,8 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
 
   // Stage 1/2: default history, newest first, following pagination under budget.
   const anchorSha = opts.pinnedTip ?? defaultBranch;
-  let url: string | null = `${repo.apiUrl}/commits?per_page=100${anchorSha ? `&sha=${encodeURIComponent(anchorSha)}` : ''}`;
+  const range = `${opts.since ? `&since=${encodeURIComponent(opts.since)}` : ''}${opts.until ? `&until=${encodeURIComponent(opts.until)}` : ''}`;
+  let url: string | null = `${repo.apiUrl}/commits?per_page=100${anchorSha ? `&sha=${encodeURIComponent(anchorSha)}` : ''}${range}`;
   let truncated = false;
   report('anchor', 'Establishing the anchor…', displayName);
   try {
@@ -209,7 +248,7 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
       for (const b of candidates) {
         check();
         if (!budgetLeft()) break;
-        let tipUrl: string | null = `${repo.apiUrl}/commits?per_page=100&sha=${encodeURIComponent(b.commit!.sha!)}`;
+        let tipUrl: string | null = `${repo.apiUrl}/commits?per_page=100&sha=${encodeURIComponent(b.commit!.sha!)}${range}`;
         let tipPages = 0;
         let connected = false;
         while (tipUrl && tipPages < 3 && budgetLeft()) {
@@ -258,7 +297,12 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
   check();
   report('normalizing', 'Composing…', displayName);
   if (stale) warnings.push('Some pages were served from the local cache because GitHub could not be reached.');
-  const dataset = buildDataset(source, [...commits.values()], refs, { reportedCommitCount: reportedTotal, warnings, truncated });
+  if (opts.since || opts.until) {
+    const from = opts.since ? new Date(opts.since).toISOString().slice(0, 10) : 'the first commit';
+    const to = opts.until ? new Date(opts.until).toISOString().slice(0, 10) : 'today';
+    warnings.push(`Scoped to ${from} → ${to} at your request; commits outside that span were not fetched.`);
+  }
+  const dataset = buildDataset(source, [...commits.values()], refs, { reportedCommitCount: reportedTotal, warnings, truncated: truncated || !!opts.since || !!opts.until });
   const outcome: IngestOutcome = rateLimitedAt ? 'rate-limited' : stale ? 'offline-cached' : dataset.coverage.completeness === 'exact' ? 'complete' : 'partial';
   return { dataset, outcome, rate: client.rate, resetAt: rateLimitedAt?.resetAt ?? null, requests: client.requests, fromCache: anyFromCache };
 }

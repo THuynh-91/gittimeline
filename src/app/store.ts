@@ -36,7 +36,6 @@ export interface Settings {
   highContrast: boolean;
   muted: boolean;
   effectsLevel: number;
-  ambientLevel: number;
   dynamics: 'quiet' | 'standard' | 'dramatic';
   labels: 'minimal' | 'landmarks' | 'all';
   showGlyphs: boolean;
@@ -60,7 +59,6 @@ export const DEFAULT_SETTINGS: Settings = {
   highContrast: false,
   muted: false,
   effectsLevel: 0.7,
-  ambientLevel: 0.5,
   dynamics: 'dramatic',
   labels: 'landmarks',
   showGlyphs: true,
@@ -88,6 +86,16 @@ export interface AppError {
 export interface Banner {
   kind: 'partial' | 'rate-limited' | 'offline' | 'degraded' | 'fallback' | 'info';
   message: string;
+  /** Optional call to action, e.g. re-fetching a cached repository. */
+  action?: { label: string; run: () => void };
+}
+
+/** What we learned about a large repository before committing to fetching it. */
+export interface ScopeQuestion {
+  displayName: string;
+  estimatedCommits: number | null;
+  firstYear: number | null;
+  lastYear: number | null;
 }
 
 const SETTINGS_KEY = 'gitdance.settings.v1';
@@ -141,6 +149,7 @@ export const store = {
   loopRange: signal<{ start: number; end: number } | null>(null),
   /** Explicit duration from a share link, overriding the derived one. */
   durationOverride: signal<number | null>(null),
+  scope: signal<ScopeQuestion | null>(null),
   recording: signal(false),
   toast: signal<string | null>(null),
 };

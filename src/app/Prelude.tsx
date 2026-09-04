@@ -57,6 +57,9 @@ export function Prelude() {
   const error = store.error.value;
   if (!busy && !error) return null;
   if (store.mode.value !== 'player') return null;
+  // While the viewer is being asked how much history to fetch, that question is
+  // the only thing on screen; a progress panel over it would block the answer.
+  if (store.scope.value) return null;
 
   if (error) {
     return (
