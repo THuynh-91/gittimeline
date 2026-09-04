@@ -85,11 +85,19 @@ export function Landing() {
   const onPaste = (e: ClipboardEvent) => {
     const text = e.clipboardData?.getData('text') ?? '';
     const parsed = parseRepoUrl(text);
-    if (parsed.ok) {
-      e.preventDefault();
-      store.input.value = parsed.repo.slug;
-      store.inputError.value = null;
-    }
+    if (!parsed.ok) return;
+    // Pasting a whole URL is a replacement — nobody pastes a repository URL
+    // meaning to append it to another one — but only when the field is empty
+    // or entirely selected. Taking the whole field otherwise silently deleted
+    // text the caret was sitting in the middle of, which reads as paste being
+    // broken rather than as normalisation.
+    const el = e.currentTarget as HTMLInputElement | null;
+    const value = el?.value ?? '';
+    const whole = !value || (el?.selectionStart === 0 && el?.selectionEnd === value.length);
+    if (!whole) return;
+    e.preventDefault();
+    store.input.value = parsed.repo.slug;
+    store.inputError.value = null;
   };
 
   const onKey = (e: KeyboardEvent) => {

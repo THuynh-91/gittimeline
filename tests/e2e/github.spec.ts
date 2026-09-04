@@ -181,4 +181,32 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     expect(stats!.commits, 'every page of the history is loaded').toBe(350);
     await expect(page.getByTestId('quality-badge')).toHaveText('exact');
   });
+
+  test('pasting a repository URL replaces the field, but never mid-edit', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/');
+    const input = page.getByTestId('url-input');
+    await page.evaluate(() => navigator.clipboard.writeText('https://github.com/acme/widget/tree/main/src'));
+
+    // Into an empty field, a whole URL is normalised to owner/name.
+    await input.click();
+    await page.keyboard.press('Control+V');
+    await expect(input).toHaveValue('acme/widget');
+
+    // Over a full selection, likewise — that is a replacement either way.
+    await input.fill('other/repo');
+    await input.focus();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Control+V');
+    await expect(input).toHaveValue('acme/widget');
+
+    // But with the caret inside existing text it inserts, like any text field.
+    // Swallowing the whole value here silently deleted what was being edited,
+    // which reads as paste being broken rather than as normalisation.
+    await input.fill('other/repo');
+    await input.focus();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Control+V');
+    await expect(input).toHaveValue('other/repohttps://github.com/acme/widget/tree/main/src');
+  });
 });
