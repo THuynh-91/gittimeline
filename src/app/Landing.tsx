@@ -169,7 +169,7 @@ export function Landing() {
       <div class="meta">
         <span>Fetched from GitHub, rendered on your device. No backend, no account, no upload.</span>
         <span>
-          <a href="#" onClick={(e) => { e.preventDefault(); store.mode.value = 'player'; store.panel.value = 'help'; play(); }}>
+          <a href="#" onClick={(e) => { e.preventDefault(); store.panel.value = 'help'; play(); }}>
             How it works
           </a>
           {' · '}

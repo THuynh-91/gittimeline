@@ -545,9 +545,33 @@ function primeAudio() {
 export function play() {
   if (!player.perf) return;
   if (!store.settings.value.muted) audio.ensure();
-  if (store.mode.value === 'landing') store.mode.value = 'player';
+  // Leaving the landing page starts the performance, it does not join one
+  // already in progress: the demo has been playing quietly behind the form.
+  const fromLanding = store.mode.value === 'landing';
+  if (fromLanding) store.mode.value = 'player';
+  const atEnd = player.t >= player.duration - 1e-3;
+  if (fromLanding || atEnd) restart();
   syncRendererSettings();
   player.play();
+}
+
+/**
+ * Back to the top, and back to the director.
+ *
+ * Seeking alone is not enough. If the viewer had been travelling the finished
+ * picture with the slider, the camera is parked in a corner under manual
+ * control, and starting again would replay the whole history off-screen.
+ */
+function restart() {
+  player.seek(0);
+  if (renderer) {
+    renderer.manual = null;
+    renderer.zoomLock = null;
+  }
+  store.manualCamera.value = false;
+  store.cameraLocked.value = false;
+  updateSettings({ autoCamera: true });
+  audio.reset();
 }
 
 export function pause() {
@@ -1029,6 +1053,9 @@ export function installDebugHook() {
     },
     get viewport() {
       return renderer?.viewport() ?? null;
+    },
+    get waveform() {
+      return store.perf.value ? Array.from(store.perf.value.waveform) : null;
     },
     get nodeX() {
       return store.perf.value ? store.perf.value.nodes.map((n) => n.x) : null;

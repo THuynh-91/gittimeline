@@ -24,7 +24,7 @@ export function ScopeChooser() {
       <div class="error-card scope-card">
         <h2 id="scope-title">{displayName} has about {approx} commits</h2>
         <p>
-          The whole history is {requests ? `about ${requests} requests` : 'a large fetch'} and plays at the three-minute ceiling, where commits land too quickly to follow individually. A single year is quicker to load and much easier to watch.
+          The whole history is {requests ? `about ${requests} requests` : 'a large fetch'} and runs up against the four-minute ceiling, where commits land too quickly to follow individually. A single year is quicker to load and much easier to watch.
         </p>
         <div class="scope-years">
           {years.map((y) => (

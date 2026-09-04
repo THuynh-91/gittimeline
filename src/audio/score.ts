@@ -139,16 +139,12 @@ export interface Piece {
   tonic: number;
   mode: string;
   /**
-   * Bars each chord is held.
+   * Roughly how long a chord is held.
    *
-   * Harmonic rhythm is counted in bars rather than seconds so it follows the
-   * performance's own tempo: when the history speeds up the beat grid speeds
-   * up, the bars get shorter, and the harmony turns over faster without
-   * anything having to be told to do so. Fixing it in seconds is what made a
-   * busy stretch sound as ponderous as a dormant one.
+   * The actual turnover is quantised to whole bars of the plan's own tempo by
+   * `buildChordTimes`, so the harmony speeds up when the history does; this is
+   * the target it rounds to.
    */
-  chordBars: number;
-  /** Nominal seconds per chord at the piece's own mid tempo, for reference. */
   chordSeconds: number;
   /** Voiced chords, in semitones relative to the engine root. */
   chords: number[][];
@@ -232,11 +228,9 @@ export function derivePiece(hash: string, character: Character = { drive: 0.4, t
   // in the octave: too high loses the weight, too low loses the pitch.
   const tonic = Math.round(hash01(`key:${hash}`) * 9) - 4;
 
-  // Harmonic rhythm follows the pace of the work: a settled history can hold a
-  // chord for eight bars, a restless one turns over every two.
-  const bars = drive + turbulence > 1.1 ? 2 : drive + turbulence > 0.6 ? 4 : hash01(`hold:${hash}`) > 0.5 ? 8 : 4;
-  const chordBars = bars;
-  const chordSeconds = Math.max(4.4, Math.min(9.6, 9.4 - 4.4 * drive - 0.8 * turbulence));
+  // Harmonic rhythm follows the pace of the work: a settled history lets a
+  // chord stand, a restless one keeps moving underneath.
+  const chordSeconds = Math.max(3.6, Math.min(8.5, 8.4 - 4.2 * drive - 1.2 * turbulence + hash01(`hold:${hash}`) * 0.6));
 
   const scale = (degree: number): number => {
     const octave = Math.floor(degree / 7);
@@ -260,25 +254,45 @@ export function derivePiece(hash: string, character: Character = { drive: 0.4, t
     gain: 0.88 + 0.16 * weight,
   };
 
-  return { tonic, mode: modeName, chordBars, chordSeconds, chords, scale: scaleNotes, character, articulation };
+  return { tonic, mode: modeName, chordSeconds, chords, scale: scaleNotes, character, articulation };
 }
 
 /**
  * The performance times at which the harmony turns over, walked from the same
  * tempo map the choreography uses. Built once per plan.
+ *
+ * The bar count is derived rather than fixed, because a fixed one does not
+ * survive contact with a real tempo. Eight bars is four seconds at 180bpm and
+ * half a minute at 62 — so a constant "eight bars per chord" gave dense
+ * histories a chord every three seconds and quiet ones a single chord for the
+ * entire performance, which is the opposite of following anything. Instead the
+ * piece asks for a chord roughly every `chordSeconds` and that is rounded to a
+ * whole number of this plan's own bars: still locked to the beat grid, so it
+ * still accelerates when the history does, but landing where it was meant to.
+ *
+ * A floor guarantees the harmony turns over at least a few times however short
+ * or slow the performance is. A piece that never leaves its first chord is not
+ * a piece.
  */
+const MIN_CHORD_CHANGES = 5;
+
 export function buildChordTimes(piece: Piece, tempoMap: Array<[number, number]>, duration: number): number[] {
-  const times: number[] = [0];
-  const beatsPerChord = piece.chordBars * 4;
+  // Walk the whole grid once; every later decision is a slice of this.
+  const beats: number[] = [0];
   let t = 0;
-  let beat = 0;
   let guard = 0;
   while (t < duration && guard++ < 200000) {
     t += beatLengthAt(tempoMap, t);
-    beat++;
-    if (beat % beatsPerChord === 0) times.push(t);
+    beats.push(t);
   }
-  return times;
+  const bars = Math.max(1, Math.floor(beats.length / 4));
+  const wanted = Math.max(1, Math.round((piece.chordSeconds * (beats.length - 1)) / Math.max(1e-6, duration) / 4));
+  const affordable = Math.max(1, Math.floor(bars / MIN_CHORD_CHANGES));
+  const barsPerChord = Math.max(1, Math.min(wanted, affordable));
+
+  const times: number[] = [];
+  for (let i = 0; i < beats.length; i += barsPerChord * 4) times.push(beats[i]!);
+  return times.length ? times : [0];
 }
 
 /** The chord sounding at a moment, against the plan's own bar lines. */

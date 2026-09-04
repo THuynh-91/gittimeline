@@ -26,7 +26,7 @@ await page.waitForTimeout(800);
 const times = [2, 6, 10, 14, 18, 22, 26, 30, 36, 42, 48, 54, 58];
 for (const t of times) {
   // seek via exposed player? Use keyboard seek: set time directly through the timeline slider is complex; we wait real time instead.
-  const current = await page.evaluate(() => window.__gitdance?.time ?? null);
+  const current = await page.evaluate(() => window.__gittimeline?.time ?? null);
   void current;
   await page.waitForTimeout(t === times[0] ? 1500 : 4000);
   const info = await page.evaluate(() => {

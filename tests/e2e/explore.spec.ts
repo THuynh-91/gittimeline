@@ -89,6 +89,34 @@ test.describe('travelling the finished picture', () => {
     await expect(page.getByTestId('explore-bar')).toBeVisible();
   });
 
+  test('playing again starts at the beginning and hands the camera back', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur);
+    await page.evaluate(() => window.__gittimeline.zoom(3));
+    await page.getByTestId('explore-range').fill('900');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.__gittimeline.manualCamera)).toBe(true);
+
+    await page.getByTestId('transport-play').click();
+    await page.waitForTimeout(200);
+    // Back to the top, and back to the director: replaying the whole history
+    // parked in a corner under manual control would show nothing at all.
+    expect(await page.evaluate(() => window.__gittimeline.time)).toBeLessThan(2);
+    expect(await page.evaluate(() => window.__gittimeline.manualCamera)).toBe(false);
+  });
+
+  test('leaving the landing page starts the performance, not joins it', async ({ page }) => {
+    await page.goto('/');
+    // The demo plays quietly behind the form; let it get well underway.
+    await page.waitForTimeout(2500);
+    await page.getByRole('link', { name: 'How it works' }).click();
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => window.__gittimeline.mode)).toBe('player');
+    expect(await page.evaluate(() => window.__gittimeline.time)).toBeLessThan(1.5);
+  });
+
   test('it disappears again once the performance is playing', async ({ page }) => {
     await page.goto('/#demo=1');
     await waitForReady(page);

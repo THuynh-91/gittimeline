@@ -11,10 +11,10 @@ const requests = [];
 page.on('request', (r) => { if (r.url().startsWith('https://api.github.com/')) requests.push(r.url()); });
 await page.goto(`http://localhost:4173/#repo=${repo}&autoplay=1`);
 try {
-  await page.waitForFunction(() => window.__gitdance && (window.__gitdance.stats !== null || document.querySelector('[role="alertdialog"]')), null, { timeout: 90_000 });
+  await page.waitForFunction(() => window.__gittimeline && (window.__gittimeline.stats !== null || document.querySelector('[role="alertdialog"]')), null, { timeout: 90_000 });
 } catch { /* fall through to reporting */ }
-const stats = await page.evaluate(() => window.__gitdance.stats);
-const phase = await page.evaluate(() => window.__gitdance.phase);
+const stats = await page.evaluate(() => window.__gittimeline.stats);
+const phase = await page.evaluate(() => window.__gittimeline.phase);
 const badge = await page.locator('[data-testid="quality-badge"]').textContent().catch(() => null);
 const banner = await page.locator('.banner').textContent().catch(() => null);
 const alert = await page.locator('[role="alertdialog"]').textContent().catch(() => null);

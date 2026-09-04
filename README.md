@@ -57,15 +57,17 @@ For a large open-source project, supply a **free fine-grained token** with read-
 
 Measured end to end with a token:
 
-When a repository turns out to be large, GitTimeline says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. A year of React is 31 requests and paces at 0.34s per commit; the full history is 232 requests and runs dense at the ceiling. Anything already fetched is reused on the next visit with **no requests at all**, with a "fetch again" action when you want fresh data.
+When a repository turns out to be large, GitTimeline says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. Anything already fetched is reused on the next visit with **no requests at all**, and Settings has a "fetch latest commits" action when you want fresh data.
 
-Measured by driving the real interface (`scripts/usertest.mjs`), not by simulation:
+**How long a show runs** is derived, not fixed. Each visible commit is given 0.26 seconds of stage time — enough for its arrival to read as its own beat — and the history is collapsed into counted ribbons until what remains fits. The automatic length is therefore the size of what survives aggregation, with a ceiling of **four minutes**; choosing an explicit length in Settings overrides that exactly. `tests/unit/pacing.test.ts` holds the floor: the typical arrival must hold the stage for at least a quarter of a second, and arrivals must stay under 4.5 a second, for every history in the corpus.
 
-| Repository | Commits | Requests | Load | Show |
-|---|---:|---:|---:|---:|
-| ripgrep | 2,299 | 34 | 9s | 97s |
-| vite | 9,670 | 108 | 47s | 112s |
-| React | 22,345 | 244 | ~2 min | 180s (ceiling) |
+Ingestion cost, measured by driving the real interface (`scripts/usertest.mjs`) with a token:
+
+| Repository | Commits | Requests | Load |
+|---|---:|---:|---:|
+| ripgrep | 2,299 | 34 | 9s |
+| vite | 9,670 | 108 | 47s |
+| React | 22,345 | 244 | ~2 min |
 
 React's entire history loads with a token, at exact coverage. Aggregation collapses long linear runs into counted ribbons so the show stays watchable, and three things keep a very dense project legible rather than a smear: lanes are capped so thousands of short-lived pull-request branches share outer lanes instead of pushing the graph tens of thousands of units tall, the camera will not pull back past a fixed bound and instead stays with the front of the work, and thread names are budgeted so a named branch is labelled while thousands of anonymous ones are not.
 
