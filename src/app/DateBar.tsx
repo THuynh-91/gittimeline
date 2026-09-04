@@ -1,5 +1,5 @@
 import { store } from './store';
-import { player } from './controller';
+import { dateAtFraction, player } from './controller';
 import { fmtClock } from '@/choreography/events';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -13,7 +13,12 @@ export function DateBar() {
   const perf = store.perf.value;
   const t = store.time.value;
   if (!perf) return null;
-  const hist = player.historicalAt(t);
+  // Once the performance is over the viewer travels the finished picture with
+  // the slider, which moves the camera and not the clock. The hero has to
+  // describe what is actually on screen: leaving it at the playhead meant it
+  // read "September 2026" while you were looking at 2017.
+  const travel = store.travelAt.value;
+  const hist = travel != null ? (dateAtFraction(travel) ?? player.historicalAt(t)) : player.historicalAt(t);
   const era = perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
   const ev = store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;

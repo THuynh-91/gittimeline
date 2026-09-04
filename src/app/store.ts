@@ -165,6 +165,15 @@ export const store = {
   /** Explicit duration from a share link, overriding the derived one. */
   durationOverride: signal<number | null>(null),
   scope: signal<ScopeQuestion | null>(null),
+  /**
+   * Where the travel slider is, 0..1, or null when not travelling.
+   *
+   * Anything that must follow the *camera* rather than the clock has to read a
+   * signal: while the performance is over and the viewer is travelling the
+   * finished picture, time does not move, so a component watching the playhead
+   * never re-renders and quietly keeps showing the moment the clock stopped.
+   */
+  travelAt: signal<number | null>(null),
   recording: signal(false),
   toast: signal<string | null>(null),
 };

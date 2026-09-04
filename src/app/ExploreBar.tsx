@@ -39,10 +39,14 @@ export function ExploreBar() {
       const st = exploreState();
       if (!st) return;
       setPos((p) => (Math.abs(p - st.at) > 0.001 ? st.at : p));
+      if (store.travelAt.peek() !== st.at) store.travelAt.value = st.at;
       setVisible((v) => (Math.abs(v - st.visible) > 0.005 ? st.visible : v));
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      store.travelAt.value = null;
+    };
   }, [ended]);
 
   if (!ended || !perf) return null;
@@ -57,6 +61,7 @@ export function ExploreBar() {
     const f = Number((e.currentTarget as HTMLInputElement).value) / 1000;
     dragging.current = true;
     setPos(f);
+    store.travelAt.value = f;
     exploreTo(f);
   };
 

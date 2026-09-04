@@ -164,4 +164,30 @@ test.describe('travelling the finished picture', () => {
     expect(await page.evaluate(() => window.__gittimeline.playing)).toBe(true);
     expect(await page.evaluate(() => window.__gittimeline.time)).toBeGreaterThan(0);
   });
+
+  test('the date follows what is on screen while travelling, not the stopped clock', async ({ page }) => {
+    // A history that spans years, so the two ends genuinely read differently —
+    // the built-in demo covers a few days and would pass vacuously.
+    await page.goto('/#fixture=19-million-node-synthetic-lod');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur);
+    await page.evaluate(() => window.__gittimeline.zoom(3.5));
+    await page.waitForTimeout(150);
+
+    const range = page.getByTestId('explore-range');
+    await range.fill('20');
+    await page.waitForTimeout(250);
+    const early = (await page.getByTestId('date-hero').textContent()) ?? '';
+
+    await range.fill('980');
+    await page.waitForTimeout(250);
+    const late = (await page.getByTestId('date-hero').textContent()) ?? '';
+
+    // The slider moves the camera, not the clock. Reading the playhead left the
+    // hero showing the final date wherever you looked.
+    expect(early, 'the hero describes the part of the history on screen').not.toBe(late);
+    expect(early).toMatch(/\d{4}/);
+    expect(late).toMatch(/\d{4}/);
+  });
 });
