@@ -45,7 +45,7 @@ Useful URL parameters (everything lives in the hash so static hosting needs no r
 
 ## Keyboard
 
-`Space` play/pause · `←/→` step a beat · `Shift+←/→` landmarks · `↑/↓` walk the active threads · `Home/End` · `M` sound (off by default) · `C` camera: free look → follow at your zoom → auto · `?` help · `Esc` close.
+`Space` play/pause · `←/→` step a beat · `Shift+←/→` landmarks · `↑/↓` walk the active threads · `Home/End` · `M` sound · `C` camera: free look → follow at your zoom → auto · `?` help · `Esc` close.
 
 Zoom out with the wheel, then press `C`: the performance keeps playing and keeps that wider view instead of springing back.
 
@@ -53,9 +53,17 @@ Zoom out with the wheel, then press `C`: the performance keeps playing and keeps
 
 GitHub allows roughly **60 anonymous requests an hour per network** — its limit, not GitDance's, and not something any browser app can bypass. That is a few thousand commits. GitDance stretches it as far as it honestly can: 100 commits per request, ETag revalidation (an unchanged page returns 304 and **does not count** against the limit), an IndexedDB cache across visits, and a budget that stops before exhaustion and plays a truthful partial performance.
 
-For a large open-source project, supply a **free fine-grained token** with read-only public access. That raises the ceiling to about **5,000 requests an hour** — enough for a whole project history — and GitDance then reads up to 400 pages instead of 40. The app offers the token field exactly where the limit bites, keeps it in memory for that tab only, sends it solely to `api.github.com`, and never stores, logs or shares it.
+For a large open-source project, supply a **free fine-grained token** with read-only public access. That raises the ceiling to about **5,000 requests an hour** and lets GitDance read up to 600 pages instead of 40. Add it on the landing page ("Loading a large repository?") or in Settings. It stays in memory for that tab only, goes solely to `api.github.com`, and is never stored, logged or shared.
 
-However much is loaded, the show still fits its target duration: aggregation collapses long linear runs into counted ribbons rather than making you watch ten thousand identical dots.
+Measured end to end with a token:
+
+| Repository | Commits | Requests | Show | Visible nodes |
+|---|---:|---:|---:|---:|
+| ripgrep | 2,299 | 34 | 97s | 349 |
+| vite | 9,670 | 108 | 112s | 402 |
+| React | 22,345 | 232 | 180s | 6,193 |
+
+Aggregation collapses long linear runs into counted ribbons, so the show stays watchable rather than becoming a queue of identical dots. A project that merges a pull request for every change is the hard case: its thousands of merge junctions cannot be collapsed without hiding topology, so those performances run to the three-minute ceiling and are genuinely dense.
 
 ## Truth model
 
@@ -102,7 +110,7 @@ The length follows the history rather than a fixed target: a handful of commits 
 
 ## Sound
 
-Off until you ask for it, and there is no drone: every sound is a discrete event with a decay. A slow four-chord progression in A minor runs underneath the performance and turns over every few phrases, and every voice takes its pitches from the chord currently sounding — a thread's lane picks which chord tone it gets, so parallel branches harmonize instead of colliding. Commits are struck-string piano tones; a merge plays the chord, weighted by how much work it absorbed.
+On by default, and there is no drone: every sound is a discrete event with a decay. A slow four-chord progression in A minor runs underneath the performance and turns over every few phrases, and every voice takes its pitches from the chord currently sounding — a thread's lane picks which chord tone it gets, so parallel branches harmonize instead of colliding. Commits are struck-string piano tones; a merge plays the chord, weighted by how much work it absorbed.
 
 ## Documentation
 

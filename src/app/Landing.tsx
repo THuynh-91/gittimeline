@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { store } from './store';
 import { loadDemo, loadRepo, loadArtifactFile, play } from './controller';
 import { parseRepoUrl } from '@/github/url';
@@ -10,6 +10,49 @@ const EXAMPLES: Array<{ label: string; url: string }> = [
   { label: 'Git', url: 'github.com/git/git' },
   { label: 'React', url: 'github.com/facebook/react' },
 ];
+
+/**
+ * Anonymous GitHub access is capped at about sixty requests an hour per
+ * network, which runs out on a large project. This is where someone hits that
+ * wall, so this is where the way past it belongs.
+ */
+function TokenNote() {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(store.token.value ?? '');
+  const active = !!store.token.value;
+  if (!open) {
+    return (
+      <button type="button" class="token-link" onClick={() => setOpen(true)} data-testid="token-disclosure">
+        {active ? 'GitHub token active — about 5,000 requests an hour' : 'Loading a large repository? Use your GitHub token'}
+      </button>
+    );
+  }
+  return (
+    <div class="token-panel">
+      <p>
+        Without a token GitHub allows your network about 60 requests an hour, which covers a few thousand commits. A free fine-grained token with read-only public access raises that to about 5,000, enough for a large project's whole history.
+      </p>
+      <div class="token-inline">
+        <input
+          type="text"
+          autoComplete="off"
+          spellcheck={false}
+          aria-label="GitHub token"
+          placeholder="github_pat_…"
+          value={value}
+          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+          data-testid="landing-token"
+        />
+        <button type="button" class="btn primary small" onClick={() => { store.token.value = value.trim() || null; setOpen(false); }}>
+          Use
+        </button>
+      </div>
+      <p>
+        Create one at <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens</a> with no extra permissions selected. It stays in memory for this tab only, goes only to api.github.com, and is never stored or shared.
+      </p>
+    </div>
+  );
+}
 
 export function Landing() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +165,7 @@ export function Landing() {
           </div>
         )}
       </form>
+      <TokenNote />
       <div class="meta">
         <span>Fetched from GitHub, rendered on your device. No backend, no account, no upload.</span>
         <span>

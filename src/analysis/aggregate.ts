@@ -39,7 +39,7 @@ export function aggregateLinearRuns(
   contributorOf: Int32Array,
   contributorIds: string[],
   visibleBudget: number,
-  minRun = 4,
+  minRun = 3,
 ): AggregationResult {
   const n = commits.length;
   const aggregateOf = new Int32Array(n).fill(-1);
@@ -53,28 +53,31 @@ export function aggregateLinearRuns(
     g.children[id]!.length === 1;
 
   // 1. Every collapsible run, keeping its exact boundaries.
+  //
+  // A run's boundaries are the *protected* commits on either side of it — the
+  // junction it came from and the one it leads to — rather than the first and
+  // last plain commit. That lets every plain commit in the middle collapse
+  // while both junctions stay exact, which matters enormously in a repository
+  // that merges a pull request for every change: there, almost nothing is a
+  // long linear stretch, and boundaries drawn any tighter collapse nothing.
   const candidates: Candidate[] = [];
   members.forEach((ids, threadIdx) => {
-    let runStart = -1;
-    const flush = (end: number) => {
-      const len = end - runStart;
-      if (runStart >= 0 && len >= minRun) {
-        candidates.push({ threadIdx, entry: ids[runStart]!, exit: ids[end - 1]!, inner: ids.slice(runStart + 1, end - 1) });
+    let i = 0;
+    while (i < ids.length) {
+      if (!plain(ids[i]!)) {
+        i++;
+        continue;
       }
-      runStart = -1;
-    };
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i]!;
-      const prev = i > 0 ? ids[i - 1]! : -1;
-      const contiguous = prev >= 0 && g.firstParent[id] === prev;
-      if (plain(id) && (runStart === -1 || contiguous)) {
-        if (runStart === -1) runStart = i;
-      } else {
-        flush(i);
-        if (plain(id)) runStart = i;
-      }
+      let j = i;
+      while (j + 1 < ids.length && plain(ids[j + 1]!) && g.firstParent[ids[j + 1]!] === ids[j]!) j++;
+      const hasEntry = i > 0;
+      const hasExit = j + 1 < ids.length;
+      const entry = hasEntry ? ids[i - 1]! : ids[i]!;
+      const exit = hasExit ? ids[j + 1]! : ids[j]!;
+      const inner = ids.slice(hasEntry ? i : i + 1, hasExit ? j + 1 : j);
+      if (inner.length >= minRun - 2 && inner.length > 0) candidates.push({ threadIdx, entry, exit, inner });
+      i = j + 1;
     }
-    flush(ids.length);
   });
   if (!candidates.length) return { spans, aggregateOf, collapsedFrom: Infinity };
 

@@ -188,7 +188,7 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     const minW = state === 'intimate' ? 420 : state === 'overview' ? 720 : 560;
     const minH = state === 'intimate' ? 230 : state === 'overview' ? 380 : 300;
     let tw = Math.max(minW * growth * eraWiden, maxX - minX + padX * 2);
-    let th = Math.max(minH * (1 + (growth - 1) * 0.55) * eraWiden, maxY - minY + padY * 2);
+    let th = Math.max(minH * (1 + (growth - 1) * 0.15) * eraWiden, maxY - minY + padY * 2);
     if (inTail) {
       tw = Math.max(minW, (maxX - minX) * 1.12 + 80);
       th = Math.max(minH, (maxY - minY) * 1.25 + 80);

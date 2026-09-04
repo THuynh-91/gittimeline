@@ -851,6 +851,7 @@ export function installDebugHook() {
       if (!perf) return [];
       return perf.events.filter((e) => !type || e.type === type).map((e) => ({ type: e.type, impact: e.performanceImpact, start: e.performanceStart, end: e.performanceEnd, caption: e.caption }));
     },
+    setToken: (t: string | null) => (store.token.value = t || null),
     seek: (t: number) => seek(t),
     play: () => play(),
     pause: () => pause(),

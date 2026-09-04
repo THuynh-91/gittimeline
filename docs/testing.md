@@ -29,7 +29,15 @@ The mock (`tests/fixtures/mock-github.ts`) paginates with Link headers, emits ET
 
 ## Visual QA
 
-`node scripts/inspect.mjs <dir>` captures frames of the demo from the preview server and reports console issues; `node scripts/live-smoke.mjs owner/repo` runs a read-only live smoke test (a handful of requests). Screenshots at birth, first divergence, maximum concurrency, merge approach/impact, the quiet gap, the tableau, reduced motion, poster and mobile were reviewed while tuning the motion language.
+`node scripts/inspect.mjs <dir>` captures frames of the demo from the preview server and reports console issues; `node scripts/live-smoke.mjs owner/repo` runs a read-only live smoke test (a handful of requests).
+
+`scripts/usertest.mjs` is a **user test rather than a unit test**: it drives the real interface the way a person would — types a token into the landing page, enters a repository, presses Play, watches the stage for nine seconds and reports load time, request count, coverage, show length, how many distinct frames were drawn and how many notes the audio engine actually started.
+
+```bash
+GD_TOKEN=$(gh auth token) node scripts/usertest.mjs BurntSushi/ripgrep ./shots
+```
+
+It was used to verify the pacing and audio against real repositories rather than synthetic fixtures. Screenshots at birth, first divergence, maximum concurrency, merge approach/impact, the quiet gap, the tableau, reduced motion, poster and mobile were reviewed while tuning the motion language.
 
 ## Adding a fixture
 

@@ -50,7 +50,7 @@ export class AudioEngine {
   private intensity = 0;
   private voiceSlot = -1;
   private voiceCount = 0;
-  levels: AudioLevels = { master: 0.7, effects: 0.7, muted: true };
+  levels: AudioLevels = { master: 0.7, effects: 0.7, muted: false };
   /** Dynamic range: 'quiet' | 'standard' | 'dramatic' */
   dynamics: 'quiet' | 'standard' | 'dramatic' = 'standard';
 
@@ -170,7 +170,7 @@ export class AudioEngine {
       this.voiceSlot = slot;
       this.voiceCount = 0;
     }
-    if (this.voiceCount >= 4) return false;
+    if (this.voiceCount >= 3) return false;
     this.voiceCount++;
     return true;
   }
@@ -194,21 +194,25 @@ export class AudioEngine {
         break;
       }
       case 'COMMIT_CLUSTER': {
-        const count = 6;
+        if (!this.takeVoice(ev.performanceImpact)) break;
+        const count = 4;
         const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
         for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, noteHz(chord[i % chord.length]!, 2), 0.04, 0.9, contributorJitter);
         break;
       }
       case 'DIVERGENCE':
+        if (!this.takeVoice(ev.performanceImpact)) break;
         // A rising pickup out of the chord: the branch asks a question.
         pluck(ctx, fx, when - 0.1, noteHz(chord[lane % chord.length]!, 2), 0.09 * budget, 1, contributorJitter);
         pluck(ctx, fx, when, noteHz(chord[(lane + 2) % chord.length]!, 2), 0.12 * budget, 1.6, contributorJitter);
         swish(ctx, fx, when - 0.05, 0.25, 0.06 * budget);
         break;
       case 'THREAD_ACTIVATE':
+        if (!this.takeVoice(ev.performanceImpact)) break;
         pluck(ctx, fx, when, noteHz(degree, 2), 0.09, 1.4, contributorJitter);
         break;
       case 'CONTRIBUTOR_ENTER':
+        if (!this.takeVoice(ev.performanceImpact)) break;
         pluck(ctx, fx, when, noteHz(chord[(lane + 1) % chord.length]!, 4), 0.045, 1.2, contributorJitter);
         break;
       case 'MERGE_APPROACH':

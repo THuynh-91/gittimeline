@@ -58,7 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedMotion: false,
   noFlash: false,
   highContrast: false,
-  muted: true,
+  muted: false,
   effectsLevel: 0.7,
   ambientLevel: 0.5,
   dynamics: 'dramatic',

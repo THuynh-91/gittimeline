@@ -140,9 +140,12 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // Nine commits should not be stretched to a minute, and sixty thousand should
   // not be crammed into one. The show grows with the logarithm of the history,
   // bounded to a watchable window, and the viewer can nudge it brief or extended.
-  const autoSeconds = Math.max(20, Math.min(150, 12 + 20 * Math.log10(1 + n))) * (opts.preset.lengthBias ?? 1);
+  const autoSeconds = Math.max(24, Math.min(165, 16 + 24 * Math.log10(1 + n))) * (opts.preset.lengthBias ?? 1);
   const targetSeconds = opts.preset.targetDuration > 0 ? opts.preset.targetDuration : autoSeconds;
-  const perNode = reducedMotion ? 0.18 : 0.09;
+  // Seconds of stage time each visible commit needs to read as its own beat.
+  // This is what stops a large repository turning into a blur: the history is
+  // collapsed into ribbons until what remains can actually be watched.
+  const perNode = reducedMotion ? 0.4 : 0.26;
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateLinearRuns(
     g,
@@ -225,7 +228,13 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
       salience: mergeSalienceC[cid]!,
     };
   });
-  const clock = buildClock(items, targetSeconds, reducedMotion);
+  // Second pass on the length. Aggregation collapses linear runs, but a
+  // merge-heavy project (a PR-per-change workflow) has thousands of junctions
+  // that cannot be collapsed without hiding topology. Rather than blur them
+  // past legibility, the show lengthens until each visible commit gets a
+  // readable moment, up to a firm ceiling.
+  const paced = Math.max(targetSeconds, Math.min(180, visible.length * (reducedMotion ? 0.18 : 0.12)));
+  const clock = buildClock(items, paced, reducedMotion);
 
   onProgress('layout');
   // Layout runs in natural time so geometry is identical for every target duration.

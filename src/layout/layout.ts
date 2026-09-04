@@ -10,7 +10,7 @@ import { flattenCubic, sCurve, type Pt } from './paths';
  *  - a thread keeps its side and lane for its whole lifetime (no lane swaps);
  *  - side choice balances composition and is seeded/stable.
  */
-export const LANE_GAP = 36;
+export const LANE_GAP = 54;
 export const X_PER_SECOND = 96; // world units per natural second
 
 export interface ThreadLayoutInput {

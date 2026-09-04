@@ -25,7 +25,7 @@ test.describe('built-in demo performance', () => {
     await waitForReady(page);
     await page.getByTestId('play-button').click();
     await page.waitForFunction(() => window.__gitdance.mode === 'player' && window.__gitdance.playing);
-    expect(await page.evaluate(() => window.__gitdance.audioStarted)).toBe(false); // sound stays off until asked for
+    expect(await page.evaluate(() => window.__gitdance.audioStarted)).toBe(true); // the score starts with the performance
     const stats = await page.evaluate(() => window.__gitdance.stats);
     expect(stats!.maxConcurrentThreads).toBeGreaterThanOrEqual(3);
 
@@ -166,12 +166,12 @@ test.describe('built-in demo performance', () => {
     await page.goto('/#demo=1&autoplay=1');
     await waitForReady(page);
     const hash = await page.evaluate(() => window.__gitdance.planHash);
-    await expect(page.getByTestId('mute-button')).toHaveAttribute('aria-pressed', 'false'); // muted by default
-    await page.keyboard.press('m');
-    await expect(page.getByTestId('mute-button')).toHaveAttribute('aria-pressed', 'true');
-    expect(await page.evaluate(() => window.__gitdance.audioStarted)).toBe(true); // unmuting starts the score
+    await expect(page.getByTestId('mute-button')).toHaveAttribute('aria-pressed', 'true'); // the score plays by default
+    expect(await page.evaluate(() => window.__gitdance.audioStarted)).toBe(true);
     await page.keyboard.press('m');
     await expect(page.getByTestId('mute-button')).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('m');
+    await expect(page.getByTestId('mute-button')).toHaveAttribute('aria-pressed', 'true');
     await page.keyboard.press('c');
     expect(await page.evaluate(() => window.__gitdance.manualCamera)).toBe(true);
     await page.keyboard.press('c');

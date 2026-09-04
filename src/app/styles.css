@@ -726,6 +726,38 @@ a {
   border-color: var(--line);
 }
 
+.token-link {
+  margin-top: 26px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-bottom: 1px dashed rgba(230, 225, 214, 0.3);
+  padding-bottom: 1px;
+}
+
+.token-link:hover {
+  color: var(--text);
+}
+
+.token-panel {
+  margin-top: 22px;
+  width: min(560px, 100%);
+  background: rgba(13, 15, 22, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.token-panel p {
+  margin: 0 0 10px;
+}
+
+.token-panel p:last-child {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
 .landing .meta {
   margin-top: 34px;
   color: var(--text-faint);
