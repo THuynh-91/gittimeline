@@ -1194,6 +1194,10 @@ export function installDebugHook() {
     get nodeX() {
       return store.perf.value ? store.perf.value.nodes.map((n) => n.x) : null;
     },
+    /** Answer the scope question with an arbitrary span, for the catalog build. */
+    chooseScope(since: string | null, until: string | null, label: string) {
+      chooseScope({ since, until, label });
+    },
     loadFixture(id: string) {
       void loadFixture(id);
     },

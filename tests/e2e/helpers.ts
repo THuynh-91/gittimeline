@@ -20,6 +20,7 @@ declare global {
       waveform: number[] | null;
       zoom(factor: number): void;
       loadFixture(id: string): void;
+      chooseScope(since: string | null, until: string | null, label: string): void;
       audioStarted: boolean;
       bodies(): Array<{ edge: number; kind: string; body: string; thread: number; contributor: number; progress: number; x: number; y: number }>;
       events(type?: string): Array<{ type: string; impact: number; start: number; end: number; caption: string }>;

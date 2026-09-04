@@ -55,8 +55,18 @@ for (const entry of entries) {
 
     const chooser = page.getByTestId('scope-chooser');
     if (await chooser.waitFor({ timeout: 45000 }).then(() => true).catch(() => false)) {
-      if (entry.scope) await page.getByRole('button', { name: entry.scope, exact: true }).click();
-      else await page.getByTestId('scope-full').click();
+      if (entry.since || entry.until) {
+        // An arbitrary span — a single month of Linux is a different question
+        // from a year, and the chooser only offers whole years to a person.
+        await page.evaluate(
+          ([since, until, label]) => window.__gittimeline.chooseScope(since, until, label),
+          [entry.since ?? null, entry.until ?? null, entry.scope ?? 'a span'],
+        );
+      } else if (entry.scope) {
+        await page.getByRole('button', { name: entry.scope, exact: true }).click();
+      } else {
+        await page.getByTestId('scope-full').click();
+      }
     }
 
     await page.waitForFunction(
