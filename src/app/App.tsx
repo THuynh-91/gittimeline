@@ -1,0 +1,70 @@
+import { useEffect } from 'preact/hooks';
+import { useSignalEffect } from '@preact/signals';
+import { store } from './store';
+import { boot, handleKey, applySettingsToRuntime } from './controller';
+import { Stage } from './Stage';
+import { Landing } from './Landing';
+import { Prelude } from './Prelude';
+import { TopBar } from './TopBar';
+import { Caption } from './Caption';
+import { Timeline } from './Timeline';
+import { Transport } from './Transport';
+import { Panels } from './Panels';
+
+export function App() {
+  useEffect(() => {
+    void boot();
+    const onKey = (e: KeyboardEvent) => {
+      if (handleKey(e)) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  useSignalEffect(() => {
+    const s = store.settings.value;
+    document.documentElement.classList.toggle('reduced-motion', s.reducedMotion);
+    document.documentElement.classList.toggle('high-contrast', s.highContrast);
+    applySettingsToRuntime();
+  });
+
+  const mode = store.mode.value;
+  const perf = store.perf.value;
+  const showPlayer = mode === 'player';
+  const chromeHidden = store.chromeHidden.value;
+  const banner = store.banner.value;
+  const toast = store.toast.value;
+
+  return (
+    <div class={`app${chromeHidden ? ' chrome-hidden' : ''}`}>
+      <Stage />
+      {mode === 'landing' && <Landing />}
+      <Prelude />
+      {showPlayer && perf && !chromeHidden && <TopBar />}
+      {showPlayer && perf && <Caption />}
+      {showPlayer && perf && !chromeHidden && (
+        <div class="band" role="region" aria-label="Activity timeline and transport">
+          <Timeline />
+          <Transport />
+        </div>
+      )}
+      {showPlayer && banner && !chromeHidden && (
+        <div class={`banner ${banner.kind}`} role="status">
+          <span>{banner.message}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => (store.banner.value = null)}>
+            ×
+          </button>
+        </div>
+      )}
+      {showPlayer && perf && <Panels />}
+      {toast && (
+        <div class="toast" role="status">
+          {toast}
+        </div>
+      )}
+      <div class="sr-only" aria-live="polite" aria-atomic="true">
+        {store.announcement.value}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,188 @@
+import type { CommitNode, Sha } from '@/model/types';
+
+/**
+ * Compact graph index over a commit list. SHAs are mapped to integer ids;
+ * edges are derived only from each commit's parent list. Parents that are not
+ * present in the dataset make the child a boundary node — they are never
+ * invented as nodes.
+ */
+export interface GraphIndex {
+  shas: Sha[];
+  index: Map<Sha, number>;
+  /** Known parents per node, preserving Git parent order. Unknown parents are omitted. */
+  parents: Int32Array[];
+  /** Parent index (0 = first parent) for each known parent, aligned with `parents`. */
+  parentSlots: Int32Array[];
+  /** First parent id, or -1 if the first parent is unknown or absent. */
+  firstParent: Int32Array;
+  children: number[][];
+  roots: number[];
+  boundaries: number[];
+  /** Ids with every parent before every child; ties broken by presentation time then SHA. */
+  topo: number[];
+  unknownParentCount: number;
+}
+
+export function buildGraph(commits: CommitNode[]): GraphIndex {
+  const n = commits.length;
+  const shas = commits.map((c) => c.sha);
+  const index = new Map<Sha, number>();
+  shas.forEach((sha, i) => index.set(sha, i));
+
+  const parents: Int32Array[] = new Array(n);
+  const parentSlots: Int32Array[] = new Array(n);
+  const firstParent = new Int32Array(n).fill(-1);
+  const children: number[][] = Array.from({ length: n }, () => []);
+  const roots: number[] = [];
+  const boundaries: number[] = [];
+  let unknownParentCount = 0;
+
+  for (let i = 0; i < n; i++) {
+    const c = commits[i]!;
+    const known: number[] = [];
+    const slots: number[] = [];
+    let missing = false;
+    c.parentShas.forEach((p, slot) => {
+      const pid = index.get(p);
+      if (pid === undefined) {
+        missing = true;
+        unknownParentCount++;
+        return;
+      }
+      if (pid === i) return; // self-parent is malformed; ignore rather than loop
+      known.push(pid);
+      slots.push(slot);
+      children[pid]!.push(i);
+    });
+    parents[i] = Int32Array.from(known);
+    parentSlots[i] = Int32Array.from(slots);
+    const fp = c.parentShas[0];
+    firstParent[i] = fp !== undefined && index.has(fp) && index.get(fp) !== i ? index.get(fp)! : -1;
+    if (c.parentShas.length === 0) roots.push(i);
+    if (missing) boundaries.push(i);
+  }
+
+  // Kahn's algorithm with a deterministic priority (raw time, then sha).
+  const rawTime = commits.map((c) => rawTimeOf(c));
+  const indeg = new Int32Array(n);
+  for (let i = 0; i < n; i++) indeg[i] = parents[i]!.length;
+  const cmp = (a: number, b: number) => rawTime[a]! - rawTime[b]! || (shas[a]! < shas[b]! ? -1 : 1);
+  const ready: number[] = [];
+  for (let i = 0; i < n; i++) if (indeg[i] === 0) ready.push(i);
+  ready.sort(cmp);
+  const topo: number[] = [];
+  // A simple binary heap keeps this O(n log n) for large graphs.
+  const heap = new Heap(cmp);
+  for (const r of ready) heap.push(r);
+  while (heap.size > 0) {
+    const v = heap.pop();
+    topo.push(v);
+    for (const ch of children[v]!) {
+      indeg[ch] = indeg[ch]! - 1;
+      if (indeg[ch] === 0) heap.push(ch);
+    }
+  }
+  if (topo.length !== n) {
+    // A cycle can only come from malformed input; append leftovers in sha order so nothing is dropped.
+    const seen = new Set(topo);
+    const rest = [];
+    for (let i = 0; i < n; i++) if (!seen.has(i)) rest.push(i);
+    rest.sort((a, b) => (shas[a]! < shas[b]! ? -1 : 1));
+    topo.push(...rest);
+  }
+  for (const ch of children) ch.sort((a, b) => rawTime[a]! - rawTime[b]! || (shas[a]! < shas[b]! ? -1 : 1));
+
+  return { shas, index, parents, parentSlots, firstParent, children, roots, boundaries, topo, unknownParentCount };
+}
+
+export function rawTimeOf(c: CommitNode): number {
+  const a = c.authoredAtRaw ? Date.parse(c.authoredAtRaw) : NaN;
+  if (Number.isFinite(a)) return a;
+  const b = c.committedAtRaw ? Date.parse(c.committedAtRaw) : NaN;
+  if (Number.isFinite(b)) return b;
+  return NaN;
+}
+
+/** Ancestor set of `start` restricted to first-parent walking. */
+export function firstParentChain(g: GraphIndex, start: number): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  let cur = start;
+  while (cur >= 0 && !seen.has(cur)) {
+    seen.add(cur);
+    out.push(cur);
+    cur = g.firstParent[cur]!;
+  }
+  return out;
+}
+
+/** Full ancestor set (all parents). Bounded breadth-first walk. */
+export function ancestorsOf(g: GraphIndex, start: number, limit = Infinity): Set<number> {
+  const seen = new Set<number>([start]);
+  const stack = [start];
+  while (stack.length && seen.size < limit) {
+    const v = stack.pop()!;
+    for (const p of g.parents[v]!) {
+      if (!seen.has(p)) {
+        seen.add(p);
+        stack.push(p);
+      }
+    }
+  }
+  return seen;
+}
+
+/** Commits reachable from `from` that are not ancestors of `exclude` (the unique side history of a merge). */
+export function uniqueAncestry(g: GraphIndex, from: number, excludeFrom: number, limit = 5000): number[] {
+  const excluded = ancestorsOf(g, excludeFrom, limit * 4);
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const stack = [from];
+  while (stack.length && out.length < limit) {
+    const v = stack.pop()!;
+    if (seen.has(v) || excluded.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+    for (const p of g.parents[v]!) stack.push(p);
+  }
+  return out;
+}
+
+class Heap {
+  private a: number[] = [];
+  constructor(private cmp: (x: number, y: number) => number) {}
+  get size() {
+    return this.a.length;
+  }
+  push(v: number) {
+    const a = this.a;
+    a.push(v);
+    let i = a.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.cmp(a[i]!, a[p]!) >= 0) break;
+      [a[i], a[p]] = [a[p]!, a[i]!];
+      i = p;
+    }
+  }
+  pop(): number {
+    const a = this.a;
+    const top = a[0]!;
+    const last = a.pop()!;
+    if (a.length) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
+        if (l < a.length && this.cmp(a[l]!, a[m]!) < 0) m = l;
+        if (r < a.length && this.cmp(a[r]!, a[m]!) < 0) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m]!, a[i]!];
+        i = m;
+      }
+    }
+    return top;
+  }
+}

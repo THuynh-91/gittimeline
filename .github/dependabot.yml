@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dev-tooling:
+        patterns: ['vite', 'vitest', 'eslint*', 'typescript*', '@playwright/*', '@preact/*', 'fast-check', 'jsdom', 'fake-indexeddb', 'globals']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

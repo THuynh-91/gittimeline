@@ -1,0 +1,60 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Verify and build the static site
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build with the Pages base path
+        # Project sites live under /<repository>/; a user/organization site (<owner>.github.io) lives at /.
+        run: |
+          if [[ "${{ github.event.repository.name }}" == *.github.io ]]; then export VITE_BASE="/"; else export VITE_BASE="/${{ github.event.repository.name }}/"; fi
+          echo "Building with VITE_BASE=$VITE_BASE"
+          npm run build
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Smoke-test the built output
+        run: npx playwright test tests/e2e/demo.spec.ts --grep "pressing Play"
+        env:
+          CI: 'true'
+      - name: SPA-friendly 404 (static hosting has no server routing)
+        run: cp dist/index.html dist/404.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

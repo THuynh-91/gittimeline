@@ -1,0 +1,103 @@
+import { store, isBusy } from './store';
+import { cancel, retry, playCachedPartial, loadDemo } from './controller';
+import { formatReset } from '@/github/ratelimit';
+
+const STAGES: Array<{ key: string; label: string }> = [
+  { key: 'metadata', label: 'Reading repository' },
+  { key: 'expanding', label: 'Mapping known commits' },
+  { key: 'tips', label: 'Finding parallel threads' },
+  { key: 'compile', label: 'Composing the performance' },
+];
+
+/** Loading is the opening of the show: honest stage progress, cancellable, never a fake percentage. */
+export function Prelude() {
+  const busy = isBusy.value;
+  const error = store.error.value;
+  if (!busy && !error) return null;
+  if (store.mode.value !== 'player') return null;
+
+  if (error) {
+    return (
+      <div class="prelude" role="alertdialog" aria-labelledby="err-title" aria-describedby="err-desc">
+        <div class="error-card">
+          <h2 id="err-title">{error.title}</h2>
+          <p id="err-desc">{error.message}</p>
+          {error.kind === 'not-found' && (
+            <p>
+              Accepted forms: <code>github.com/owner/repository</code>, <code>owner/repository</code>, or an https link. Private repositories are not supported by this hosted viewer.
+            </p>
+          )}
+          {error.kind === 'rate-limited' && error.resetAt && <p>Reset {formatReset(error.resetAt)}.</p>}
+          <div class="actions">
+            {error.canPlayPartial && (
+              <button type="button" class="btn primary" onClick={() => void playCachedPartial()}>
+                Play cached copy
+              </button>
+            )}
+            {error.retry && (
+              <button type="button" class="btn" onClick={retry}>
+                Retry
+              </button>
+            )}
+            <button type="button" class="btn" onClick={() => void loadDemo({ autoplay: true, landing: false })}>
+              Play the demo instead
+            </button>
+            <button
+              type="button"
+              class="btn"
+              onClick={() => {
+                store.error.value = null;
+                store.mode.value = 'landing';
+                store.phase.value = store.perf.value ? 'READY' : 'IDLE';
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const progress = store.progress.value;
+  const compileStage = store.compileStage.value;
+  const phase = store.phase.value;
+  const activeKey = compileStage ? 'compile' : progress?.phase === 'landmarks' || progress?.phase === 'normalizing' ? 'compile' : progress?.phase === 'anchor' ? 'expanding' : progress?.phase ?? 'metadata';
+  const activeIdx = Math.max(0, STAGES.findIndex((s) => s.key === activeKey));
+  const total = progress?.reportedTotal;
+  const loaded = progress?.commitsLoaded ?? 0;
+  const pct = total && total > 0 && !compileStage ? Math.min(100, Math.round((loaded / total) * 100)) : null;
+  const name = progress?.repoName ?? store.dataset.value?.source.name ?? '';
+  const rate = progress?.rate ?? store.rate.value;
+
+  return (
+    <div class="prelude" role="status" aria-live="polite" data-testid="prelude">
+      {name && <div class="name">{name.split('/').pop()}</div>}
+      {name && <div class="slug">{name}</div>}
+      <ol class="stages">
+        {STAGES.map((s, i) => (
+          <li key={s.key} class={i < activeIdx ? 'done' : i === activeIdx ? 'active' : ''}>
+            {i === activeIdx && compileStage ? compileStage : i === activeIdx && progress ? progress.message : s.label}
+            {i === activeIdx && loaded > 0 && !compileStage ? ` (${loaded.toLocaleString('en-US')}${total ? ` of ~${total.toLocaleString('en-US')}` : ''})` : ''}
+          </li>
+        ))}
+      </ol>
+      <div class={`bar${pct == null ? ' indeterminate' : ''}`} aria-hidden="true">
+        <i style={pct != null ? `width:${pct}%` : ''} />
+      </div>
+      {rate && rate.remaining != null && (
+        <div class="rate">
+          GitHub requests remaining: {rate.remaining}
+          {rate.limit != null ? ` / ${rate.limit}` : ''}
+          {progress?.fromCache ? ' · using local cache' : ''}
+        </div>
+      )}
+      <div class="actions">
+        <button type="button" class="btn" onClick={cancel} data-testid="cancel-button">
+          Cancel
+        </button>
+      </div>
+      <span class="sr-only">{phase}</span>
+    </div>
+  );
+}
