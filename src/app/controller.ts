@@ -43,7 +43,7 @@ let recordedChunks: Blob[] = [];
 
 export function presetFromSettings(): PlaybackPreset {
   const s = store.settings.value;
-  return { id: 'cinematic', version: 1, targetDuration: s.targetDuration, reducedMotion: s.reducedMotion, aggregateAbove: 1200 };
+  return { id: 'cinematic', version: 1, targetDuration: s.targetDuration, reducedMotion: s.reducedMotion, aggregateAbove: 900 };
 }
 
 /* ---------------- renderer lifecycle ---------------- */
@@ -138,7 +138,7 @@ function updateCaption(t: number) {
   let current = store.caption.peek();
   while (captionPtr < events.length && events[captionPtr]!.performanceImpact <= t) {
     const ev = events[captionPtr++]!;
-    if (ev.type === 'COMMIT_STEP' || ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') current = ev;
+    if (ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') current = ev;
   }
   if (current !== store.caption.peek()) {
     store.caption.value = current;
@@ -510,14 +510,35 @@ export function toggleMute() {
   toast(muted ? 'Sound off' : 'Sound on');
 }
 
+/**
+ * Cycles: free look → follow at the zoom you chose → full auto.
+ * Zoom out, press the camera button, and the performance keeps playing at that
+ * wider view instead of springing back.
+ */
 export function toggleAutoCamera() {
-  const next = !store.settings.value.autoCamera;
-  updateSettings({ autoCamera: next });
-  if (renderer) {
-    renderer.manual = next ? null : renderer.currentManual();
+  if (!renderer) return;
+  if (renderer.manual) {
+    renderer.zoomLock = renderer.manual.scale;
+    renderer.manual = null;
+    updateSettings({ autoCamera: true });
+    store.manualCamera.value = false;
+    store.cameraLocked.value = true;
+    toast('Following at your zoom level — press C again for auto framing');
+    return;
   }
-  store.manualCamera.value = !next;
-  toast(next ? 'Auto camera' : 'Manual camera — drag to pan, wheel to zoom, C to return');
+  if (renderer.zoomLock != null) {
+    renderer.zoomLock = null;
+    updateSettings({ autoCamera: true });
+    store.manualCamera.value = false;
+    store.cameraLocked.value = false;
+    toast('Auto camera');
+    return;
+  }
+  renderer.manual = renderer.currentManual();
+  updateSettings({ autoCamera: false });
+  store.manualCamera.value = true;
+  store.cameraLocked.value = false;
+  toast('Free look — drag to pan, wheel to zoom, C to follow at this zoom');
 }
 
 export function toggleReducedMotion() {
@@ -530,6 +551,8 @@ export function toggleReducedMotion() {
 export function panCamera(dx: number, dy: number) {
   if (!renderer) return;
   if (!renderer.manual) {
+    renderer.zoomLock = null;
+    store.cameraLocked.value = false;
     renderer.manual = renderer.currentManual();
     store.manualCamera.value = true;
     updateSettings({ autoCamera: false });
@@ -540,6 +563,8 @@ export function panCamera(dx: number, dy: number) {
 export function zoomCamera(factor: number, sx?: number, sy?: number) {
   if (!renderer) return;
   if (!renderer.manual) {
+    renderer.zoomLock = null;
+    store.cameraLocked.value = false;
     renderer.manual = renderer.currentManual();
     store.manualCamera.value = true;
     updateSettings({ autoCamera: false });
@@ -799,6 +824,9 @@ export function installDebugHook() {
     },
     get manualCamera() {
       return !!renderer?.manual;
+    },
+    get zoomLocked() {
+      return renderer?.zoomLock != null;
     },
     get audioStarted() {
       return audio.started;

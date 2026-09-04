@@ -8,14 +8,15 @@ GitDance is a static, open-source web application. There is no backend: the brow
 
 ## What you see
 
-- **The bright ivory line** is the default branch's first-parent history — the main line, always findable.
+- **The bright ivory line** is the default branch's first-parent history, held dead straight so the main line is unmistakable at any zoom.
 - **Slate paths** are real threads: ancestry that diverged where the graph diverges and merged where a merge commit says so. Nothing is invented.
 - **Moving sparks** are people. A contributor's colour and glyph travel *through* the structure and never recolour it. Handoffs cross-fade one signature into the next.
 - **Merges** have an approach (the incoming thread curves toward its destination while a dashed intent line shows where it will land), a synchronized hit with rings and a ripple through nearby geometry, and a release.
 - **Rings** are merge commits; a double ring has more than two parents (octopus).
 - **Dashed grey** is history that was not loaded. It is labelled and never filled in.
 - **A thick ribbon** is an exact aggregate of many known commits, with the count written on it.
-- **Two clocks** run at once. The performance clock compresses quiet years and dwells on busy ones; the historical date beside it is real. The bottom timeline shows the whole lifetime as an intensity waveform with landmarks and can be switched between the two clocks.
+- **The calendar leads.** The repository's own month and year fill the bottom of the screen and advance as the show plays; quiet years spin past in well under a second while busy weeks slow down and fill the stage. A slim scrub line underneath carries the playhead and the landmarks worth jumping to.
+- **The commit ledger** down the right-hand side prints each commit as it lands: short SHA in the author's signature colour, subject, and name. Click one to jump back to that moment.
 
 The camera is a director, not a follower: intimate on calm linear work, pulling back for splits and ensembles, tracking convergence, pushing in at impacts, settling afterwards, and framing the final tableau.
 
@@ -43,7 +44,9 @@ Useful URL parameters (everything lives in the hash so static hosting needs no r
 
 ## Keyboard
 
-`Space` play/pause · `←/→` step by beat (or commit / second) · `Shift+←/→` landmarks · `↑/↓` walk active threads · `Home/End` · `M` mute · `C` auto/manual camera (drag, wheel, double-click to return) · `R` reduced motion · `E` events · `I` what am I seeing? · `?` help · `Esc` close.
+`Space` play/pause · `←/→` step by beat (or commit / second) · `Shift+←/→` landmarks · `↑/↓` walk active threads · `Home/End` · `M` sound on/off (off by default) · `C` camera: free look → follow at your zoom → auto · `R` reduced motion · `E` events · `I` what am I seeing? · `?` help · `Esc` close.
+
+Zoom out with the wheel, then press `C`: the performance keeps playing and keeps that wider view instead of springing back.
 
 ## Truth model
 

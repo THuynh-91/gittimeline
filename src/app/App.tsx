@@ -6,7 +6,8 @@ import { Stage } from './Stage';
 import { Landing } from './Landing';
 import { Prelude } from './Prelude';
 import { TopBar } from './TopBar';
-import { Caption } from './Caption';
+import { DateBar } from './DateBar';
+import { CommitRail } from './CommitRail';
 import { Timeline } from './Timeline';
 import { Transport } from './Transport';
 import { Panels } from './Panels';
@@ -41,9 +42,10 @@ export function App() {
       {mode === 'landing' && <Landing />}
       <Prelude />
       {showPlayer && perf && !chromeHidden && <TopBar />}
-      {showPlayer && perf && <Caption />}
+      {showPlayer && perf && !chromeHidden && <CommitRail />}
       {showPlayer && perf && !chromeHidden && (
-        <div class="band" role="region" aria-label="Activity timeline and transport">
+        <div class="band" role="region" aria-label="Date, timeline and transport">
+          <DateBar />
           <Timeline />
           <Transport />
         </div>

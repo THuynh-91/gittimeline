@@ -333,11 +333,11 @@ function SettingsPanel() {
       <div class="field">
         <label for="dur">Target duration</label>
         <select id="dur" value={String(s.targetDuration)} onChange={(e) => structural({ targetDuration: Number((e.target as HTMLSelectElement).value) })} data-testid="duration-select">
+          <option value="20">20 s · sprint</option>
           <option value="30">30 s</option>
+          <option value="45">45 s</option>
           <option value="60">60 s</option>
-          <option value="90">90 s</option>
-          <option value="180">180 s</option>
-          <option value="0">Natural</option>
+          <option value="90">90 s · unhurried</option>
         </select>
       </div>
       <Toggle label="Loop the performance" value={s.loopPerformance} onChange={(v) => updateSettings({ loopPerformance: v })} />

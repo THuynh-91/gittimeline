@@ -67,23 +67,36 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     return { impact: new Float64Array(0), beat: new Int32Array(0), beatLen: new Float32Array(0), tempoMap: [[0, 90]], duration: CLOCK_HEAD + CLOCK_TAIL, scale: 1, gaps, naturalDuration: 0 };
   }
 
-  // 1. Natural step durations (seconds at 1x).
+  // 1. Natural step durations (seconds at 1x). The shape is deliberately
+  //    uneven: a wide dynamic range is what makes the performance feel like a
+  //    ride rather than a metronome.
   const step = new Float64Array(n);
   let natural = 0;
   for (let i = 0; i < n; i++) {
     const it = items[i]!;
-    const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.8);
-    let s = (0.92 - 0.74 * d) * Math.max(1, it.weight);
+    const d = Math.pow(Math.max(0, Math.min(1, it.intensity)), 0.6);
+    let s = (1.02 - 0.9 * d) * Math.max(1, it.weight);
+    if (it.isMerge) s += 0.3 + 0.55 * it.salience; // the climb before the drop
     if (i > 0) {
       const dh = it.h - items[i - 1]!.h;
       if (dh > GAP_THRESHOLD) {
-        s += Math.min(1.6, 0.4 * Math.log2(dh / GAP_THRESHOLD + 1));
+        // A quiet span is a whoosh, not a wait: crossing three weeks of silence
+        // and crossing three years cost nearly the same, and the calendar
+        // spinning in the date readout does the talking.
+        s = Math.min(0.9, 0.3 + 0.1 * Math.log2(dh / GAP_THRESHOLD + 1));
         gaps.set(i, dh);
       }
     }
-    if (it.isMerge) s += 0.35 + 0.5 * it.salience;
     step[i] = s;
     natural += s;
+  }
+  // Release: the beats immediately after a big impact race away from it.
+  for (let i = 0; i < n; i++) {
+    if (!items[i]!.isMerge || items[i]!.salience < 0.55) continue;
+    for (let k = 1; k <= 3 && i + k < n; k++) {
+      if (gaps.has(i + k)) break;
+      step[i + k] = step[i + k]! * (0.6 + 0.12 * k);
+    }
   }
 
   // 2. Quantize in natural time.
@@ -108,26 +121,32 @@ export function buildClock(items: ClockItem[], targetDuration: number, reducedMo
     if (d > 1e-6) minStep = Math.min(minStep, d);
   }
   if (n === 1) maxStep = 1;
-  // Never slow the natural pace by more than 70%: tiny histories end early rather than crawling.
-  scale = Math.min(scale, 1.7);
-  if (maxStep * scale > 3.4) scale = 3.4 / maxStep;
-  const minStepAllowed = reducedMotion ? 0.16 : 0.07;
-  if (Number.isFinite(minStep) && minStep * scale < minStepAllowed) scale = minStepAllowed / minStep;
-  const maxBpm = reducedMotion ? 120 : 200;
-  const minBpm = 48;
-  const bpmSpan = q.tempoMap.map((t) => t[1] / scale);
-  const fastest = Math.max(...bpmSpan);
-  const slowest = Math.min(...bpmSpan);
-  if (fastest > maxBpm) scale = Math.max(scale, Math.max(...q.tempoMap.map((t) => t[1])) / maxBpm);
-  if (slowest < minBpm) scale = Math.min(scale, Math.min(...q.tempoMap.map((t) => t[1])) / minBpm);
-
+  // Never stretch the natural pace by more than a third: small histories end early rather than crawling.
+  scale = Math.min(scale, 1.35);
+  if (maxStep * scale > 2.8) scale = 2.8 / maxStep;
+  // No minimum-step inflation. Where many commits land close together the
+  // result is a flurry, and a flurry is honest: that is what a busy day looked
+  // like. Keeping the show inside its target duration matters more, and
+  // aggregation (driven by the same target) keeps the node count sane.
+  void minStep;
   const impact = new Float64Array(n);
   const beatLen = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     impact[i] = CLOCK_HEAD + q.impact[i]! * scale;
-    beatLen[i] = q.beatLen[i]! * scale;
+    // Effects need a little room even when the show is racing.
+    beatLen[i] = Math.max(reducedMotion ? 0.3 : 0.22, q.beatLen[i]! * scale);
   }
-  const tempoMap: Array<[number, number]> = q.tempoMap.map(([t, bpm]) => [round(CLOCK_HEAD + t * scale, 3), round(bpm / scale, 2)]);
+  // A dense repository played in 45 seconds implies an absurd nominal tempo.
+  // Read it in half-time (or double-time) instead of stretching the
+  // performance: the impacts do not move, only the pulse we count them in.
+  const maxBpm = reducedMotion ? 116 : 184;
+  const minBpm = 56;
+  const tempoMap: Array<[number, number]> = q.tempoMap.map(([t, bpm]) => {
+    let b = bpm / scale;
+    while (b > maxBpm) b /= 2;
+    while (b < minBpm) b *= 2;
+    return [round(CLOCK_HEAD + t * scale, 3), round(b, 2)] as [number, number];
+  });
   const duration = impact[n - 1]! + CLOCK_TAIL;
   return { impact, beat: q.beat, beatLen, tempoMap, duration, scale, gaps, naturalDuration: natural };
 }

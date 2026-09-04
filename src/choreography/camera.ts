@@ -35,6 +35,28 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
   const sortedEdges = [...edges].sort((a, b) => a.start - b.start);
   const spineNodes = nodes.filter((nd) => nd.isSpine).sort((a, b) => a.impact - b.impact);
 
+  // Dolly track: world x as a function of performance time. Because x is derived
+  // from the natural clock, this is very nearly linear, which is what gives the
+  // performance its timelapse glide instead of a camera that chases each body.
+  const track = [...nodes].sort((a, b) => a.impact - b.impact || a.x - b.x);
+  const dollyAt = (time: number): number => {
+    if (!track.length) return 0;
+    if (time <= track[0]!.impact) return track[0]!.x;
+    const last = track[track.length - 1]!;
+    if (time >= last.impact) return last.x + (time - last.impact) * 40;
+    let lo = 0;
+    let hi = track.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (track[mid]!.impact <= time) lo = mid;
+      else hi = mid;
+    }
+    const a = track[lo]!;
+    const b = track[hi]!;
+    const span = b.impact - a.impact;
+    return span > 0 ? a.x + ((b.x - a.x) * (time - a.impact)) / span : a.x;
+  };
+
   // Spring state (center + log extents).
   const first = spineNodes[0] ?? nodes[0];
   let cx = first ? first.x : 0;
@@ -120,7 +142,8 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
         reason = ev.id;
         const sal = ev.salience * ev.effectBudget;
         if (dt > 0.15) {
-          if (state !== 'overview') state = 'convergence';
+          // A neighbouring merge's approach must not demote the hit we are on.
+          if (state !== 'overview' && state !== 'impact') state = 'convergence';
         } else if (dt > -0.2) {
           state = 'impact';
           if (!reducedMotion) {
@@ -129,7 +152,7 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
             roll = 0.012 * sal * Math.sin(k * Math.PI);
           }
         } else {
-          state = 'release';
+          if (state !== 'impact') state = 'release';
           if (!reducedMotion) punchTarget = Math.max(punchTarget, 1 + 0.16 * sal * Math.max(0, 1 - (-dt - 0.2) / 1.4));
         }
       }
@@ -155,21 +178,27 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
       tw = Math.max(minW, (maxX - minX) * 1.12 + 80);
       th = Math.max(minH, (maxY - minY) * 1.25 + 80);
     }
-    const tx = (minX + maxX) / 2 + (inTail ? 0 : tw * 0.05); // lead slightly ahead of the action
-    const ty = (minY + maxY) / 2;
+    // Horizontal: ride the dolly track, nudged only enough to keep the action framed.
+    const dolly = dollyAt(t) + tw * 0.06;
+    const bboxCentre = (minX + maxX) / 2;
+    const tx = inTail ? bboxCentre : dolly + Math.max(-tw * 0.18, Math.min(tw * 0.18, bboxCentre - dolly)) * 0.35;
+    // Vertical: bias toward the straight spine axis so the main line stays level.
+    const ty = inTail ? (minY + maxY) / 2 : ((minY + maxY) / 2) * 0.55;
 
-    // Critically damped spring; snappier around impacts, calmer under reduced motion.
+    // Critically damped springs. The centre tracks briskly; the zoom breathes more
+    // slowly so the frame does not pump on every passing thread.
     const period = reducedMotion ? 2.6 : state === 'impact' ? 0.55 : state === 'convergence' ? 0.9 : inTail ? 2.2 : 1.15;
-    const w0 = (2 * Math.PI) / period;
-    const spring = (pos: number, vel: number, target: number): [number, number] => {
+    const zoomPeriod = reducedMotion ? 3.2 : state === 'impact' ? 0.8 : inTail ? 2.4 : 2;
+    const spring = (pos: number, vel: number, target: number, p: number): [number, number] => {
+      const w0 = (2 * Math.PI) / p;
       const acc = w0 * w0 * (target - pos) - 2 * w0 * vel;
       const v = vel + acc * CAMERA_STEP;
       return [pos + v * CAMERA_STEP, v];
     };
-    [cx, vx] = spring(cx, vx, tx);
-    [cy, vy] = spring(cy, vy, ty);
-    [lw, vw] = spring(lw, vw, Math.log(tw));
-    [lh, vh] = spring(lh, vh, Math.log(th));
+    [cx, vx] = spring(cx, vx, tx, period);
+    [cy, vy] = spring(cy, vy, ty, period);
+    [lw, vw] = spring(lw, vw, Math.log(tw), zoomPeriod);
+    [lh, vh] = spring(lh, vh, Math.log(th), zoomPeriod);
 
     // Never crop a live junction: expand the smoothed frame if a must-include point escaped it.
     if (Number.isFinite(minX) && !inTail) {

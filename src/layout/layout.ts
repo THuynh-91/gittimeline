@@ -38,8 +38,13 @@ export interface LayoutResult {
   maxLane: number;
 }
 
-export function spineY(x: number): number {
-  return 14 * Math.sin(x / 700) + 6 * Math.sin(x / 233 + 1.3);
+/**
+ * The primary spine is a perfectly straight horizontal axis. Everything else
+ * is placed relative to it, so the main line is unmistakable at any zoom and
+ * chronology reads left to right without wobble.
+ */
+export function spineY(_x: number): number {
+  return 0;
 }
 
 export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, xScale: number, seed: string): LayoutResult {

@@ -1,16 +1,13 @@
 import { store, updateSettings } from './store';
-import { togglePlay, seek, jumpLandmark, stepUnit, setSpeed, player } from './controller';
-import { fmtClock, fmtDate } from '@/choreography/events';
+import { togglePlay, jumpLandmark, stepUnit, setSpeed } from './controller';
 import { Icons } from './icons';
 
 export function Transport() {
   const perf = store.perf.value;
   const playing = store.playing.value;
-  const t = store.time.value;
   const speed = store.speed.value;
   const scale = store.settings.value.timelineScale;
   if (!perf) return null;
-  const hist = player.historicalAt(t);
   return (
     <div class="transport">
       <button type="button" class="tbtn" aria-label="Previous landmark (Shift+Left)" title="Previous landmark" onClick={() => jumpLandmark(-1)}>
@@ -44,11 +41,6 @@ export function Transport() {
         </button>
       </div>
       <span class="spacer" />
-      <span class="clock" aria-live="off" data-testid="clock">
-        <b>{fmtClock(t)}</b> / {fmtClock(perf.duration)}
-        {hist != null && <span class="date">{` · ${fmtDate(hist)}`}</span>}
-      </span>
-      <button type="button" class="tbtn" aria-label="Restart" title="Restart (Home)" onClick={() => seek(0)} style="display:none" />
     </div>
   );
 }

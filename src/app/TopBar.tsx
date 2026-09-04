@@ -42,7 +42,7 @@ export function TopBar() {
         <button type="button" class={`icon-btn${s.muted ? '' : ' active'}`} aria-label={s.muted ? 'Unmute (M)' : 'Mute (M)'} aria-pressed={!s.muted} title="Sound (M)" onClick={toggleMute} data-testid="mute-button">
           {s.muted ? <Icons.muted /> : <Icons.sound />}
         </button>
-        <button type="button" class={`icon-btn optional${s.autoCamera ? ' active' : ''}`} aria-label="Auto camera (C)" aria-pressed={s.autoCamera} title="Auto camera (C)" onClick={toggleAutoCamera} data-testid="camera-button">
+        <button type="button" class={`icon-btn optional${s.autoCamera ? ' active' : ''}`} aria-label={store.manualCamera.value ? 'Free look — follow at this zoom (C)' : store.cameraLocked.value ? 'Following at your zoom (C)' : 'Auto camera (C)'} aria-pressed={s.autoCamera} title="Camera (C)" onClick={toggleAutoCamera} data-testid="camera-button">
           <Icons.camera />
         </button>
         <button type="button" class={`icon-btn optional${s.reducedMotion ? ' active' : ''}`} aria-label="Reduced motion (R)" aria-pressed={s.reducedMotion} title="Reduced motion (R)" onClick={toggleReducedMotion} data-testid="motion-button">

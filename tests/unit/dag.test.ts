@@ -7,7 +7,7 @@ import { selectSpine } from '@/dag/spine';
 import { assignThreads } from '@/dag/threads';
 import { compilePerformance } from '@/choreography/compile';
 import type { Dataset, RepositorySource } from '@/model/types';
-import { assertInvariants, PRESET } from './compile.test';
+import { assertInvariants, PRESET } from './shared';
 
 /**
  * Random DAG generator: commits are created in order, each picking 0..3
@@ -144,7 +144,7 @@ describe('DAG invariants (property-based)', () => {
           records.push({ sha: `m${b}`.padEnd(40, 'e'), parents: [shaOf(base + 2), sha], message: `merge ${b}`, author: { name: 'a', login: 'a', date: new Date(Date.UTC(2021, 0, 4 + base)).toISOString() } });
         }
         const ds = buildDataset({ ...source, selectedTipSha: shaOf(n - 1) }, records, [{ kind: 'branch', name: 'main', targetSha: shaOf(n - 1) }]);
-        const p = compilePerformance(ds, { preset: { ...PRESET, aggregateAbove: 10 }, seed: 'agg' });
+        const p = compilePerformance(ds, { preset: { ...PRESET, targetDuration: 20, aggregateAbove: 30 }, seed: 'agg' });
         assertInvariants(ds, p);
         for (const agg of p.aggregates) {
           expect(agg.memberCount).toBe(agg.memberShas.length);

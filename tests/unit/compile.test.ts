@@ -1,114 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { compilePerformance } from '@/choreography/compile';
 import { buildDemoDataset } from '@/fixtures/demo';
 import { FIXTURES } from '@/fixtures/corpus';
-import { buildGraph } from '@/dag/graph';
-import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
-
-export const PRESET: PlaybackPreset = { id: 'cinematic', version: 1, targetDuration: 60, reducedMotion: false, aggregateAbove: 1200 };
-
-export function compile(ds: Dataset, seed = 'test', preset: PlaybackPreset = PRESET): CompiledPerformance {
-  return compilePerformance(ds, { preset, seed });
-}
-
-/** Truth invariants every compiled performance must satisfy. */
-export function assertInvariants(ds: Dataset, p: CompiledPerformance) {
-  const g = buildGraph(ds.commits);
-  const nodeBySha = new Map(p.nodes.map((n) => [n.sha, n]));
-  const known = new Set(ds.commits.map((c) => c.sha));
-
-  // every exact edge corresponds to an input parent relation
-  const relations = new Set<string>();
-  for (const c of ds.commits) for (const parent of c.parentShas) relations.add(`${parent}>${c.sha}`);
-  for (const e of p.edges) {
-    if (e.kind === 'unknown') {
-      expect(e.parent).toBe(-1);
-      continue;
-    }
-    const child = p.nodes[e.child]!;
-    const parent = p.nodes[e.parent]!;
-    if (e.kind === 'aggregate') {
-      // span boundaries are joined by a run of exact relations through the aggregate members
-      const agg = p.aggregates.find((a) => a.boundaryShas[0] === parent.sha && a.boundaryShas[1] === child.sha);
-      expect(agg, 'aggregate edge has a span').toBeTruthy();
-      continue;
-    }
-    expect(relations.has(`${parent.sha}>${child.sha}`), `edge ${parent.sha.slice(0, 7)}>${child.sha.slice(0, 7)} exists in input`).toBe(true);
-    expect(e.end).toBeGreaterThan(e.start);
-    expect(child.impact).toBeGreaterThan(parent.impact);
-    expect(child.x).toBeGreaterThan(parent.x);
-  }
-  // every known parent relation among visible nodes is drawn exactly once
-  const drawn = new Map<string, number>();
-  for (const e of p.edges) {
-    if (e.parent < 0) continue;
-    const key = `${p.nodes[e.parent]!.sha}>${p.nodes[e.child]!.sha}`;
-    drawn.set(key, (drawn.get(key) ?? 0) + 1);
-  }
-  for (const c of ds.commits) {
-    const child = nodeBySha.get(c.sha);
-    if (!child) continue; // aggregated interior
-    for (const parent of c.parentShas) {
-      if (!known.has(parent)) continue;
-      const pn = nodeBySha.get(parent);
-      if (!pn) continue; // aggregated interior — covered by its span
-      expect(drawn.get(`${parent}>${c.sha}`), `relation ${parent.slice(0, 7)}>${c.sha.slice(0, 7)} drawn once`).toBe(1);
-    }
-  }
-  // octopus merges retain all parents
-  for (const c of ds.commits) {
-    const nd = nodeBySha.get(c.sha);
-    if (nd && c.parentShas.length > 2) {
-      const incoming = p.edges.filter((e) => e.child === nd.idx);
-      expect(incoming.length).toBe(c.parentShas.length);
-    }
-  }
-  // no event references a missing subject
-  const threadIds = new Set(p.threads.map((t) => t.id));
-  const contributorIds = new Set(p.contributors.map((c) => c.id));
-  const aggIds = new Set(p.aggregates.map((a) => a.id));
-  const eraIds = new Set(p.eras.map((e) => e.id));
-  const tagNames = new Set(ds.refs.map((r) => r.name));
-  for (const ev of p.events) {
-    for (const s of ev.subjectIds) {
-      const ok = s === '' || known.has(s) || threadIds.has(s) || contributorIds.has(s) || aggIds.has(s) || eraIds.has(s) || tagNames.has(s);
-      expect(ok, `${ev.type} subject ${s}`).toBe(true);
-    }
-    expect(ev.performanceImpact).toBeGreaterThanOrEqual(ev.performanceStart - 1e-6);
-    expect(ev.performanceEnd).toBeGreaterThanOrEqual(ev.performanceImpact - 1e-6);
-  }
-  // performance time is monotonic in history
-  for (let i = 1; i < p.timeMap.length; i++) {
-    expect(p.timeMap[i]![0]).toBeGreaterThan(p.timeMap[i - 1]![0]);
-    expect(p.timeMap[i]![1]).toBeGreaterThanOrEqual(p.timeMap[i - 1]![1]);
-  }
-  // primary spine forms a valid first-parent chain
-  const spine = p.nodes.filter((n) => n.isSpine).sort((a, b) => a.impact - b.impact);
-  for (let i = 1; i < spine.length; i++) {
-    const c = ds.commits.find((x) => x.sha === spine[i]!.sha)!;
-    const prevVisible = spine[i - 1]!.sha;
-    const fp = c.parentShas[0];
-    // either direct first parent or first parent lies inside an aggregate run leading to prevVisible
-    const direct = fp === prevVisible;
-    const viaAgg = p.aggregates.some((a) => a.boundaryShas[1] === c.sha || a.memberShas.includes(fp ?? ''));
-    expect(direct || viaAgg, `spine chain at ${c.sha.slice(0, 7)}`).toBe(true);
-  }
-  // boundaries are never roots
-  for (const nd of p.nodes) {
-    const c = ds.commits.find((x) => x.sha === nd.sha)!;
-    if (c.parentShas.some((s) => !known.has(s))) expect(nd.kind).toBe('boundary');
-    if (c.parentShas.length === 0) expect(nd.kind).toBe('root');
-  }
-  // camera cues cover the whole duration and never crop live junctions at merge impacts
-  expect(p.camera.length).toBeGreaterThan(0);
-  expect(p.camera[p.camera.length - 1]!.time).toBeGreaterThanOrEqual(p.duration - 0.1);
-  for (const cue of p.camera) {
-    expect(cue.w).toBeGreaterThan(0);
-    expect(cue.h).toBeGreaterThan(0);
-    expect(Math.abs(cue.rotation)).toBeLessThan(0.1);
-  }
-  expect(g.roots.length).toBe(p.stats.roots);
-}
+import { assertInvariants, compile, PRESET } from './shared';
 
 describe('compilePerformance', () => {
   it('compiles the built-in demo with the full motion vocabulary', () => {
@@ -121,8 +14,8 @@ describe('compilePerformance', () => {
     }
     expect(p.stats.maxConcurrentThreads).toBeGreaterThanOrEqual(3);
     expect(p.contributors.length).toBeGreaterThanOrEqual(5);
-    expect(p.duration).toBeGreaterThan(30);
-    expect(p.duration).toBeLessThan(90);
+    expect(p.duration).toBeGreaterThan(15);
+    expect(p.duration).toBeLessThanOrEqual(45);
     // the camera pushes in around the major merge and pulls back at divergences
     const states = new Set(p.camera.map((c) => c.state));
     expect(states.has('impact')).toBe(true);
@@ -147,8 +40,8 @@ describe('compilePerformance', () => {
 
   it('keeps geometry identical across target durations', () => {
     const ds = buildDemoDataset();
-    const a = compile(ds, 's', { ...PRESET, targetDuration: 30 });
-    const b = compile(ds, 's', { ...PRESET, targetDuration: 180 });
+    const a = compile(ds, 's', { ...PRESET, targetDuration: 20 });
+    const b = compile(ds, 's', { ...PRESET, targetDuration: 90 });
     expect(b.duration).toBeGreaterThan(a.duration);
     expect(a.nodes.map((n) => [n.x, n.y]).join()).toBe(b.nodes.map((n) => [n.x, n.y]).join());
   });
@@ -212,7 +105,7 @@ describe('compilePerformance', () => {
 
   it('aggregates long known runs while preserving boundary edges', () => {
     const ds = FIXTURES.find((f) => f.id === '16-known-aggregate')!.build();
-    const p = compile(ds, 'agg', { ...PRESET, aggregateAbove: 20 });
+    const p = compile(ds, 'agg', { ...PRESET, targetDuration: 20, aggregateAbove: 40 });
     assertInvariants(ds, p);
     expect(p.aggregates.length).toBeGreaterThan(0);
     const agg = p.aggregates[0]!;
@@ -265,9 +158,10 @@ describe('compilePerformance', () => {
   it('large synthetic history compiles within budget and aggregates', () => {
     const ds = FIXTURES.find((f) => f.id === '19-million-node-synthetic-lod')!.build();
     const t0 = performance.now();
-    const p = compile(ds, 'big', { ...PRESET, targetDuration: 90 });
+    const p = compile(ds, 'big', { ...PRESET, targetDuration: 45 });
     const ms = performance.now() - t0;
     expect(ms).toBeLessThan(15000);
+    expect(p.duration).toBeLessThanOrEqual(45.01); // a huge history still fits the target
     expect(p.stats.aggregatedCommits).toBeGreaterThan(0);
     expect(p.nodes.length).toBeLessThan(ds.commits.length);
     assertInvariants(ds, p);

@@ -121,6 +121,26 @@ export function analyzeActivity(input: ActivityInput): ActivityResult {
         w.releases * pR[b]!) /
       wsum;
   }
+  // Stretch the repository's own observed range across the full scale. Without
+  // this, features that are flat for a given project (no merges, one thread)
+  // permanently damp the signal and every span ends up feeling the same. This
+  // is what gives each repository its own dynamic range.
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let b = 0; b < count; b++) {
+    if (commitsPer[b] === 0) continue;
+    lo = Math.min(lo, raw[b]!);
+    hi = Math.max(hi, raw[b]!);
+  }
+  if (Number.isFinite(lo) && hi > lo + 1e-6) {
+    for (let b = 0; b < count; b++) {
+      if (commitsPer[b] === 0) continue;
+      raw[b] = 0.06 + 0.94 * ((raw[b]! - lo) / (hi - lo));
+    }
+  } else if (Number.isFinite(lo)) {
+    for (let b = 0; b < count; b++) if (commitsPer[b]! > 0) raw[b] = 0.5;
+  }
+
   const phrase = smooth(raw, 2, true);
   const era = smooth(raw, Math.max(4, Math.round(count / 14)), false);
 
@@ -156,6 +176,12 @@ function percentiles(values: Float32Array | Int32Array): Float32Array {
   const out = new Float32Array(values.length);
   if (idx.length === 0) return out;
   idx.sort((a, b) => values[a]! - values[b]! || a - b);
+  // When a feature is constant it carries no information; a flat neutral value
+  // keeps it from injecting rank noise into the intensity model.
+  if (values[idx[0]!] === values[idx[idx.length - 1]!]) {
+    for (const i of idx) out[i] = 0.5;
+    return out;
+  }
   for (let r = 0; r < idx.length; r++) out[idx[r]!] = idx.length === 1 ? 1 : 0.15 + (0.85 * r) / (idx.length - 1);
   return out;
 }

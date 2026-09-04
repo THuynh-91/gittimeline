@@ -4,10 +4,11 @@ The compiler turns graph facts into a small, explainable vocabulary. Every movem
 
 ## Clocks (`src/choreography/clock.ts`)
 
-1. **Natural steps.** Each visible commit gets an interval that shrinks with local phrase intensity (calm ≈ 0.9 s, peak ≈ 0.2 s), grows for merges (approach room) and aggregates (log of member count), and receives a bounded calendar-sweep bonus after gaps longer than three weeks.
+1. **Natural steps.** Each visible commit gets an interval that shrinks steeply with local phrase intensity (calm ≈ 1.0 s, peak ≈ 0.12 s) and grows for merges, which need approach room. A quiet span longer than three weeks is *replaced* by a single short whoosh of under a second, whether it covers a month or a decade: the calendar spinning in the date readout does the talking, so dormancy never costs the viewer time. The three beats after a big merge accelerate away from it, giving the sequence its climb-and-drop shape.
 2. **Tempo regions.** Per 4-second phrase, the average intensity picks a region (72 / 100 / 132 / 164 BPM) with hysteresis so the beat does not twitch.
 3. **Quantization.** Impacts snap *upward* to the beat grid (quarter, eighth or sixteenth subdivisions by intensity) subject to: global order never changes; consecutive commits on one thread are at least half a beat apart; a child lands at least half a beat after each parent; merges reserve 1.25–2.5 beats from every parent; a diverging first commit reserves 0.9 beats from its base.
-4. **Scaling.** The natural timeline is scaled to the target duration, bounded so tiny histories stay lively (scale ≤ 1.7, non-gap steps ≤ 3.4 s) and huge ones stay legible (steps ≥ 70 ms, BPM ≤ 200). Layout is computed in natural time, so geometry is identical for every duration.
+4. **Scaling.** The natural timeline is scaled to fit the target duration, never stretched by more than a third, so a small repository ends early rather than crawling. The duration is authoritative: there is no minimum step that could inflate it, and where many commits land together the result is an honest flurry. When a dense history implies an absurd nominal tempo, the pulse is read in half-time instead of slowing the show. Layout is computed in natural time, so geometry is identical for every duration.
+5. **Aggregation follows the clock.** How many nodes can land inside the target and still get a legible beat is what decides how much of the history is collapsed into ribbons. A two-thousand-commit repository therefore plays in the same forty-five seconds as a forty-commit one, told through ribbons instead of a five-minute queue of identical dots.
 
 ## Event grammar (`src/choreography/events.ts`)
 
@@ -25,9 +26,15 @@ The renderer draws, for time *t*: settled paths (spine bright, merged threads re
 
 ## Camera (`src/choreography/camera.ts`)
 
-Planned at compile time at 20 Hz from geometry and future events, then smoothed with a critically damped spring on centre and log-extents. Attention points: every body now and 1.7 s ahead, the newest spine node, junctions of divergences in their window, merge nodes and parents up to 2.6 s before impact. States: `intimate`, `split`, `ensemble`, `overview`, `convergence`, `impact` (push-in scaled by salience × budget, tiny roll), `release`, `tableau`. Live junctions are never cropped; reduced motion removes push/roll and slows the spring.
+Planned at compile time at 20 Hz from geometry and future events, then smoothed with a critically damped spring on centre and log-extents. Attention points: every body now and 1.7 s ahead, the newest spine node, junctions of divergences in their window, merge nodes and parents up to 2.6 s before impact. Rather than chasing the newest body, the camera rides a **dolly track**: world x as a function of performance time, which is very nearly linear and gives the show its timelapse glide. The bounding box only nudges that track and guarantees nothing important is cropped, and the vertical is biased toward the straight spine axis so the main line stays level. Zoom breathes on a slower spring than the centre so the frame does not pump.
+
+States: `intimate`, `split`, `ensemble`, `overview`, `convergence`, `impact` (push-in scaled by salience × budget, tiny roll), `release`, `tableau`. An impact is never demoted by a neighbouring merge's approach. Live junctions are never cropped; reduced motion removes push/roll and slows the spring.
+
+The viewer can override it: zooming or dragging enters free look, and pressing `C` then hands the framing back to the director **while keeping the zoom the viewer chose**.
 
 ## Sound (`src/audio/engine.ts`)
+
+Sound is **off by default** and is never required to understand anything.
 
 Original procedural voices scheduled from the same events with a 160 ms look-ahead: pentatonic plucks for commits (pitch by lane, timbre by contributor), pickup + swish for divergence, a rising filtered swell from `MERGE_APPROACH.start`, thump + chord at impact, bells for tags and birth, a pad for eras and the present. An ambient bed's low-pass follows intensity. A compressor/limiter guarantees headroom; a full mute and separate effect/ambience levels exist. Audio starts only after a user gesture and nothing is conveyed by sound alone.
 

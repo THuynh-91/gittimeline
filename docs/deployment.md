@@ -7,7 +7,7 @@ GitDance is a static bundle (`dist/`) with no runtime backend. Two workflows liv
 
 The base path is derived from the repository name: project sites are served from `/<repository>/`, user/organization sites (`<owner>.github.io`) from `/`. Locally `VITE_BASE` defaults to `/`.
 
-## The one remaining external step
+## Publishing
 
 Publishing requires a GitHub repository and Pages configured to deploy from **GitHub Actions**:
 

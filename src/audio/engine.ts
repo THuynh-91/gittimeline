@@ -31,6 +31,8 @@ export class AudioEngine {
   private approachPtr = 0;
   private approaches: ChoreographyEvent[] = [];
   private intensity = 0;
+  private voiceSlot = -1;
+  private voiceCount = 0;
   levels: AudioLevels = { master: 0.7, effects: 0.8, ambient: 0.5, muted: false };
   /** Dynamic range: 'quiet' | 'standard' | 'dramatic' */
   dynamics: 'quiet' | 'standard' | 'dramatic' = 'standard';
@@ -168,6 +170,18 @@ export class AudioEngine {
     this.lastT = t;
   }
 
+  /** At most a handful of note-level voices per half second: dense history should read as a flurry, not a machine gun. */
+  private takeVoice(at: number): boolean {
+    const slot = Math.floor(at * 2);
+    if (slot !== this.voiceSlot) {
+      this.voiceSlot = slot;
+      this.voiceCount = 0;
+    }
+    if (this.voiceCount >= 4) return false;
+    this.voiceCount++;
+    return true;
+  }
+
   private voice(ev: ChoreographyEvent, when: number) {
     const p = this.perf!;
     const fx = this.fx!;
@@ -179,20 +193,21 @@ export class AudioEngine {
     const budget = ev.effectBudget;
     switch (ev.type) {
       case 'COMMIT_STEP': {
+        if (!this.takeVoice(ev.performanceImpact)) break;
         const octave = node?.isSpine ? 1 : 2;
-        pluck(ctx, fx, when, ROOT_HZ * octave * Math.pow(2, degree / 12), 0.16 + 0.06 * ev.salience, 0.22, contributorJitter);
+        pluck(ctx, fx, when, ROOT_HZ * octave * Math.pow(2, degree / 12), 0.07 + 0.03 * ev.salience, 0.5, contributorJitter);
         break;
       }
       case 'COMMIT_CLUSTER': {
         const count = 6;
         const span = Math.max(0.4, ev.performanceEnd - ev.performanceStart);
-        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[i % 5]! / 12), 0.07, 0.1, contributorJitter);
+        for (let i = 0; i < count; i++) pluck(ctx, fx, when - (span * (count - i)) / count, ROOT_HZ * 2 * Math.pow(2, PENTATONIC[i % 5]! / 12), 0.045, 0.3, contributorJitter);
         break;
       }
       case 'DIVERGENCE':
         pluck(ctx, fx, when - 0.09, ROOT_HZ * 2 * Math.pow(2, (degree + 2) / 12), 0.12 * budget, 0.18, contributorJitter);
         pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, (degree + 7) / 12), 0.16 * budget, 0.3, contributorJitter);
-        swish(ctx, fx, when - 0.05, 0.25, 0.12 * budget);
+        swish(ctx, fx, when - 0.05, 0.25, 0.06 * budget);
         break;
       case 'THREAD_ACTIVATE':
         pluck(ctx, fx, when, ROOT_HZ * 2 * Math.pow(2, degree / 12), 0.1, 0.35, contributorJitter);
@@ -250,22 +265,29 @@ function pluck(ctx: AudioContext, out: AudioNode, when: number, freq: number, ga
   if (when < ctx.currentTime - 0.05) return;
   const t0 = Math.max(when, ctx.currentTime);
   const o = ctx.createOscillator();
-  o.type = timbre < 0.33 ? 'sine' : timbre < 0.66 ? 'triangle' : 'sine';
+  o.type = 'sine';
   o.frequency.value = freq;
-  o.detune.value = (timbre - 0.5) * 14;
+  o.detune.value = (timbre - 0.5) * 6;
+  // One quiet partial in exact ratio: colour without the beating that made the
+  // old voice sound like a notification.
   const o2 = ctx.createOscillator();
   o2.type = 'sine';
-  o2.frequency.value = freq * 2.01;
+  o2.frequency.value = freq * (timbre < 0.5 ? 2 : 3);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.006);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
   const g2 = ctx.createGain();
-  g2.gain.value = 0.25 + timbre * 0.3;
+  g2.gain.value = 0.1 + timbre * 0.12;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(3200, t0);
+  lp.frequency.exponentialRampToValueAtTime(900, t0 + decay);
   o.connect(g);
   o2.connect(g2);
   g2.connect(g);
-  g.connect(out);
+  g.connect(lp);
+  lp.connect(out);
   o.start(t0);
   o2.start(t0);
   o.stop(t0 + decay + 0.05);
@@ -289,7 +311,7 @@ function thump(ctx: AudioContext, out: AudioNode, when: number, gain: number, fr
   // short noise transient
   const n = noise(ctx, 0.12);
   const ng = ctx.createGain();
-  ng.gain.setValueAtTime(gain * 0.35, t0);
+  ng.gain.setValueAtTime(gain * 0.12, t0);
   ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
   const f = ctx.createBiquadFilter();
   f.type = 'bandpass';
@@ -348,17 +370,17 @@ function swell(ctx: AudioContext, out: AudioNode, when: number, length: number, 
   const t0 = Math.max(when, ctx.currentTime);
   const end = Math.max(t0 + 0.2, when + length);
   const o = ctx.createOscillator();
-  o.type = 'sawtooth';
+  o.type = 'triangle';
   o.frequency.value = ROOT_HZ / 2;
   const o2 = ctx.createOscillator();
-  o2.type = 'sawtooth';
+  o2.type = 'triangle';
   o2.frequency.value = ROOT_HZ / 2;
   o2.detune.value = 8;
   const f = ctx.createBiquadFilter();
   f.type = 'lowpass';
   f.frequency.setValueAtTime(180, t0);
-  f.frequency.exponentialRampToValueAtTime(2200, end);
-  f.Q.value = 3;
+  f.frequency.exponentialRampToValueAtTime(1500, end);
+  f.Q.value = 1.6;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(gain, end);

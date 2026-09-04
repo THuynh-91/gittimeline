@@ -124,7 +124,12 @@ function CanvasStage() {
         onWheel={onWheel}
         onDblClick={() => {
           const r = getRenderer();
-          if (r) r.manual = null;
+          if (r) {
+            r.manual = null;
+            r.zoomLock = null;
+          }
+          store.manualCamera.value = false;
+          store.cameraLocked.value = false;
         }}
       />
     </div>

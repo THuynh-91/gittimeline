@@ -7,16 +7,17 @@ import type { CompiledPerformance } from '@/model/types';
 import { PALETTE } from '@/renderer/palette';
 
 /**
- * Bottom activity timeline: the whole lifetime as a waveform, coverage,
- * landmarks, eras, the playhead, and precise seeking. The x-axis can be the
- * performance clock (default — the calendar visibly warps) or historical time.
+ * A slim scrub line, not an activity map. It carries the playhead, the era
+ * boundaries and the landmarks worth jumping to, so seeking stays precise
+ * while the stage keeps the viewer's attention.
  */
+const H = 26;
+
 export function Timeline() {
   const ref = useRef<HTMLCanvasElement>(null);
   const perf = store.perf.value;
   const t = store.time.value;
   const scale = store.settings.value.timelineScale;
-  const spoiler = store.settings.value.spoilerFree;
   const loop = store.loopRange.value;
   const focus = store.contributorFocus.value;
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
@@ -24,19 +25,18 @@ export function Timeline() {
 
   useEffect(() => {
     const canvas = ref.current;
-    if (!canvas || !perf) return;
-    draw(canvas, perf, t, scale, spoiler, loop, focus, hover?.t ?? null);
-  }, [perf, t, scale, spoiler, loop, focus, hover]);
+    if (canvas && perf) draw(canvas, perf, t, scale, loop, focus, hover?.t ?? null);
+  }, [perf, t, scale, loop, focus, hover]);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const ro = new ResizeObserver(() => {
-      if (perf) draw(canvas, perf, store.time.peek(), scale, spoiler, loop, focus, null);
+      if (perf) draw(canvas, perf, store.time.peek(), scale, loop, focus, null);
     });
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, [perf, scale, spoiler, loop, focus]);
+  }, [perf, scale, loop, focus]);
 
   if (!perf) return null;
 
@@ -87,7 +87,7 @@ export function Timeline() {
   };
 
   const hist = mapMonotone(perf.timeMap, t, true);
-  const tip = hover ? bucketTooltip(perf, hover.t) : null;
+  const tip = hover ? tooltipAt(perf, hover.t) : null;
   return (
     <div class="timeline">
       <canvas
@@ -109,10 +109,10 @@ export function Timeline() {
         onDblClick={() => updateSettings({ timelineScale: scale === 'performance' ? 'historical' : 'performance' })}
       />
       {tip && hover && (
-        <div class="tip" style={`left:${Math.min(Math.max(hover.x, 90), (ref.current?.clientWidth ?? 400) - 90)}px`} role="tooltip">
+        <div class="tip" style={`left:${Math.min(Math.max(hover.x, 100), (ref.current?.clientWidth ?? 400) - 100)}px`} role="tooltip">
           <div class="head">{tip.head}</div>
           {tip.lines.map((l, i) => (
-            <div key={i} class={l.startsWith('·') ? 'dim' : ''}>
+            <div key={i} class="dim">
               {l}
             </div>
           ))}
@@ -137,24 +137,21 @@ function timeToXFrac(perf: CompiledPerformance, t: number, scale: 'performance' 
   return (h - h0) / Math.max(1, h1 - h0);
 }
 
-function bucketTooltip(perf: CompiledPerformance, t: number): { head: string; lines: string[] } | null {
-  if (!perf.activity.length) return { head: fmtClock(t), lines: ['No commits'] };
+function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines: string[] } | null {
   const h = mapMonotone(perf.timeMap, t, true);
+  const lines: string[] = [];
+  const near = perf.landmarks.filter((l) => Math.abs(l.time - t) < Math.max(0.4, perf.duration * 0.012));
+  if (!perf.activity.length) return { head: fmtDate(h), lines: ['No commits'] };
   const first = perf.activity[0]!;
   const width = first.historicalEnd - first.historicalStart;
   const idx = Math.min(perf.activity.length - 1, Math.max(0, Math.floor((h - first.historicalStart) / width)));
   const b = perf.activity[idx]!;
-  const lines: string[] = [];
-  lines.push(`${b.knownCommitCount} known commit${b.knownCommitCount === 1 ? '' : 's'}`);
-  if (b.activeThreadCount != null) lines.push(`${b.activeThreadCount} concurrent thread${b.activeThreadCount === 1 ? '' : 's'}`);
-  if (b.contributorCount != null) lines.push(`${b.contributorCount} contributor${b.contributorCount === 1 ? '' : 's'}`);
+  lines.push(`${b.knownCommitCount} known commit${b.knownCommitCount === 1 ? '' : 's'} in this span`);
+  if (b.activeThreadCount != null && b.activeThreadCount > 1) lines.push(`${b.activeThreadCount} concurrent threads`);
   if (b.mergeCount) lines.push(`${b.mergeCount} merge${b.mergeCount === 1 ? '' : 's'}`);
-  if (b.tagCount) lines.push(`${b.tagCount} tag${b.tagCount === 1 ? '' : 's'}`);
-  if (b.changeMagnitude == null) lines.push('· change size not fetched');
-  lines.push(`· intensity ${Math.round(b.phraseIntensity * 100)}th percentile`);
-  lines.push(`· coverage ${b.coverage}`);
-  lines.push(`· ${fmtClock(t)} in the performance`);
-  return { head: `${fmtDate(b.historicalStart)} – ${fmtDate(b.historicalEnd)}`, lines };
+  for (const l of near.slice(0, 2)) lines.push(`${l.kind}: ${l.label}`);
+  lines.push(`${fmtClock(t)} · coverage ${b.coverage}`);
+  return { head: fmtDate(h), lines };
 }
 
 function draw(
@@ -162,7 +159,6 @@ function draw(
   perf: CompiledPerformance,
   t: number,
   scale: 'performance' | 'historical',
-  spoiler: boolean,
   loop: { start: number; end: number } | null,
   focus: string | null,
   hoverT: number | null,
@@ -171,219 +167,157 @@ function draw(
   if (!ctx) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
+  const h = canvas.clientHeight || H;
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(20,24,36,0.55)';
-  ctx.fillRect(0, 0, w, h);
 
   const xOf = (time: number) => timeToXFrac(perf, time, scale) * w;
   const playX = xOf(t);
-  const top = 14;
-  const base = h - 14;
-  const amp = base - top;
+  const line = Math.round(h * 0.42) + 0.5;
 
-  // Coverage overlay: unknown before the earliest loaded commit, hatched.
+  // Era bands: a whisper of where the regimes change.
+  for (const era of perf.eras) {
+    const x0 = xOf(era.performanceStart);
+    const x1 = xOf(era.performanceEnd);
+    if (era.label !== 'dormancy') continue;
+    ctx.fillStyle = 'rgba(230,225,214,0.05)';
+    ctx.fillRect(x0, line - 4, Math.max(1, x1 - x0), 8);
+  }
+
+  // Unloaded history at the head of the line.
   if (perf.coverage.completeness !== 'exact') {
-    ctx.fillStyle = 'rgba(255,176,112,0.12)';
-    ctx.fillRect(0, top, Math.max(6, w * 0.012), amp);
-    ctx.strokeStyle = 'rgba(255,176,112,0.6)';
+    ctx.strokeStyle = 'rgba(255,176,112,0.75)';
+    ctx.lineWidth = 2;
     ctx.setLineDash([2, 3]);
     ctx.beginPath();
-    ctx.moveTo(Math.max(6, w * 0.012), top);
-    ctx.lineTo(Math.max(6, w * 0.012), base);
+    ctx.moveTo(0, line);
+    ctx.lineTo(Math.max(8, w * 0.012), line);
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // Waveform (performance-time samples; resampled if the axis is historical).
-  const n = perf.waveform.length;
-  const revealUntil = spoiler ? playX + 40 : w;
+  // The track, and the part already performed.
+  ctx.strokeStyle = 'rgba(230,225,214,0.16)';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, base);
-  for (let i = 0; i < n; i++) {
-    const pt = (perf.duration * i) / (n - 1);
-    const x = xOf(pt);
-    if (x > revealUntil) break;
-    const v = perf.waveform[i]!;
-    ctx.lineTo(x, base - v * amp);
-  }
-  ctx.lineTo(Math.min(revealUntil, w), base);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, top, 0, base);
-  grad.addColorStop(0, 'rgba(244,233,210,0.55)');
-  grad.addColorStop(1, 'rgba(244,233,210,0.08)');
-  ctx.fillStyle = grad;
-  ctx.fill();
-  // played portion brighter
-  ctx.save();
+  ctx.moveTo(0, line);
+  ctx.lineTo(w, line);
+  ctx.stroke();
+  ctx.strokeStyle = PALETTE.ivory;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.rect(0, 0, playX, h);
-  ctx.clip();
-  ctx.fillStyle = 'rgba(244,233,210,0.35)';
-  ctx.beginPath();
-  ctx.moveTo(0, base);
-  for (let i = 0; i < n; i++) {
-    const pt = (perf.duration * i) / (n - 1);
-    ctx.lineTo(xOf(pt), base - perf.waveform[i]! * amp);
-  }
-  ctx.lineTo(w, base);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  ctx.moveTo(0, line);
+  ctx.lineTo(playX, line);
+  ctx.stroke();
 
-  // Contributor overlay
+  if (loop) {
+    ctx.fillStyle = 'rgba(127,214,255,0.16)';
+    ctx.fillRect(xOf(loop.start), line - 5, xOf(loop.end) - xOf(loop.start), 10);
+  }
+
+  // Contributor activity, only while someone is focused.
   if (focus) {
     const ci = perf.contributors.findIndex((c) => c.id === focus);
     if (ci >= 0) {
       ctx.fillStyle = perf.contributors[ci]!.color;
       for (const nd of perf.nodes) {
         if (nd.contributorIdx !== ci) continue;
-        ctx.globalAlpha = 0.85;
-        ctx.fillRect(xOf(nd.impact) - 0.75, base - 6, 1.5, 6);
+        ctx.fillRect(xOf(nd.impact) - 0.75, line - 7, 1.5, 5);
       }
-      ctx.globalAlpha = 1;
     }
   }
 
-  // Era boundaries and year labels
-  ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(230,225,214,0.45)';
-  ctx.strokeStyle = 'rgba(230,225,214,0.12)';
-  const years = yearTicks(perf);
-  let lastLabelX = -100;
-  for (const y of years) {
-    const x = xOf(y.t);
-    if (x > revealUntil + 2) continue;
-    ctx.beginPath();
-    ctx.moveTo(x, top - 2);
-    ctx.lineTo(x, base + 2);
-    ctx.stroke();
-    if (x - lastLabelX > 34) {
-      ctx.fillText(String(y.year), x + 3, 1);
-      lastLabelX = x;
-    }
-  }
-  for (const era of perf.eras) {
-    const x = xOf(era.performanceStart);
-    if (x < 2 || x > revealUntil) continue;
-    ctx.strokeStyle = 'rgba(127,214,255,0.25)';
-    ctx.setLineDash([2, 4]);
-    ctx.beginPath();
-    ctx.moveTo(x, top);
-    ctx.lineTo(x, base);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // Landmarks
+  // Landmarks worth jumping to.
+  const y = line + 7;
   for (const l of perf.landmarks) {
     const x = xOf(l.time);
-    if (x > revealUntil) continue;
-    const y = base + 6;
     ctx.beginPath();
     if (l.kind === 'merge') {
-      ctx.arc(x, y, 2.6, 0, Math.PI * 2);
-      ctx.fillStyle = PALETTE.merge;
+      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,243,220,0.9)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(244,233,210,0.7)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 4.4, 0, Math.PI * 2);
-      ctx.stroke();
     } else if (l.kind === 'divergence') {
-      ctx.moveTo(x, y - 3.5);
-      ctx.lineTo(x + 3.2, y + 2.5);
-      ctx.lineTo(x - 3.2, y + 2.5);
+      ctx.moveTo(x, y - 3);
+      ctx.lineTo(x + 2.6, y + 2);
+      ctx.lineTo(x - 2.6, y + 2);
       ctx.closePath();
-      ctx.fillStyle = PALETTE.accent;
+      ctx.fillStyle = 'rgba(127,214,255,0.85)';
       ctx.fill();
     } else if (l.kind === 'tag') {
-      ctx.moveTo(x, y - 3.8);
-      ctx.lineTo(x + 3.2, y);
-      ctx.lineTo(x, y + 3.8);
-      ctx.lineTo(x - 3.2, y);
+      ctx.moveTo(x, y - 3.2);
+      ctx.lineTo(x + 2.6, y);
+      ctx.lineTo(x, y + 3.2);
+      ctx.lineTo(x - 2.6, y);
       ctx.closePath();
       ctx.fillStyle = PALETTE.ivory;
       ctx.fill();
     } else if (l.kind === 'unknown') {
-      ctx.rect(x - 2.5, y - 2.5, 5, 5);
+      ctx.rect(x - 2, y - 2, 4, 4);
       ctx.strokeStyle = PALETTE.warn;
       ctx.lineWidth = 1;
       ctx.stroke();
-    } else if (l.kind === 'birth' || l.kind === 'present') {
-      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(230,225,214,0.7)';
-      ctx.fill();
     }
   }
 
-  // Loop range
-  if (loop) {
-    ctx.fillStyle = 'rgba(127,214,255,0.12)';
-    ctx.fillRect(xOf(loop.start), top, xOf(loop.end) - xOf(loop.start), amp);
+  // Year ticks above the line for long histories.
+  ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(230,225,214,0.32)';
+  let lastLabel = -60;
+  for (const tick of yearTicks(perf)) {
+    const x = xOf(tick.t);
+    if (x < 2 || x > w - 2) continue;
+    ctx.fillStyle = 'rgba(230,225,214,0.14)';
+    ctx.fillRect(x, line - 5, 1, 4);
+    if (x - lastLabel > 46) {
+      ctx.fillStyle = 'rgba(230,225,214,0.34)';
+      ctx.fillText(tick.label, x + 3, line - 7);
+      lastLabel = x;
+    }
   }
 
-  // Hover
   if (hoverT != null) {
-    ctx.strokeStyle = 'rgba(230,225,214,0.35)';
+    ctx.strokeStyle = 'rgba(230,225,214,0.3)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(xOf(hoverT), top);
-    ctx.lineTo(xOf(hoverT), base);
+    ctx.moveTo(Math.round(xOf(hoverT)) + 0.5, line - 8);
+    ctx.lineTo(Math.round(xOf(hoverT)) + 0.5, line + 10);
     ctx.stroke();
   }
 
-  // Playhead
-  ctx.strokeStyle = PALETTE.ivory;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(playX, top - 6);
-  ctx.lineTo(playX, base + 10);
-  ctx.stroke();
+  // Playhead.
   ctx.fillStyle = PALETTE.ivory;
   ctx.beginPath();
-  ctx.moveTo(playX - 4, top - 8);
-  ctx.lineTo(playX + 4, top - 8);
-  ctx.lineTo(playX, top - 3);
-  ctx.closePath();
+  ctx.arc(playX, line, 4, 0, Math.PI * 2);
   ctx.fill();
-  ctx.textBaseline = 'alphabetic';
-  ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(230,225,214,0.5)';
-  ctx.fillText(scale === 'performance' ? 'PERFORMANCE CLOCK' : 'HISTORICAL CLOCK', 4, h - 3);
+  ctx.strokeStyle = 'rgba(7,8,12,0.9)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function yearTicks(perf: CompiledPerformance): Array<{ year: number | string; t: number }> {
-  const out: Array<{ year: number | string; t: number }> = [];
+function yearTicks(perf: CompiledPerformance): Array<{ label: string; t: number }> {
+  const out: Array<{ label: string; t: number }> = [];
   if (perf.timeMap.length < 2) return out;
   const h0 = perf.timeMap[0]![0];
   const h1 = perf.timeMap[perf.timeMap.length - 1]![0];
-  const y0 = new Date(h0).getUTCFullYear();
-  const y1 = new Date(h1).getUTCFullYear();
-  const step = y1 - y0 > 30 ? 5 : 1;
-  for (let y = y0 + 1; y <= y1; y += step) {
-    if (y % step) continue;
-    const ms = Date.UTC(y, 0, 1);
-    out.push({ year: y, t: mapMonotone(perf.timeMap, ms) });
-  }
-  if (y1 - y0 <= 1) {
-    // short histories: month ticks, labelled by month (with the year at January)
-    const months: Array<{ year: number | string; t: number }> = [];
-    const start = new Date(h0);
-    for (let m = 1; m < 40; m++) {
-      const ms = Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + m, 1);
-      if (ms > h1) break;
-      const d = new Date(ms);
-      months.push({ year: d.getUTCMonth() === 0 ? d.getUTCFullYear() : MONTHS[d.getUTCMonth()]!, t: mapMonotone(perf.timeMap, ms) });
+  const years = new Date(h1).getUTCFullYear() - new Date(h0).getUTCFullYear();
+  if (years >= 1) {
+    const step = years > 24 ? 5 : 1;
+    for (let y = new Date(h0).getUTCFullYear() + 1; y <= new Date(h1).getUTCFullYear(); y += step) {
+      out.push({ label: String(y), t: mapMonotone(perf.timeMap, Date.UTC(y, 0, 1)) });
     }
-    return months;
+    return out;
+  }
+  const start = new Date(h0);
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  for (let m = 1; m < 24; m++) {
+    const ms = Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + m, 1);
+    if (ms > h1) break;
+    out.push({ label: MON[new Date(ms).getUTCMonth()]!, t: mapMonotone(perf.timeMap, ms) });
   }
   return out;
 }

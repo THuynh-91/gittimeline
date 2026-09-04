@@ -3,7 +3,7 @@ import { createArtifact, serializeArtifact, parseArtifact, validateArtifact, Art
 import { buildDemoDataset } from '@/fixtures/demo';
 import { FIXTURES } from '@/fixtures/corpus';
 import { compilePerformance } from '@/choreography/compile';
-import { PRESET } from './compile.test';
+import { PRESET } from './shared';
 
 describe('.gitdance artifact', () => {
   it('round-trips through gzip and reproduces the same performance', async () => {

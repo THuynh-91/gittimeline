@@ -133,6 +133,11 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   });
   for (let i = 0; i < n; i++) for (let k = 1; k < g.parents[i]!.length; k++) protectedIds[g.parents[i]![k]!] = 1;
 
+  // How many nodes can land inside the target duration and still each get a
+  // legible beat? That, not a fixed commit count, is what decides aggregation.
+  const targetSeconds = opts.preset.targetDuration > 0 ? opts.preset.targetDuration : 90;
+  const perNode = reducedMotion ? 0.18 : 0.09;
+  const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateLinearRuns(
     g,
     commits,
@@ -141,7 +146,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     presentation,
     contributorOf,
     contributors.map((c) => c.id),
-    opts.preset.aggregateAbove,
+    visibleBudget,
   );
 
   onProgress('activity');
@@ -198,7 +203,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     let weight = 1;
     if (aggIdx !== undefined) {
       const span = agg.spans[aggIdx]!;
-      weight = Math.max(2, Math.min(7, Math.log2(span.memberCount + 1)));
+      weight = Math.max(1.5, Math.min(3.2, Math.log2(span.memberCount + 1) * 0.55));
       const entry = nodeOfCommit[g.index.get(span.boundaryShas[0]!)!]!;
       if (entry >= 0) after.push(entry);
     }

@@ -52,12 +52,12 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  targetDuration: 60,
+  targetDuration: 45,
   reducedMotion: false,
   noFlash: false,
   highContrast: false,
-  muted: false,
-  effectsLevel: 0.8,
+  muted: true,
+  effectsLevel: 0.7,
   ambientLevel: 0.5,
   dynamics: 'standard',
   labels: 'landmarks',
@@ -127,6 +127,7 @@ export const store = {
   recent: signal<RecentRepo[]>([]),
   rendererMode: signal<'canvas' | 'poster'>('canvas'),
   manualCamera: signal(false),
+  cameraLocked: signal(false),
   caption: signal<ChoreographyEvent | null>(null),
   cameraState: signal<string>('intimate'),
   token: signal<string | null>(null),

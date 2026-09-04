@@ -86,6 +86,12 @@ export class StageRenderer {
     safe: { top: 56, bottom: 150, left: 24, right: 24 },
   };
   manual: ManualCamera | null = null;
+  /**
+   * A zoom the viewer chose, held while the director still follows the action.
+   * Zooming out and pressing the camera button locks that wider view instead of
+   * snapping back to the framing the compiler picked.
+   */
+  zoomLock: number | null = null;
   /** Dim factor for the gallery/landing state (0..1). */
   attenuation = 1;
 
@@ -210,7 +216,7 @@ export class StageRenderer {
     const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 14) : 1;
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
     const fit = Math.min(safeW / cue.w, safeH / cue.h);
-    const scale = fit * this.smoothedPunch;
+    const scale = (this.zoomLock ?? fit) * this.smoothedPunch;
     this.view = {
       scale,
       ox: s.left + safeW / 2,
