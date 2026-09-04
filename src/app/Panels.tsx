@@ -10,6 +10,7 @@ import {
   refetchCurrent,
 } from './controller';
 import { fmtClock, fmtDate } from '@/choreography/events';
+import { describeAggregate } from '@/analysis/aggregate';
 import { Icons } from './icons';
 import type { CompiledPerformance, NodeGeom } from '@/model/types';
 
@@ -152,7 +153,7 @@ function Inspector() {
         <>
           <h3>Aggregated span begins here</h3>
           <p>
-            {agg.memberCount} known commits between {fmtDate(agg.historicalStart)} and {fmtDate(agg.historicalEnd)} are drawn as one ribbon. Every member is a real commit; boundary edges are exact. <Pill p="aggregate" />
+            {describeAggregate(agg)} between {fmtDate(agg.historicalStart)} and {fmtDate(agg.historicalEnd)} are drawn as one ribbon. Every member is a real commit; boundary edges are exact. <Pill p="aggregate" />
           </p>
           <p>Contributors: {agg.contributorIds.map((id) => perf.contributors.find((c) => c.id === id)?.displayName ?? id).join(', ')}</p>
         </>

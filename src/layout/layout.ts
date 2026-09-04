@@ -88,16 +88,19 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
     return count;
   };
 
-  const order = [...threads].sort((a, b) => {
-    const xa = a.baseId >= 0 ? x[a.baseId]! : x[a.nodeIds[0]!]!;
-    const xb = b.baseId >= 0 ? x[b.baseId]! : x[b.nodeIds[0]!]!;
-    return xa - xb || a.idx - b.idx;
-  });
+  // A thread every commit of which was collapsed into a ribbon has no nodes to
+  // place. It draws nothing, so it is ordered by whatever anchor it still has
+  // and then skipped entirely: it takes no lane and reserves no interval, and
+  // the composition is exactly what it would have been without the branch.
+  const anchorX = (t: ThreadLayoutInput) =>
+    t.baseId >= 0 ? x[t.baseId]! : t.nodeIds.length ? x[t.nodeIds[0]!]! : t.mergeId >= 0 ? x[t.mergeId]! : 0;
+  const order = [...threads].sort((a, b) => anchorX(a) - anchorX(b) || a.idx - b.idx);
   const margin = 18;
   let maxLane = 0;
 
   for (const t of order) {
     const lay = layouts[t.idx]!;
+    if (!t.nodeIds.length) continue;
     const first = t.nodeIds[0]!;
     const last = t.nodeIds[t.nodeIds.length - 1]!;
     lay.xStart = t.baseId >= 0 ? x[t.baseId]! : x[first]! - 40;

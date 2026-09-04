@@ -19,8 +19,11 @@ export function ScopeChooser() {
   if (firstYear && lastYear) for (let y = lastYear; y >= firstYear && years.length < 12; y--) years.push(y);
   const approx = estimatedCommits ? estimatedCommits.toLocaleString('en-US') : 'a great many';
   const requests = estimatedCommits ? Math.ceil(estimatedCommits / 100) : null;
-  // What the whole history would actually cost to watch, at the pace that
-  // keeps every arrival visible. Nothing is truncated, so this is honest.
+  // What the whole history could cost to watch, at the pace that keeps every
+  // arrival visible. Nothing is truncated, so this is never an under-estimate —
+  // but a history whose merges are all routine pull requests collapses into
+  // ribbons and comes in well under it, and the estimate cannot tell the two
+  // apart from two probe requests. So it is offered as an upper bound.
   const fullMinutes =
     estimatedCommits && mergeRatio != null
       ? Math.round(legibleSecondsFor(predictVisible(estimatedCommits, mergeRatio)) / 60)
@@ -32,10 +35,11 @@ export function ScopeChooser() {
         <h2 id="scope-title">{displayName} has about {approx} commits</h2>
         {reason === 'dense' ? (
           <p>
-            About {Math.round((mergeRatio ?? 0) * 100)}% of its recent commits are merges. Merges are branch points, and a branch point cannot be
-            collapsed into a ribbon without hiding what actually happened — so nearly all of this history stays on stage. Shown at a pace you can
-            actually follow, the whole thing runs {fullMinutes ? `about ${fullMinutes} minutes` : 'a very long time'}. A single year is loaded
-            quickly and watched in a couple.
+            About {Math.round((mergeRatio ?? 0) * 100)}% of its recent commits are merges. A routine pull request — a branch that left the main line,
+            carried a commit or two and was merged straight back — collapses into a ribbon, but a branch with a story of its own is a branch point
+            that cannot be collapsed without hiding what happened, so a merge-heavy history can keep nearly all of its commits on stage. Shown at a
+            pace you can actually follow, the whole thing runs {fullMinutes ? `up to ${fullMinutes} minutes` : 'a very long time'}. A single year is
+            loaded quickly and watched in a couple.
           </p>
         ) : (
           <p>
@@ -62,7 +66,7 @@ export function ScopeChooser() {
             </button>
           )}
           <button type="button" class="btn" onClick={() => chooseScope({ since: null, until: null, label: 'the full history' })} data-testid="scope-full">
-            {reason === 'dense' && fullMinutes ? `Everything · ~${fullMinutes} min` : 'Everything'}
+            {reason === 'dense' && fullMinutes ? `Everything · up to ${fullMinutes} min` : 'Everything'}
           </button>
           <button type="button" class="btn" onClick={cancel}>
             Cancel

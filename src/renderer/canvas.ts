@@ -1,5 +1,6 @@
 import type { CameraCue, ChoreographyEvent, CompiledPerformance, EdgeGeom, NodeGeom } from '@/model/types';
 import { sampleCamera } from '@/choreography/camera';
+import { describeAggregate } from '@/analysis/aggregate';
 import { pointAt, headingAt } from '@/layout/paths';
 import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
@@ -1026,7 +1027,7 @@ export class StageRenderer {
       if (!agg || agg.memberCount < 3) continue;
       const m = pointAt(e.pts, 0.5, this.tmp);
       const s = this.worldToScreen(m.x, m.y);
-      place(s.x - 30, s.y - 14, `${agg.memberCount} commits`, 0.75, PALETTE.textDim);
+      place(s.x - 30, s.y - 14, describeAggregate(agg), 0.75, PALETTE.textDim);
     }
     for (const e of p.edges) {
       if (e.kind !== 'unknown' || e.start > t) continue;

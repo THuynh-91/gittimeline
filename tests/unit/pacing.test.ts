@@ -29,6 +29,16 @@ import type { Dataset, PlaybackPreset } from '@/model/types';
  * exercised. The cap is gone now: length is never bought by making arrivals
  * invisible. A history that needs eleven minutes gets eleven minutes, and the
  * viewer is asked before it is fetched.
+ *
+ * Merge bubbles changed which histories are dense. A run of routine pull
+ * requests collapses like a linear run now, so `21-pull-request-treadmill`
+ * plays in 82 s instead of 150 s and `22-merge-dense-decade` in 97 s instead of
+ * 10.5 minutes. What still cannot collapse is a branch with a story of its own:
+ * `23-back-merge-decade` integrates two long-lived lines into each other, so
+ * every one of its junctions stays on stage and it runs past eight minutes.
+ * That fixture is what keeps the long path exercised now, because without a
+ * history that dense the suite would be back to only testing the comfortable
+ * one.
  */
 const AUTO: PlaybackPreset = { id: 'cinematic', version: 1, targetDuration: 0, reducedMotion: false, aggregateAbove: 900 };
 
@@ -78,9 +88,11 @@ describe('pace is watchable at every size', () => {
     });
   }
 
-  it('the densest history is slower per commit than it used to be', () => {
-    const m = measure(FIXTURES.find((f) => f.id === '21-pull-request-treadmill')!.build());
-    expect(m.duration / m.nodes).toBeGreaterThanOrEqual(0.22);
+  it('the histories built on merges are slower per commit than they used to be', () => {
+    for (const id of ['21-pull-request-treadmill', '22-merge-dense-decade', '23-back-merge-decade']) {
+      const m = measure(FIXTURES.find((f) => f.id === id)!.build());
+      expect(m.duration / m.nodes, id).toBeGreaterThanOrEqual(0.22);
+    }
   });
 
   it('at least one fixture actually runs long, or this suite proves nothing', () => {
@@ -94,19 +106,35 @@ describe('a history too dense to show whole is predicted before it is fetched', 
    * numbers are recorded here rather than re-derived because CI has no token
    * and no artifacts; they are what the predictor was fitted against and what
    * it must keep getting right.
+   *
+   * `visible` is what survived aggregation when the predictor was fitted.
+   * `now` is the same history re-measured after merge bubbles collapsed, by
+   * fetching it anonymously and compiling it: mdBook 2,581 → 1,207 and
+   * public-apis 1,587 → 1,171 (its 3,293rd and 3,296th commits differ because
+   * the repository moved on between the two measurements). Both of them now
+   * come in under the ceiling, so the shorter span they are still offered is a
+   * precaution rather than a necessity.
+   *
+   * The junction floor is left alone anyway. Telling a bubble from a branch
+   * with real history behind it needs side-branch lengths that the two probe
+   * requests do not carry, and over-offering is the cheap failure: the
+   * expensive one is a history that runs eleven minutes with no warning, which
+   * is exactly what a decade of back-merges still does.
    */
   const REAL = [
-    { name: 'ripgrep', commits: 2299, mergeRatio: 0.027, visible: 335, outruns: false },
-    { name: 'svelte 2023', commits: 860, mergeRatio: 0.031, visible: 235, outruns: false },
-    { name: 'public-apis 2021', commits: 1796, mergeRatio: 0.435, visible: 1587, outruns: true },
-    { name: 'mdBook', commits: 3296, mergeRatio: 0.316, visible: 2584, outruns: true },
+    { name: 'ripgrep', commits: 2299, mergeRatio: 0.027, visible: 335, now: 335, outruns: false },
+    { name: 'svelte 2023', commits: 860, mergeRatio: 0.031, visible: 235, now: 235, outruns: false },
+    { name: 'public-apis 2021', commits: 1796, mergeRatio: 0.435, visible: 1587, now: 1171, outruns: true },
+    { name: 'mdBook', commits: 3296, mergeRatio: 0.316, visible: 2584, now: 1207, outruns: true },
   ];
 
   it('decides correctly for every real history measured', () => {
     for (const r of REAL) {
       expect(willOutrunTheCeiling(r.commits, r.mergeRatio), `${r.name}`).toBe(r.outruns);
-      // The true test of the decision: would the real visible count have fit?
-      expect(r.visible > MAX_LEGIBLE_NODES, `${r.name} ground truth`).toBe(r.outruns);
+      // Nothing that really outran the ceiling may have gone unasked.
+      if (r.visible > MAX_LEGIBLE_NODES) expect(r.outruns, `${r.name} ground truth as fitted`).toBe(true);
+      // Every one of them fits now, which is what the collapsing bought.
+      expect(r.now, `${r.name} after bubbles`).toBeLessThan(MAX_LEGIBLE_NODES);
     }
   });
 
@@ -115,6 +143,8 @@ describe('a history too dense to show whole is predicted before it is fetched', 
       const predicted = predictVisible(r.commits, r.mergeRatio);
       expect(predicted, `${r.name} not wildly low`).toBeGreaterThan(r.visible * 0.6);
       expect(predicted, `${r.name} not wildly high`).toBeLessThan(r.visible * 2.2);
+      // Pessimistic in the one direction that matters: never below what survives.
+      expect(predicted, `${r.name} covers what survives`).toBeGreaterThan(r.now);
     }
   });
 

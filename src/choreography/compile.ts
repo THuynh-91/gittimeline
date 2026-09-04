@@ -16,7 +16,7 @@ import { buildGraph, uniqueAncestry } from '@/dag/graph';
 import { correctTimestamps } from '@/dag/time';
 import { selectSpine } from '@/dag/spine';
 import { assignThreads } from '@/dag/threads';
-import { aggregateLinearRuns } from '@/analysis/aggregate';
+import { aggregateHistory } from '@/analysis/aggregate';
 import { analyzeActivity } from '@/analysis/activity';
 import { buildClock, mapMonotone, CLOCK_HEAD, CLOCK_TAIL, type ClockItem } from './clock';
 import { SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
@@ -152,16 +152,19 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // repository ran at over twice the pace it had been collapsed for.
   const perNode = reducedMotion ? SECONDS_PER_NODE_REDUCED : SECONDS_PER_NODE;
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
-  const agg = aggregateLinearRuns(
+  const agg = aggregateHistory({
     g,
     commits,
-    th.members,
+    members: th.members,
+    threadOf: th.threadOf,
     protectedIds,
+    refTargets,
+    spine: spine.ids,
     presentation,
     contributorOf,
-    contributors.map((c) => c.id),
+    contributorIds: contributors.map((c) => c.id),
     visibleBudget,
-  );
+  });
 
   onProgress('activity');
   const threadSpans: Array<[number, number]> = th.members.map((ids, t) => {

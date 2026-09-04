@@ -11,6 +11,7 @@ import type {
   Provenance,
   ThreadGeom,
 } from '@/model/types';
+import { describeAggregate } from '@/analysis/aggregate';
 
 /**
  * Choreography event grammar (spec §11). Every event traces back to a
@@ -239,12 +240,12 @@ export function buildEvents(ctx: EventContext): EventPlan {
     const eIdx = ctx.aggregateEdge[i]!;
     const e = edges[eIdx];
     if (!e) return;
-    push('AGGREGATE_SPAN', e.start, e.end, e.end, [agg.id, ...agg.boundaryShas], 0.4, `${agg.memberCount} known commits pass as one span (${fmtDate(agg.historicalStart)} → ${fmtDate(agg.historicalEnd)})`, {
+    push('AGGREGATE_SPAN', e.start, e.end, e.end, [agg.id, ...agg.boundaryShas], 0.4, `${describeAggregate(agg)} pass as one span (${fmtDate(agg.historicalStart)} → ${fmtDate(agg.historicalEnd)})`, {
       historicalTime: agg.historicalStart,
       provenance: 'aggregate',
       variant: 'ribbon',
     });
-    push('COMMIT_CLUSTER', e.start, e.end, e.end, [agg.id], 0.35, `${agg.memberCount} commits by ${agg.contributorIds.length} contributor${agg.contributorIds.length === 1 ? '' : 's'}`, {
+    push('COMMIT_CLUSTER', e.start, e.end, e.end, [agg.id], 0.35, `${describeAggregate(agg)} by ${agg.contributorIds.length} contributor${agg.contributorIds.length === 1 ? '' : 's'}`, {
       historicalTime: agg.historicalStart,
       provenance: 'aggregate',
     });

@@ -7,12 +7,20 @@
  *
  * There is deliberately **no hard cap on length**, because a cap can only be
  * met by breaking the rule above. Measured on real repositories that is not
- * hypothetical: mdBook keeps 2,584 of its 3,296 commits after aggregation,
- * because a third of them are merge junctions and collapsing those would hide
- * the topology. At 0.26s each that is eleven minutes — and a four-minute cap
- * bought those four minutes by playing at a tenth of a second per commit,
- * which is a blur. A show nobody can follow is not a shorter show; it is a
- * broken one.
+ * hypothetical: before merge bubbles collapsed, mdBook kept 2,584 of its 3,296
+ * commits, because a third of them are merge junctions and collapsing those
+ * would hide the topology. At 0.26s each that is eleven minutes — and a
+ * four-minute cap bought those four minutes by playing at a tenth of a second
+ * per commit, which is a blur. A show nobody can follow is not a shorter show;
+ * it is a broken one.
+ *
+ * A run of routine pull requests does collapse now (see `SIDE_MAX` in
+ * `analysis/aggregate.ts`): re-measured against the real histories, mdBook is
+ * 1,207 commits and 5.3 minutes and public-apis' 2021 is 1,171 and 5.1, both
+ * of them under the six minutes this file asks about. What is left in the dense
+ * class is history no ribbon can honestly stand for: branches with a story of
+ * their own, stale branches merged long after they left, and long-lived lines
+ * that integrate into each other. Those still run as long as they need to.
  *
  * So `LONG_PERFORMANCE_SECONDS` is not a limit, it is the length at which the
  * viewer is *asked first*. `willOutrunTheCeiling` predicts, from two cheap
@@ -45,22 +53,29 @@ export function targetSecondsFor(n: number, lengthBias = 1): number {
 }
 
 /**
- * How many commits survive aggregation.
+ * How many commits survive aggregation, at most.
  *
  * Two things bound it, and whichever is larger wins:
  *
  *  - the *budget*, which is how many arrivals fit in the target length. A
  *    quiet linear history collapses down to this and no further.
- *  - the *junctions*, which cannot be collapsed at all. Every merge is a
- *    branch point too, so each one pins roughly a pair of commits in place.
- *    A repository built on pull requests is almost entirely junctions.
+ *  - the *junctions*, which a ribbon can only stand in for when the branch was
+ *    a bubble. Every other merge is a branch point that pins roughly a pair of
+ *    commits in place.
  *
  * Fitted against four real histories (ripgrep, Svelte 2023, public-apis 2021,
- * mdBook) it predicts 335→355, 235→316, 1587→1718 and 2584→2290 — loose, but
- * it only has to decide whether to ask a question, and it gets all four of
- * those decisions right. It is deliberately a little pessimistic on the dense
- * side: offering a choice that turns out to be unnecessary is a much smaller
- * failure than not offering one that was.
+ * mdBook) it predicted 335→355, 235→316, 1587→1718 and 2584→2290 — loose, but
+ * it only has to decide whether to ask a question, and it got all four of those
+ * decisions right.
+ *
+ * Since merge bubbles collapse, the junction floor is an upper bound rather
+ * than a floor: a repository whose merges are all routine pull requests now
+ * lands near the budget instead, so this over-estimates it. Telling the two
+ * apart needs the side-branch lengths, which the two probe requests do not
+ * carry, and re-fitting on a guess about what fraction of mdBook's merges are
+ * bubble-shaped would be exactly the unmeasured tuning this file exists to
+ * avoid. It stays pessimistic on purpose: offering a choice that turns out to
+ * be unnecessary is a much smaller failure than not offering one that was.
  */
 export function predictVisible(commits: number, mergeRatio: number, lengthBias = 1): number {
   if (commits <= 0) return 0;
