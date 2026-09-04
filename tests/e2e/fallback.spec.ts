@@ -101,4 +101,27 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.waitForFunction(() => !window.__gittimeline.playing && window.__gittimeline.time > 5, null, { timeout: 60_000 });
     expect(errors).toEqual([]);
   });
+
+  test('the stage can be cleared, and the controls that clear it stay reachable', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    // The ledger prints commits as they land, so there has to be something in
+    // it before it exists at all.
+    await page.evaluate(() => window.__gittimeline.seek(12));
+    await expect(page.getByTestId('commit-rail')).toBeVisible();
+    await expect(page.locator('.band')).toBeVisible();
+
+    // These two live at the bottom of a screen whose bottom 150px is the
+    // transport band. Sitting inside it made them unclickable.
+    await page.getByTestId('toggle-rail').click();
+    await expect(page.getByTestId('commit-rail')).toHaveCount(0);
+
+    await page.getByTestId('toggle-controls').click();
+    await expect(page.locator('.band')).toHaveCount(0);
+
+    // A control that hides itself along with what it hides is a trap.
+    await expect(page.getByTestId('view-toggles')).toBeVisible();
+    await page.getByTestId('toggle-controls').click();
+    await expect(page.locator('.band')).toBeVisible();
+  });
 });

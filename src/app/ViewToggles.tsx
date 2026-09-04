@@ -14,7 +14,7 @@ import { store, updateSettings } from './store';
 export function ViewToggles() {
   const s = store.settings.value;
   return (
-    <div class="view-toggles" data-testid="view-toggles">
+    <div class={`view-toggles${s.showControls ? '' : ' bare'}`} data-testid="view-toggles">
       <button
         type="button"
         class={`vbtn${s.showRail ? ' on' : ''}`}

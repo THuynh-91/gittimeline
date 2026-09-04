@@ -1816,12 +1816,19 @@ kbd {
 .view-toggles {
   position: absolute;
   left: 26px;
-  bottom: 14px;
-  z-index: 6;
+  /* Above the transport band, which is 150px tall and fills the bottom edge —
+     sitting inside it made these unclickable, which is a poor showing for the
+     one control that is meant to survive everything else being hidden. */
+  bottom: calc(var(--band) + 10px);
+  z-index: 7;
   display: flex;
   gap: 6px;
   opacity: 0.28;
   transition: opacity 0.2s ease;
+}
+
+.view-toggles.bare {
+  bottom: 14px;
 }
 
 .view-toggles:hover,
