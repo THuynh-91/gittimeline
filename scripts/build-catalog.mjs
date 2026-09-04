@@ -25,7 +25,11 @@ import { join } from 'node:path';
 const outDir = process.argv[2] ?? 'public/catalog';
 const base = process.env.GD_BASE ?? 'http://localhost:4173/';
 const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? '';
-const { entries } = JSON.parse(readFileSync('catalog.json', 'utf8'));
+// A path, not a hard-coded file: mapping one repository ad hoc used to mean
+// swapping catalog.json in and out, and a swap that does not get undone
+// commits the shelf away.
+const catalogPath = process.env.GD_CATALOG ?? 'catalog.json';
+const { entries } = JSON.parse(readFileSync(catalogPath, 'utf8'));
 
 if (!token) {
   console.error('No token. Set GH_TOKEN (locally) or GITHUB_TOKEN (in Actions).');
