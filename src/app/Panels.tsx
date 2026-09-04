@@ -251,7 +251,7 @@ function HelpPanel() {
   return (
     <div>
       <p>
-        GitDance reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Nothing is uploaded anywhere.
+        GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Nothing is uploaded anywhere.
       </p>
 
       <h3>Reading the stage</h3>
@@ -336,7 +336,7 @@ function HelpPanel() {
 
       <h3>Limits</h3>
       <p>
-        GitHub allows a network about 60 anonymous requests an hour, which covers a few thousand commits. A free read-only token in Settings raises that to about 5,000 and lets GitDance read far deeper. When the limit is reached the performance is still played, and labelled as partial.
+        GitHub allows a network about 60 anonymous requests an hour, which covers a few thousand commits. A free read-only token in Settings raises that to about 5,000 and lets GitTimeline read far deeper. When the limit is reached the performance is still played, and labelled as partial.
       </p>
     </div>
   );

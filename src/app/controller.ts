@@ -340,7 +340,7 @@ function reportGitHubError(err: unknown) {
     malformed: 'Unexpected response',
     unauthorized: 'Token rejected',
   };
-  const rateMsg = err.kind === 'rate-limited' ? ` It resets ${formatReset(err.rate?.resetAt ?? null)}. Anonymous requests are limited per network by GitHub; GitDance cannot bypass that.` : '';
+  const rateMsg = err.kind === 'rate-limited' ? ` It resets ${formatReset(err.rate?.resetAt ?? null)}. Anonymous requests are limited per network by GitHub; GitTimeline cannot bypass that.` : '';
   fail({ kind: err.kind, title: titles[err.kind] ?? 'Something went wrong', message: err.message + rateMsg, resetAt: err.rate?.resetAt ?? null, canPlayPartial: false, retry: err.kind !== 'not-found' && err.kind !== 'blocked' });
 }
 
@@ -505,7 +505,7 @@ export async function loadArtifactFile(file: File) {
     }
     lastRepo = null;
     await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false });
-    store.banner.value = { kind: 'info', message: `Loaded from a .gitdance artifact (${dataset.coverage.summary})` };
+    store.banner.value = { kind: 'info', message: `Loaded from a .gittimeline artifact (${dataset.coverage.summary})` };
   } catch (err) {
     if (run?.id !== r.id) return;
     fail({ kind: 'artifact', title: 'Could not import artifact', message: err instanceof Error ? err.message : String(err), resetAt: null, canPlayPartial: false, retry: false });
@@ -816,7 +816,7 @@ export async function exportPng() {
   const blob = await renderer.toBlob('image/png');
   if (!blob) return;
   const perf = store.perf.value;
-  downloadBlob(blob, `${perf ? `${perf.source.owner}-${perf.source.name}` : 'gitdance'}-${fmtClock(player.t).replace(':', 'm')}s.png`);
+  downloadBlob(blob, `${perf ? `${perf.source.owner}-${perf.source.name}` : 'gittimeline'}-${fmtClock(player.t).replace(':', 'm')}s.png`);
   toast('PNG saved');
 }
 
@@ -825,14 +825,14 @@ export async function exportArtifact() {
   if (!ds) return;
   const artifact = createArtifact(ds, { preset: presetFromSettings(), seed: store.settings.value.seed });
   const blob = await serializeArtifact(artifact, true);
-  downloadBlob(blob, `${ds.source.owner}-${ds.source.name}.gitdance`);
+  downloadBlob(blob, `${ds.source.owner}-${ds.source.name}.gittimeline`);
   toast('Artifact saved');
 }
 
 export function exportTranscript() {
   const perf = store.perf.value;
   if (!perf) return;
-  const text = [`# ${perf.source.owner}/${perf.source.name} — GitDance transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');
+  const text = [`# ${perf.source.owner}/${perf.source.name} — GitTimeline transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');
   downloadBlob(new Blob([text], { type: 'text/markdown' }), `${perf.source.owner}-${perf.source.name}-transcript.md`);
   toast('Transcript saved');
 }
@@ -874,7 +874,7 @@ export function toggleRecording() {
   recorder.onstop = () => {
     const blob = new Blob(recordedChunks, { type: 'video/webm' });
     const perf = store.perf.value;
-    downloadBlob(blob, `${perf ? `${perf.source.owner}-${perf.source.name}` : 'gitdance'}.webm`);
+    downloadBlob(blob, `${perf ? `${perf.source.owner}-${perf.source.name}` : 'gittimeline'}.webm`);
     recorder = null;
     store.recording.value = false;
     toast('WebM saved (silent capture)');
@@ -1027,7 +1027,7 @@ export function installDebugHook() {
     play: () => play(),
     pause: () => pause(),
   };
-  (window as unknown as { __gitdance: typeof api }).__gitdance = api;
+  (window as unknown as { __gittimeline: typeof api }).__gittimeline = api;
 }
 
 /* ---------------- boot ---------------- */

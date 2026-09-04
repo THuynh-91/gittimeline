@@ -12,14 +12,14 @@ npm run test:e2e      # Playwright against the built output (npx playwright inst
 | `compile.test.ts` | the demo emits the full motion vocabulary; determinism (same input/seed → same `planHash`); geometry independent of target duration; reduced motion keeps structure; every fixture in the 20-fixture corpus satisfies `assertInvariants`; octopus, multiple roots, partial boundaries, unknown side history, aggregation round-trip, merge storms, empty repository, hostile metadata, clock skew, large synthetic history within budget. |
 | `dag.test.ts` | fast-check property tests over random DAGs with missing parents, skew and absent dates: graph index matches input, topological order, causal timestamps, thread cover is exact and first-parent, compiled invariants + determinism, aggregation preserves members and boundary edges. |
 | `github.test.ts` | URL normalization/rejection; rate-limit and Link headers; mocked ingestion: happy path with branches and tags, page budget → partial, rate limit mid-way → partial with reset, rate limit before data, not-found, empty (409), cancellation, ETag conditional requests, offline from cache, 5xx retries. |
-| `artifact.test.ts` | `.gitdance` gzip/JSON round-trip reproducing the same plan, tamper/schema rejection, no raw e-mails or scripts, prototype-pollution stripping. |
+| `artifact.test.ts` | `.gittimeline` gzip/JSON round-trip reproducing the same plan, tamper/schema rejection, no raw e-mails or scripts, prototype-pollution stripping. |
 | `misc.test.ts` | sanitizer, identity keys and bot detection, colour separation, seeded PRNG, SHA-256 vectors, canonical JSON, share links, clock monotonicity and gap compression, poster SVG. |
 
 `assertInvariants` (in `compile.test.ts`) is the executable form of the truth model: exact edges ↔ input relations (once each), octopus parents retained, no event references a missing subject, monotone time map, spine is a first-parent chain, boundaries are never roots, camera cues cover the duration with bounded rotation.
 
 ## Browser tests (`tests/e2e`, Playwright)
 
-The app exposes a read-only `window.__gitdance` hook (time, phase, stats, plan hash, camera cue, travelling bodies with screen positions, events, seek/play/pause) so tests can assert motion rather than DOM.
+The app exposes a read-only `window.__gittimeline` hook (time, phase, stats, plan hash, camera cue, travelling bodies with screen positions, events, seek/play/pause) so tests can assert motion rather than DOM.
 
 - `demo.spec.ts` — landing (stage alive behind the form); pressing Play launches a continuously animated performance: required event types present, ≥2 performers on distinct threads moving at once, merge approach → push-in at impact → settle, divergence pull-back, frames keep changing, audio starts on the gesture; pause is an exact freeze and resume is continuous; keyboard/landmark/timeline seeking; mute/camera/reduced-motion shortcuts; panels; share links and fixtures from the hash.
 - `github.spec.ts` — mocked `api.github.com` via route interception (with GitHub's real CORS-exposed headers): happy path, paste detection, invalid/not-found/empty, rate limit before and during, cancel, cache + offline, pinned share link reproducing the plan hash.

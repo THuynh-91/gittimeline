@@ -27,7 +27,7 @@ export function TopBar() {
             store.panel.value = 'none';
           }}
         >
-          <span class="dot" aria-hidden="true" /> GitDance
+          <span class="dot" aria-hidden="true" /> GitTimeline
         </button>
         <div class="repo-id">
           <strong>

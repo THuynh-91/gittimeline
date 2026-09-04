@@ -5,7 +5,7 @@ import { FIXTURES } from '@/fixtures/corpus';
 import { compilePerformance } from '@/choreography/compile';
 import { PRESET } from './shared';
 
-describe('.gitdance artifact', () => {
+describe('.gittimeline artifact', () => {
   it('round-trips through gzip and reproduces the same performance', async () => {
     const ds = buildDemoDataset();
     const artifact = createArtifact(ds, { preset: PRESET, seed: 'shared' });
@@ -33,8 +33,8 @@ describe('.gitdance artifact', () => {
     const json = JSON.parse(JSON.stringify(artifact));
     json.dataset.commits[0].messageSubject = 'tampered';
     expect(() => validateArtifact(json)).toThrow(ArtifactError);
-    expect(() => validateArtifact({ format: 'gitdance', schemaVersion: 99 })).toThrow(/schema version/);
-    expect(() => validateArtifact({ hello: 'world' })).toThrow(/Not a GitDance artifact/);
+    expect(() => validateArtifact({ format: 'gittimeline', schemaVersion: 99 })).toThrow(/schema version/);
+    expect(() => validateArtifact({ hello: 'world' })).toThrow(/Not a GitTimeline artifact/);
     await expect(parseArtifact(new Blob(['{not json']))).rejects.toThrow(/valid JSON/);
   });
 

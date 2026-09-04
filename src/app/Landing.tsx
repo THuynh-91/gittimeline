@@ -106,7 +106,7 @@ export function Landing() {
   return (
     <section class="landing" aria-labelledby="landing-title">
       <h1 id="landing-title" class="title">
-        GitDance
+        GitTimeline
       </h1>
       <p class="subtitle">Paste a public GitHub repository and watch its history perform itself.</p>
       <form class="url-form" onSubmit={submit}>
@@ -178,10 +178,10 @@ export function Landing() {
           </a>
           {' · '}
           <label style="cursor:pointer">
-            Import a .gitdance file
+            Import a .gittimeline file
             <input
               type="file"
-              accept=".gitdance,.json,.gz"
+              accept=".gittimeline,.gitdance,.json,.gz"
               class="sr-only"
               onChange={(e) => {
                 const f = (e.target as HTMLInputElement).files?.[0];

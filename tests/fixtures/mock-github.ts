@@ -1,5 +1,5 @@
 /**
- * Realistic mock of the GitHub REST endpoints GitDance uses:
+ * Realistic mock of the GitHub REST endpoints GitTimeline uses:
  * repo metadata, paginated commits (Link headers), branches, tags,
  * rate-limit headers, ETags/304, 404, 409 (empty), 403 rate limit, 5xx.
  * Used by unit tests directly and by Playwright route interception.

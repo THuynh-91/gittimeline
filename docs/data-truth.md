@@ -1,12 +1,12 @@
 # Data truth
 
-GitDance may exaggerate energy, curvature, timing and impact. It may never change ancestry. This document is the contract.
+GitTimeline may exaggerate energy, curvature, timing and impact. It may never change ancestry. This document is the contract.
 
 ## What Git proves and what it does not
 
 - Commit identities and parent lists are exact for every fetched commit. Ancestry, divergence, merge structure and causal order follow from them.
-- Commits do **not** record the branch they were made on. Branch names are refs that move and disappear. GitDance therefore works with **threads** (a path cover of the DAG) and attaches names only from current refs (`branch:`/`tag:` records). Threads without a surviving ref are labelled `thread NN` or left unlabelled — never guessed from commit messages.
-- Rebased, squashed, force-pushed or garbage-collected history is gone. GitDance visualizes what survives and says so.
+- Commits do **not** record the branch they were made on. Branch names are refs that move and disappear. GitTimeline therefore works with **threads** (a path cover of the DAG) and attaches names only from current refs (`branch:`/`tag:` records). Threads without a surviving ref are labelled `thread NN` or left unlabelled — never guessed from commit messages.
+- Rebased, squashed, force-pushed or garbage-collected history is gone. GitTimeline visualizes what survives and says so.
 
 ## Provenance classes
 

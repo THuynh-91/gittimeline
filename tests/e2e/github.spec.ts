@@ -23,7 +23,7 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await waitForReady(page);
     await expect(page.getByTestId('quality-badge')).toHaveText('exact');
     await expect(page.locator('.repo-id')).toContainText('acme/widget');
-    const stats = await page.evaluate(() => window.__gitdance.stats);
+    const stats = await page.evaluate(() => window.__gittimeline.stats);
     expect(stats).toMatchObject({ commits: 9, merges: 1, threads: 3 });
     await page.getByTestId('help-button').click();
     await expect(page.getByTestId('panel-help')).toContainText('full known history');
@@ -65,7 +65,7 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByRole('alertdialog')).toContainText('did not expose this repository publicly');
     await page.getByRole('button', { name: 'Play the demo instead' }).click();
     await waitForReady(page);
-    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(56);
+    expect(await page.evaluate(() => window.__gittimeline.stats!.commits)).toBe(56);
   });
 
   test('empty repository shows the dormant seed, not an error', async ({ page }) => {
@@ -75,7 +75,7 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await page.getByTestId('play-button').click();
     await waitForReady(page);
     await expect(page.getByTestId('caption')).toContainText('No commits yet');
-    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(0);
+    expect(await page.evaluate(() => window.__gittimeline.stats!.commits)).toBe(0);
   });
 
   test('rate limit before data explains the reset; rate limit mid-way yields a partial, labelled performance', async ({ page }) => {
@@ -97,10 +97,10 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.getByTestId('quality-badge')).toHaveText('partial');
     await expect(page.locator('.banner')).toContainText('recent commits loaded');
     await expect(page.locator('.banner')).toContainText('request limit');
-    const stats = await page.evaluate(() => window.__gitdance.stats);
+    const stats = await page.evaluate(() => window.__gittimeline.stats);
     expect(stats!.commits).toBe(200);
     expect(stats!.boundaries).toBe(1);
-    const unknown = await page.evaluate(() => window.__gitdance.events('UNKNOWN_SPAN').length);
+    const unknown = await page.evaluate(() => window.__gittimeline.events('UNKNOWN_SPAN').length);
     expect(unknown).toBe(1);
   });
 
@@ -130,25 +130,25 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await open();
     expect(mock.requests.length).toBe(firstVisit);
     await expect(page.locator('.banner')).toContainText('from your last visit');
-    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(9);
+    expect(await page.evaluate(() => window.__gittimeline.stats!.commits)).toBe(9);
 
     // Asking for it again does go to GitHub, and uses conditional requests.
     await page.getByRole('button', { name: 'Fetch again' }).click();
     await waitForReady(page);
     expect(mock.requests.length).toBeGreaterThan(firstVisit);
     expect(mock.conditional).toBeGreaterThan(0);
-    expect(await page.evaluate(() => window.__gitdance.stats!.commits)).toBe(9);
+    expect(await page.evaluate(() => window.__gittimeline.stats!.commits)).toBe(9);
   });
 
   test('a pinned link re-fetches and reproduces the same plan', async ({ page }) => {
     await routeGitHub(page, sampleRepo());
     await page.goto('/#repo=acme/widget&autoplay=1&seed=zeta');
     await waitForReady(page);
-    const hash1 = await page.evaluate(() => window.__gitdance.planHash);
+    const hash1 = await page.evaluate(() => window.__gittimeline.planHash);
     // Opening the same pinned link again re-fetches and recompiles identically.
     await page.goto('/#repo=acme/widget&autoplay=1&seed=zeta');
     await page.reload();
     await waitForReady(page);
-    expect(await page.evaluate(() => window.__gitdance.planHash)).toBe(hash1);
+    expect(await page.evaluate(() => window.__gittimeline.planHash)).toBe(hash1);
   });
 });

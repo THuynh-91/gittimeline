@@ -14,7 +14,7 @@ import type { Dataset } from '@/model/types';
  * three merges look and sound progressively bigger.
  */
 export function buildDemoDataset(): Dataset {
-  const s = new Script('gitdance-demo', '2021-02-03T09:00:00Z', 'main');
+  const s = new Script('gittimeline-demo', '2021-02-03T09:00:00Z', 'main');
   const { mara, devi, kofi, ines, yuki, bot } = PEOPLE;
 
   // --- Formation: one person, quiet and linear. The stage is nearly empty.
@@ -111,5 +111,5 @@ export function buildDemoDataset(): Dataset {
   s.commit('docs/site', 'docs-nav', ines, { days: 2, message: 'Navigation for the docs site' });
   s.keep('docs/site');
 
-  return s.build({ description: 'Built-in synthetic performance — no network required.', owner: 'gitdance' });
+  return s.build({ description: 'Built-in synthetic performance — no network required.', owner: 'gittimeline' });
 }

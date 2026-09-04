@@ -1,6 +1,6 @@
 # Code of Conduct
 
-GitDance is a creative, technical, open project. We want it to be a place where maintainers, contributors, artists and learners can collaborate without fear.
+GitTimeline is a creative, technical, open project. We want it to be a place where maintainers, contributors, artists and learners can collaborate without fear.
 
 ## Our standards
 

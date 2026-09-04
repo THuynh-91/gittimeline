@@ -1,4 +1,4 @@
-# Contributing to GitDance
+# Contributing to GitTimeline
 
 Thanks for helping history perform itself. Start with [docs/architecture.md](docs/architecture.md) for the pipeline map and [docs/data-truth.md](docs/data-truth.md) for the rules that never bend.
 

@@ -10,7 +10,7 @@ test.describe('fallbacks, accessibility and layouts', () => {
     const paths = await page.locator('[data-testid="poster"] svg path').count();
     expect(paths).toBeGreaterThan(10);
     await page.keyboard.press('ArrowRight');
-    expect(await page.evaluate(() => window.__gitdance.time)).toBeGreaterThan(20);
+    expect(await page.evaluate(() => window.__gittimeline.time)).toBeGreaterThan(20);
     await expect(page.locator('.banner')).toContainText('Canvas rendering is unavailable');
   });
 
@@ -19,15 +19,15 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.goto('/#demo=1&autoplay=1');
     await waitForReady(page);
     // The operating system preference is honoured without any control to find.
-    const cam = await page.evaluate(() => window.__gitdance.camera);
+    const cam = await page.evaluate(() => window.__gittimeline.camera);
     expect(cam!.punch).toBe(1);
-    const types = await page.evaluate(() => [...new Set(window.__gitdance.events().map((e) => e.type))]);
+    const types = await page.evaluate(() => [...new Set(window.__gittimeline.events().map((e) => e.type))]);
     expect(types).toContain('MAJOR_MERGE');
     expect(types).toContain('DIVERGENCE');
     await page.getByTestId('settings-button').click();
     await page.getByTestId('no-flash-toggle').click();
     await expect(page.getByTestId('no-flash-toggle')).toHaveAttribute('aria-checked', 'true');
-    await page.evaluate(() => window.__gitdance.seek(5));
+    await page.evaluate(() => window.__gittimeline.seek(5));
     await page.waitForTimeout(100);
     const a = await stageHash(page);
     await page.waitForTimeout(600);
@@ -75,10 +75,10 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.setViewportSize({ width: 2400, height: 700 });
     await page.goto('/#demo=1');
     await waitForReady(page);
-    const dur = await page.evaluate(() => window.__gitdance.duration);
-    await page.evaluate((t) => window.__gitdance.seek(t), dur - 0.2);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), dur - 0.2);
     await page.waitForTimeout(150);
-    const cam = await page.evaluate(() => window.__gitdance.camera);
+    const cam = await page.evaluate(() => window.__gittimeline.camera);
     expect(cam!.state).toBe('tableau');
     await expect(page.getByTestId('caption')).toContainText('Present day');
   });
@@ -87,7 +87,7 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.goto('/#demo=1&gallery=1');
     await waitForReady(page);
     await expect(page.locator('.app')).toHaveClass(/chrome-hidden/);
-    expect(await page.evaluate(() => window.__gitdance.playing)).toBe(true);
+    expect(await page.evaluate(() => window.__gittimeline.playing)).toBe(true);
   });
 
   test('no console errors during a full run', async ({ page }) => {
@@ -98,7 +98,7 @@ test.describe('fallbacks, accessibility and layouts', () => {
     });
     await page.goto('/#demo=1&autoplay=1&dur=30');
     await waitForReady(page);
-    await page.waitForFunction(() => !window.__gitdance.playing && window.__gitdance.time > 5, null, { timeout: 60_000 });
+    await page.waitForFunction(() => !window.__gittimeline.playing && window.__gittimeline.time > 5, null, { timeout: 60_000 });
     expect(errors).toEqual([]);
   });
 });

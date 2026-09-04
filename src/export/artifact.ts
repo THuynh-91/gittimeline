@@ -1,11 +1,11 @@
-import type { CompileOptions, Dataset, GitDanceArtifact } from '@/model/types';
+import type { CompileOptions, Dataset, GitTimelineArtifact } from '@/model/types';
 import { ENGINE } from '@/model/types';
 import { contentHashOf } from '@/model/hash';
 import { safeJsonClone } from '@/model/sanitize';
 import { buildDataset, type RawCommitRecord, type RawRef } from '@/model/dataset';
 
 /**
- * `.gitdance` artifact: versioned JSON (optionally gzip) carrying the
+ * `.gittimeline` artifact: versioned JSON (optionally gzip) carrying the
  * normalized dataset and compile options. Contains data only — never code,
  * credentials or raw e-mail addresses. Import re-validates everything by
  * rebuilding the dataset through the same normalizer used for live data.
@@ -13,10 +13,10 @@ import { buildDataset, type RawCommitRecord, type RawRef } from '@/model/dataset
 export const ARTIFACT_SCHEMA_VERSION = 1;
 const MAX_ARTIFACT_BYTES = 60_000_000;
 
-export function createArtifact(dataset: Dataset, options?: CompileOptions): GitDanceArtifact {
-  const artifact: GitDanceArtifact = {
+export function createArtifact(dataset: Dataset, options?: CompileOptions): GitTimelineArtifact {
+  const artifact: GitTimelineArtifact = {
     schemaVersion: ARTIFACT_SCHEMA_VERSION,
-    format: 'gitdance',
+    format: 'gittimeline',
     engine: ENGINE,
     dataset,
     ...(options ? { options } : {}),
@@ -26,7 +26,7 @@ export function createArtifact(dataset: Dataset, options?: CompileOptions): GitD
   return artifact;
 }
 
-export async function serializeArtifact(artifact: GitDanceArtifact, compress = true): Promise<Blob> {
+export async function serializeArtifact(artifact: GitTimelineArtifact, compress = true): Promise<Blob> {
   const json = JSON.stringify(artifact);
   if (compress && typeof CompressionStream !== 'undefined') {
     const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
@@ -60,9 +60,12 @@ export async function parseArtifact(blob: Blob): Promise<{ dataset: Dataset; opt
 }
 
 export function validateArtifact(raw: unknown): { dataset: Dataset; options: CompileOptions | null } {
-  if (!raw || typeof raw !== 'object') throw new ArtifactError('Not a GitDance artifact.');
-  const a = raw as Partial<GitDanceArtifact>;
-  if (a.format !== 'gitdance') throw new ArtifactError('Not a GitDance artifact (missing format marker).');
+  if (!raw || typeof raw !== 'object') throw new ArtifactError('Not a GitTimeline artifact.');
+  const a = raw as Partial<GitTimelineArtifact>;
+  // Files written before the project was renamed carry the old marker. They
+  // are the same format, so they still open — a rename is not a reason to
+  // strand something a viewer already exported.
+  if (a.format !== 'gittimeline' && a.format !== 'gitdance') throw new ArtifactError('Not a GitTimeline artifact (missing format marker).');
   if (a.schemaVersion !== ARTIFACT_SCHEMA_VERSION) throw new ArtifactError(`Unsupported artifact schema version ${String(a.schemaVersion)}; this build reads version ${ARTIFACT_SCHEMA_VERSION}.`);
   const ds = a.dataset;
   if (!ds || typeof ds !== 'object' || !Array.isArray(ds.commits) || !Array.isArray(ds.refs) || !ds.source) throw new ArtifactError('Artifact is missing its dataset.');

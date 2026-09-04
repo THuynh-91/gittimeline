@@ -98,7 +98,7 @@ export interface ScopeQuestion {
   lastYear: number | null;
 }
 
-const SETTINGS_KEY = 'gitdance.settings.v1';
+const SETTINGS_KEY = 'gittimeline.settings.v1';
 
 function loadSettings(): Settings {
   let stored: Partial<Settings> = {};

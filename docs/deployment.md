@@ -1,6 +1,6 @@
 # Deployment
 
-GitDance is a static bundle (`dist/`) with no runtime backend. Two workflows live in `.github/workflows/`:
+GitTimeline is a static bundle (`dist/`) with no runtime backend. Two workflows live in `.github/workflows/`:
 
 - **`ci.yml`** — on pull requests and non-default branches: `npm ci`, lint, type-check, unit tests, build, Playwright browser tests against the built output (report uploaded on failure).
 - **`deploy.yml`** — on pushes to `main`/`master` (and manually): the same verification, then a build with the GitHub Pages base path, a smoke run of the demo test, `404.html` copy for hash-routing safety, `actions/upload-pages-artifact` and `actions/deploy-pages` into the `github-pages` environment.

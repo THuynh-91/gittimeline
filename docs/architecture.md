@@ -1,6 +1,6 @@
 # Architecture
 
-GitDance is a static site. Everything below runs in the visitor's browser; GitHub Actions only builds, tests and publishes the bundle.
+GitTimeline is a static site. Everything below runs in the visitor's browser; GitHub Actions only builds, tests and publishes the bundle.
 
 ```
 public GitHub URL

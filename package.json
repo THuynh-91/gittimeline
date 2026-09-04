@@ -1,5 +1,5 @@
 {
-  "name": "gitdance",
+  "name": "gittimeline",
   "version": "0.1.0",
   "private": true,
   "description": "Paste a public GitHub repository URL and watch its real Git history become a deterministic, rhythm-driven choreography.",

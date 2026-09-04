@@ -138,7 +138,7 @@ function CanvasStage() {
 
 function stageLabel(): string {
   const p = store.perf.value;
-  if (!p) return 'GitDance stage';
+  if (!p) return 'GitTimeline stage';
   return `${p.source.owner}/${p.source.name}: ${p.stats.commits} commits, ${p.stats.threads} threads, ${p.stats.merges} merges. ${p.coverage.summary} Use the Events panel (E) for a textual account.`;
 }
 

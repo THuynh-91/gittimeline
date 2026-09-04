@@ -22,7 +22,7 @@ function TokenEscape({ resetAt }: { resetAt: number | null }) {
   return (
     <div>
       <p>
-        {resetAt ? `It resets ${formatReset(resetAt)}. ` : ''}That limit is GitHub's, not GitDance's, and applies to your whole network. A free fine-grained token with read-only public access raises it from about 60 requests an hour to about 5,000, which is the difference between a few thousand commits and a large project's whole history.
+        {resetAt ? `It resets ${formatReset(resetAt)}. ` : ''}That limit is GitHub's, not GitTimeline's, and applies to your whole network. A free fine-grained token with read-only public access raises it from about 60 requests an hour to about 5,000, which is the difference between a few thousand commits and a large project's whole history.
       </p>
       <div class="token-inline">
         <input

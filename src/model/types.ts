@@ -383,9 +383,10 @@ export interface CompiledPerformance {
   };
 }
 
-export interface GitDanceArtifact {
+export interface GitTimelineArtifact {
   schemaVersion: number;
-  format: 'gitdance';
+  /** `gitdance` is the pre-rename marker and is still accepted on import. */
+  format: 'gittimeline' | 'gitdance';
   engine: typeof ENGINE;
   dataset: Dataset;
   options?: CompileOptions;

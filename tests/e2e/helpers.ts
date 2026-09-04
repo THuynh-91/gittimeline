@@ -3,7 +3,7 @@ import { mockGitHub, type MockOptions, type MockRepo } from '../fixtures/mock-gi
 
 declare global {
   interface Window {
-    __gitdance: {
+    __gittimeline: {
       time: number;
       playing: boolean;
       phase: string;
@@ -44,7 +44,7 @@ export async function routeGitHub(page: Page, repo: MockRepo | null, opts: MockO
 }
 
 export async function waitForReady(page: Page, timeout = 30_000) {
-  await page.waitForFunction(() => window.__gitdance && window.__gitdance.stats !== null && ['READY', 'PLAYING', 'PAUSED', 'DEGRADED_READY'].includes(window.__gitdance.phase), null, { timeout });
+  await page.waitForFunction(() => window.__gittimeline && window.__gittimeline.stats !== null && ['READY', 'PLAYING', 'PAUSED', 'DEGRADED_READY'].includes(window.__gittimeline.phase), null, { timeout });
 }
 
 export async function stageHash(page: Page): Promise<string> {

@@ -1,8 +1,8 @@
-# GitDance
+# GitTimeline
 
 **Paste a public GitHub repository URL and watch its real Git history become a deterministic, rhythm-driven choreography of commits, parallel work, contributors and merges.**
 
-GitDance is a static, open-source web application. There is no backend: the browser reads public history straight from GitHub's REST API, rebuilds the honest commit DAG, compiles it into a performance (layout, beat map, choreography events, camera plan, score) inside a Web Worker, and plays it on a Canvas stage with a procedural Web Audio soundtrack.
+GitTimeline is a static, open-source web application. There is no backend: the browser reads public history straight from GitHub's REST API, rebuilds the honest commit DAG, compiles it into a performance (layout, beat map, choreography events, camera plan, score) inside a Web Worker, and plays it on a Canvas stage with a procedural Web Audio soundtrack.
 
 > The repository is the score, the DAG is the stage, contributors are the motion, and history performs itself.
 
@@ -51,13 +51,13 @@ Zoom out with the wheel, then press `C`: the performance keeps playing and keeps
 
 ## Large repositories and GitHub's rate limit
 
-GitHub allows roughly **60 anonymous requests an hour per network** — its limit, not GitDance's, and not something any browser app can bypass. That is a few thousand commits. GitDance stretches it as far as it honestly can: 100 commits per request, ETag revalidation (an unchanged page returns 304 and **does not count** against the limit), an IndexedDB cache across visits, and a budget that stops before exhaustion and plays a truthful partial performance.
+GitHub allows roughly **60 anonymous requests an hour per network** — its limit, not GitTimeline's, and not something any browser app can bypass. That is a few thousand commits. GitTimeline stretches it as far as it honestly can: 100 commits per request, ETag revalidation (an unchanged page returns 304 and **does not count** against the limit), an IndexedDB cache across visits, and a budget that stops before exhaustion and plays a truthful partial performance.
 
-For a large open-source project, supply a **free fine-grained token** with read-only public access. That raises the ceiling to about **5,000 requests an hour** and lets GitDance read up to 600 pages instead of 40. Add it on the landing page ("Loading a large repository?") or in Settings. It stays in memory for that tab only, goes solely to `api.github.com`, and is never stored, logged or shared.
+For a large open-source project, supply a **free fine-grained token** with read-only public access. That raises the ceiling to about **5,000 requests an hour** and lets GitTimeline read up to 600 pages instead of 40. Add it on the landing page ("Loading a large repository?") or in Settings. It stays in memory for that tab only, goes solely to `api.github.com`, and is never stored, logged or shared.
 
 Measured end to end with a token:
 
-When a repository turns out to be large, GitDance says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. A year of React is 31 requests and paces at 0.34s per commit; the full history is 232 requests and runs dense at the ceiling. Anything already fetched is reused on the next visit with **no requests at all**, with a "fetch again" action when you want fresh data.
+When a repository turns out to be large, GitTimeline says how large **before spending anything** — the size probe costs two requests — and offers a single year, a recent span, or the whole thing. A year of React is 31 requests and paces at 0.34s per commit; the full history is 232 requests and runs dense at the ceiling. Anything already fetched is reused on the next visit with **no requests at all**, with a "fetch again" action when you want fresh data.
 
 Measured by driving the real interface (`scripts/usertest.mjs`), not by simulation:
 
@@ -86,7 +86,7 @@ src/
   renderer/      Canvas2D stage renderer, SVG poster fallback, palette
   audio/         procedural Web Audio score
   player/        playback clock, worker client
-  export/        share links, .gitdance artifacts
+  export/        share links, .gittimeline artifacts
   fixtures/      synthetic history builder, the demo, the 20-fixture corpus
   workers/       compile worker
   app/           Preact UI (store, controller, stage, timeline, panels)

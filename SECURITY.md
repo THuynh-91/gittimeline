@@ -2,7 +2,7 @@
 
 ## Scope
 
-GitDance is a static site with no backend. The attack surface is the browser: repository data fetched from `api.github.com`, `.gitdance` artifacts imported by the user, share-link parameters, and the optional GitHub token.
+GitTimeline is a static site with no backend. The attack surface is the browser: repository data fetched from `api.github.com`, `.gittimeline` artifacts imported by the user, share-link parameters, and the optional GitHub token.
 
 ## What the code does
 

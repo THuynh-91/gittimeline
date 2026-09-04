@@ -71,7 +71,7 @@ export function buildSynthetic(spec: SyntheticSpec): Dataset {
       };
     });
   const refs: RawRef[] = spec.refs.map((r) => ({ kind: r.kind, name: r.name, targetSha: sha(r.target) }));
-  const owner = spec.owner ?? 'gitdance';
+  const owner = spec.owner ?? 'gittimeline';
   const source: RepositorySource = {
     provider: 'synthetic',
     owner,
