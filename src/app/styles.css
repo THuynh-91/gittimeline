@@ -1874,11 +1874,9 @@ kbd {
   }
 }
 
-/* Histories fetched ahead of time: a gallery, not a list.
-   Equal rows of picture-and-caption read as a table with illustrations however
-   large the illustrations are. One frame given the whole width, with the rest
-   ranged underneath it, reads as a wall of pictures — and the pictures are
-   what there is to choose between. */
+/* Histories fetched ahead of time: a gallery of marks, not a list of names.
+   One entry given the whole width, with the rest ranged underneath it, reads as
+   a wall rather than as a table with illustrations down one side. */
 .catalog {
   display: flex;
   flex-direction: column;
@@ -1891,94 +1889,128 @@ kbd {
   gap: 16px;
 }
 
+/* The card is a container now and no longer the button itself: a year selector
+   cannot live inside a `<button>`, and the whole history is only the default
+   rather than the only offer. Hover still belongs to the whole card, and focus
+   is `:focus-within` so that reaching the select does not make the card look
+   like it has been left. */
 .catalog-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 0;
   overflow: hidden;
-  text-align: left;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(13, 15, 22, 0.66);
-  color: inherit;
-  cursor: pointer;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .catalog-card:hover,
-.catalog-card:focus-visible {
+.catalog-card:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   transform: translateY(-3px);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
 }
 
-/* The posters are 1200x420, and the one card that has room for that shape gets
-   it uncropped. Three of them across a page would be ninety pixels tall, which
-   is a strip rather than a picture, so the grid crops to something that can
-   actually be looked at and gives up the ends of the history to do it. */
-.catalog-shot {
+.catalog-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.catalog-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+/* The project's mark, given the space a picture used to have.
+
+   What was here was a real frame of that history, and the case against it is
+   simply what the frames look like at this size: a commit graph is a wide,
+   mostly horizontal texture, and a column of them is a column of grey smears
+   that tells you nothing about which project you are looking at. A mark tells
+   you instantly.
+
+   The field is tinted from the slug — hue only, set inline as `--tint`, so no
+   entry can draw a louder panel than its neighbours — because eleven marks on
+   eleven identical near-black rectangles is the same failure in a different
+   material. The light falls from above the mark so the panel has somewhere to
+   look at rather than being a flat wash. */
+.catalog-mark {
   position: relative;
-  display: block;
-  aspect-ratio: 16 / 9;
-  background: var(--ink);
-  overflow: hidden;
-}
-
-.catalog-card.featured .catalog-shot {
-  aspect-ratio: 20 / 7;
-}
-
-.catalog-shot img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.9;
-  transition: opacity 0.25s ease, transform 0.4s ease;
-}
-
-.catalog-card:hover .catalog-shot img,
-.catalog-card:focus-visible .catalog-shot img {
-  opacity: 1;
-  transform: scale(1.03);
-}
-
-/* A catalog entry whose frame was never captured. Hatched rather than blank so
-   it reads as deliberately empty rather than as an image that failed. */
-.catalog-noshot {
-  position: absolute;
-  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-  background: repeating-linear-gradient(135deg, rgba(230, 225, 214, 0.035) 0 6px, rgba(230, 225, 214, 0) 6px 13px);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background:
+    radial-gradient(88% 76% at 50% 30%, hsl(var(--tint, 210) 34% 26% / 0.95) 0%, hsl(var(--tint, 210) 30% 16% / 0.9) 46%, rgba(9, 11, 17, 0.94) 100%),
+    var(--ink);
 }
 
-/* The picture fades into its caption instead of being cut off from it by a
-   rule. A border across the middle of a card turns it back into a row. */
-.catalog-shot::after {
+/* The plate is not decoration, it is the only way twelve avatars can share a
+   panel. They arrive in two incompatible kinds: Rust's gear and Python's logo
+   are dark-on-transparent and vanish outright on a dark field, while Kubernetes
+   and Chromium already come on white. One light plate makes both read, and
+   makes a photograph (Linus, BurntSushi) into the same rounded square as a
+   logo instead of a portrait floating in the dark. */
+.catalog-plate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 86px;
+  height: 86px;
+  padding: 11px;
+  border-radius: 24%;
+  background: linear-gradient(180deg, #fbf9f5 0%, #ebe6dd 100%);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: transform 0.3s ease;
+}
+
+.catalog-plate img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* An entry whose avatar never downloaded. The owner's initial set in the plate
+   reads as a mark that is missing; a hatched rectangle reads as a bug. */
+.catalog-plate b {
+  font-size: 38px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.catalog-card:hover .catalog-plate,
+.catalog-card:focus-within .catalog-plate {
+  transform: scale(1.045);
+}
+
+/* The panel fades into its caption instead of being cut off from it by a rule.
+   A border across the middle of a card turns it back into a row. */
+.catalog-mark::after {
   content: "";
   position: absolute;
   inset: auto 0 0 0;
-  height: 62%;
+  height: 52%;
   background: linear-gradient(to top, rgba(11, 13, 19, 0.97) 12%, rgba(11, 13, 19, 0));
   pointer-events: none;
 }
 
-/* What the card costs, on the picture and never behind a hover.
+/* What the card costs, on the panel and never behind a hover.
    The page above this promises no token and no GitHub requests, which is true
-   and is not the whole price: Chromium is a 222 MB download, and Kubernetes
-   spends two and a half minutes threading 58,000 merges in the visitor's own
-   tab before there is anything to look at. A card that reads as instant and
-   then holds the page is worse than one that says the number, so the number is
-   always on. It turns amber only past the point where the wait needs naming. */
+   and is not the whole price: Linux is a 132 MB download. A card that reads as
+   instant and then holds the page is worse than one that says the number, so
+   the number is always on. It turns amber only past the point where the wait
+   needs naming. */
 .catalog-cost {
   position: absolute;
   top: 10px;
@@ -1987,9 +2019,6 @@ kbd {
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--text-dim);
-  /* Nearly opaque, because this pill has to be legible over both ends of a
-     photographic gradient — the featured card puts it exactly where the frame
-     fades up towards its caption, and at 74% it disappeared there. */
   background: rgba(7, 8, 12, 0.88);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -2006,8 +2035,9 @@ kbd {
   right: 14px;
 }
 
-/* The affordance goes on the picture, where the eye already is, and only when
-   the card is being considered. */
+/* The affordance goes on the panel, where the eye already is, and only when the
+   card is being considered. It says "all" because the row underneath offers a
+   year, and a bare "Watch" on the card no longer says which of the two. */
 .catalog-cue {
   position: absolute;
   top: 10px;
@@ -2035,7 +2065,7 @@ kbd {
 }
 
 .catalog-card:hover .catalog-cue,
-.catalog-card:focus-visible .catalog-cue {
+.catalog-card:focus-within .catalog-cue {
   opacity: 1;
   transform: none;
 }
@@ -2045,9 +2075,9 @@ kbd {
   display: grid;
   gap: 2px;
   padding: 0 15px 14px;
-  /* Sits up inside the picture's fade, so the caption belongs to the frame
+  /* Sits up inside the panel's fade, so the caption belongs to the picture
      rather than sitting in a tray beneath it. */
-  margin-top: -30px;
+  margin-top: -26px;
 }
 
 .catalog-line {
@@ -2055,42 +2085,6 @@ kbd {
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-/* The owner's mark, beside the title and smaller than it.
-
-   On a light plate, because these arrive in two incompatible kinds and the card
-   is nearly black: six of the twelve are transparent PNGs whose marks are dark
-   — Node's green hexagon, LLVM's dragon — and would sink into the background
-   entirely, while the rest already come on white. One plate makes both kinds
-   read the same way, and turns a photograph (Linus, BurntSushi) into the same
-   rounded square as a logo instead of a portrait floating in the caption.
-
-   Held slightly back at rest and brought up with the rest of the card, for the
-   same reason it is twenty pixels and not forty: the picture above it is a real
-   frame of that history, and this is a label on it. */
-.catalog-logo {
-  flex: none;
-  /* The line sets its items on the baseline; an image has none worth using. */
-  align-self: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  object-fit: cover;
-  background: rgba(236, 231, 222, 0.86);
-  opacity: 0.86;
-  transition: opacity 0.2s ease;
-}
-
-.catalog-card:hover .catalog-logo,
-.catalog-card:focus-visible .catalog-logo {
-  opacity: 1;
-}
-
-.catalog-card.featured .catalog-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
 }
 
 .catalog-title {
@@ -2123,19 +2117,19 @@ kbd {
   line-height: 1.4;
 }
 
-/* How long it runs, and how much history is in it — the two things a person is
-   actually choosing between, set large enough to be read before the blurb is.
+/* How long it runs, how much history is in it, and how fast that history
+   arrives — set large enough to be read before the blurb is.
 
-   A number over its own label rather than a run of "35 min long · 1,481,850
-   commits": stacked, the two figures line up as a pair to be compared across
-   cards, and the labels can be small without the numbers going small with them.
-   Everything else the build knows stays in the faint line underneath, which is
-   where it belongs — a card that shouts four numbers is shouting none. */
+   Numbers over their own labels rather than a run of "12 h long, 1,481,850
+   commits, 7.7 arrivals a second": stacked, the figures line up as a set to be
+   compared across cards, and the labels can be small without the numbers going
+   small with them. Everything else the build knows stays in the faint line
+   underneath — a card that shouts five numbers is shouting none. */
 .catalog-figures {
   margin-top: 11px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 22px;
+  gap: 6px 18px;
 }
 
 .catalog-figure {
@@ -2186,9 +2180,7 @@ kbd {
 }
 
 /* The same warning as the amber pill, in a sentence, because the pill says
-   "~3 minutes" and does not say why. "Composed in this tab" is the part that
-   makes the wait make sense — nothing is being downloaded slowly, the
-   choreography for 141,000 commits is being written on the spot. */
+   "~18 s" and does not say why. */
 .catalog-warn {
   margin-top: 8px;
   padding-left: 9px;
@@ -2203,78 +2195,116 @@ kbd {
   max-width: 52ch;
 }
 
-/* The first frame is given the width, and its caption is set beside it rather
-   than under it. Stacked, a sparse history — one bright line across an
-   otherwise dark frame — left four hundred pixels of empty card above the
-   title. Side by side, the empty part of the picture is the space the words
-   sit in. */
-/* The featured card is a poster, not a bigger version of the others.
-   
-   It was a picture on the left and a caption on the right, and that gives the
-   frame half the widest card on the page — which is generous to the wrong
-   thing. A frame of a very large history is a wide, mostly horizontal smear:
-   honest, and not what makes anybody want to watch it. What does is the
-   number. 1,481,850 is a striking fact; a picture of 1,481,850 things is a
-   texture.
-   
-   So the picture becomes a full-bleed backdrop and the words sit on top of it.
-   It also solves the case that prompted this — an entry with no thumbnail is
-   now a dark poster rather than a large panel of hatching demanding to know
-   why it is empty. */
-/* Three hundred was the height while the slot held ripgrep and there was
-   nothing under the counts. Linux moved into it carrying a wait long enough to
-   be worth naming, and the warning that comes with one is four lines — which
-   made the body as tall as the whole card, so `flex-end` had nothing to push
-   it down past and every word of it sat over the brightest part of the frame.
-   The card is now taller than the words it has to hold, which is what the
-   design assumed all along and only stopped being true when the largest entry
-   on the shelf became one that could be opened. */
-.catalog-card.featured {
-  flex-direction: column;
+/* A year of the same history, underneath the card that offers all of it.
+
+   Quieter than everything above it on purpose. The whole history is the
+   headline and this is the alternative, so it sits in its own tray below the
+   caption, separated by a rule rather than competing for the same space. */
+.catalog-span {
   position: relative;
-  min-height: 430px;
-  justify-content: flex-end;
-  overflow: hidden;
+  z-index: 1;
+  display: grid;
+  gap: 5px;
+  padding: 11px 15px 13px;
+  border-top: 1px solid var(--line);
+  background: rgba(7, 8, 12, 0.4);
 }
 
-.catalog-card.featured .catalog-shot {
+.catalog-span-label {
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.catalog-span-row {
+  display: flex;
+  gap: 7px;
+}
+
+.catalog-year {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ivory);
+  background: rgba(13, 15, 22, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.catalog-year:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.catalog-span-go {
+  flex: none;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ivory);
+  background: rgba(13, 15, 22, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.catalog-span-go:hover,
+.catalog-span-go:focus-visible {
+  color: var(--ink);
+  background: var(--ivory);
+  border-color: var(--ivory);
+}
+
+/* The featured card is a poster, not a bigger version of the others.
+
+   The mark fills it as a field rather than sitting in a letterbox, the plate is
+   large enough to be the thing you see from across the room, and the words sit
+   on the lower half of it. */
+.catalog-card.featured {
+  position: relative;
+  min-height: 400px;
+}
+
+.catalog-card.featured .catalog-open {
+  position: relative;
+  justify-content: flex-end;
+  min-height: 400px;
+}
+
+.catalog-card.featured .catalog-mark {
   position: absolute;
   inset: 0;
-  flex: none;
+  align-items: flex-start;
+  padding-top: 54px;
   aspect-ratio: auto;
-  min-height: 0;
   z-index: 0;
 }
 
-/* Dimmer than it was, because a frame of Linux is not only a texture — it has
-   words drawn into it. The renderer letters the big convergences on the stage
-   itself ("32 commits converge", half a dozen of them across this frame), and
-   type over type is the one thing a backdrop must not be: at half opacity the
-   card's own slug line was reading against a caption baked into the picture
-   behind it. */
-.catalog-card.featured .catalog-shot img {
-  opacity: 0.4;
+.catalog-card.featured .catalog-plate {
+  width: 132px;
+  height: 132px;
+  padding: 16px;
+  border-radius: 26%;
 }
 
-.catalog-card.featured:hover .catalog-shot img {
-  opacity: 0.5;
-}
-
-/* The words need a floor to stand on, not a veil over the whole frame: the
-   picture stays legible at the top and hands over to ink where the type is.
-   The handover is higher and steeper than it was, for the same reason as the
-   height above — the body it has to cover grew by a four-line warning. */
-.catalog-card.featured .catalog-shot::after {
+/* The words need a floor to stand on, not a veil over the whole field: the
+   mark stays clear at the top and hands over to ink where the type is. */
+.catalog-card.featured .catalog-mark::after {
   inset: 0;
-  width: auto;
   height: auto;
-  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.93) 52%, rgba(9, 11, 17, 0.72) 70%, rgba(9, 11, 17, 0.28) 86%, rgba(9, 11, 17, 0.05) 100%);
+  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.93) 40%, rgba(9, 11, 17, 0.7) 58%, rgba(9, 11, 17, 0.22) 80%, rgba(9, 11, 17, 0) 100%);
 }
 
 .catalog-card.featured .catalog-body {
   position: relative;
   z-index: 1;
-  flex: none;
   align-content: end;
   padding: 26px 30px 24px;
   margin: 0;
@@ -2295,9 +2325,9 @@ kbd {
   max-width: 52ch;
 }
 
-/* The scale is the poster. On the featured card the commit count is the
-   largest thing after the title, because it is the reason this entry is the
-   one being featured. */
+/* The scale is the poster. On the featured card the figures are the largest
+   thing after the title, because they are the reason this entry is the one
+   being featured. */
 .catalog-card.featured .catalog-figures {
   margin-top: 18px;
   gap: 6px 34px;
@@ -2318,54 +2348,63 @@ kbd {
   left: 14px;
 }
 
+.catalog-card.featured .catalog-span {
+  padding: 12px 30px 14px;
+}
+
+.catalog-card.featured .catalog-span-row {
+  max-width: 340px;
+}
+
 @media (max-width: 620px) {
   .catalog-grid {
     grid-template-columns: 1fr;
   }
 
-  /* Too narrow to set a caption beside a picture: back to a stack. */
-  .catalog-card.featured {
-    flex-direction: column;
-  }
-
-  .catalog-card.featured .catalog-shot {
-    flex: none;
-    aspect-ratio: 16 / 9;
+  /* Too narrow for a poster: the featured entry becomes an ordinary card. */
+  .catalog-card.featured,
+  .catalog-card.featured .catalog-open {
     min-height: 0;
   }
 
-  .catalog-card.featured .catalog-shot::after {
+  .catalog-card.featured .catalog-mark {
+    position: relative;
+    inset: auto;
+    align-items: center;
+    padding-top: 0;
+    aspect-ratio: 16 / 9;
+  }
+
+  .catalog-card.featured .catalog-plate {
+    width: 86px;
+    height: 86px;
+    padding: 11px;
+    border-radius: 24%;
+  }
+
+  .catalog-card.featured .catalog-mark::after {
     inset: auto 0 0 0;
-    width: auto;
-    height: 62%;
+    height: 52%;
     background: linear-gradient(to top, rgba(11, 13, 19, 0.97) 12%, rgba(11, 13, 19, 0));
   }
 
   .catalog-card.featured .catalog-body {
     padding: 0 15px 14px;
-    margin: -30px 0 0;
+    margin: -26px 0 0;
   }
 
   .catalog-card.featured .catalog-title {
     font-size: 17px;
   }
 
-  /* Stacked, the featured card is the same shape as every other one, so its
-     mark goes back to the same size too. */
-  .catalog-card.featured .catalog-logo {
-    width: 20px;
-    height: 20px;
-    border-radius: 5px;
-  }
-
   .catalog-card.featured .catalog-blurb {
     font-size: 12.5px;
   }
 
-  /* Same reason as the mark above it: stacked, this is an ordinary card. */
+  /* Same reason as the plate above it: stacked, this is an ordinary card. */
   .catalog-card.featured .catalog-figures {
     margin-top: 11px;
-    gap: 6px 22px;
+    gap: 6px 18px;
   }
 
   .catalog-card.featured .catalog-figure b {
@@ -2374,6 +2413,10 @@ kbd {
 
   .catalog-card.featured .catalog-figure span {
     font-size: 9.5px;
+  }
+
+  .catalog-card.featured .catalog-span {
+    padding: 11px 15px 13px;
   }
 }
 

@@ -2,16 +2,25 @@
  * Turn built artifacts into catalog entries.
  *
  *   node scripts/index-artifacts.mjs [--base URL] [--out DIR] [--open-seconds N]
- *                                    [--shot-seconds N] [--only SUBSTR,SUBSTR]
+ *                                    [--only SUBSTR,SUBSTR]
  *
  * `build-clone-dataset.mjs` writes each history and a small sidecar of facts
  * beside it. This assembles those into `index.json` and, for every one of them,
- * opens the artifact in a real browser: first to prove it opens at all and to
- * time how long that takes, and then to capture a frame of the actual
- * performance for its card. The picture on a catalog card is never an
- * illustration — it is that repository, at a moment it really passed through.
+ * opens the artifact in a real browser — to prove it opens at all, to time how
+ * long that takes, and to read off the three facts that only exist once a plan
+ * has been composed: how long it runs, how many arrivals are in it, and how
+ * those arrivals fall across the calendar.
  *
- * Those three jobs are deliberately separate, and the order matters.
+ * It used to capture a frame of the performance as well, and that picture was
+ * the card. The argument for it was that a real frame is never an illustration.
+ * The argument against it is what the frames look like at card size: a commit
+ * graph is a wide, mostly horizontal texture, and a shelf of them is a shelf of
+ * grey smears that says nothing about which project each one is. The card leads
+ * with the owner's mark now — already downloaded here, for the glyph that used
+ * to sit beside the title — so the capture is gone, and with it the twenty
+ * minutes of software rasterising it cost on the largest entries.
+ *
+ * Those jobs are deliberately separate, and the order matters.
  *
  * The counts come from the sidecar, which cannot be wrong about them. They were
  * once read back off the page after loading, which meant CPython, Kubernetes
@@ -39,8 +48,9 @@
  * this catalog can do: a card that looks like all the others and then holds the
  * visitor's tab until they close it. Those are dropped, loudly.
  *
- * A thumbnail is a nice-to-have. Failing to get one costs a hatched placeholder
- * on the card, not the entry. The owner's logo is fetched under the same rule.
+ * The owner's mark is a nice-to-have. Failing to fetch one costs the card its
+ * picture — it falls back to the owner's initial set in the same plate — and
+ * never the entry.
  *
  * `openSeconds` is written into the index and shown on the card past twenty
  * seconds or so. It is a real measurement on real hardware, so it is only ever
@@ -83,7 +93,6 @@ const openBudget = Number(flag('open-seconds', '1800')) * 1000;
 // Rust's quarter of a million cost about thirty-two seconds and Linux's third
 // of a million rather more; four minutes leaves room for a machine slower than
 // this one without letting a genuinely wedged tab sit here all afternoon.
-const shotBudget = Number(flag('shot-seconds', '240')) * 1000;
 const only = (flag('only', '') || '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -105,8 +114,8 @@ const only = (flag('only', '') || '')
  * opened at all. Neither is true now: the suite picks the cheapest entry on the
  * shelf by name rather than the first one by position, and a plan that used to
  * be uncompilable in a browser is a download. What is left is a choice about
- * which single frame should be the largest thing on the page, and 1.5 million
- * commits of Linux is not a question ripgrep's two thousand can win.
+ * which entry should be the largest thing on the page, and 1.5 million commits
+ * of Linux is not a question ripgrep's two thousand can win.
  *
  * ripgrep lost the featured slot in that change and fell out of the list
  * entirely, which was not the same decision and was not meant. It is the
@@ -286,8 +295,8 @@ for (const spec of SHIPPED) {
   let openSeconds;
   let durationSeconds;
   let said;
-  let poster = null;
-  let posterBytes = 0;
+  let nodes;
+  let years;
 
   // Which of the two ways in the app took is not something to infer from what
   // happens to be on disk. The plan builder runs alongside this one, so a file
@@ -323,7 +332,7 @@ for (const spec of SHIPPED) {
     route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        entries: [{ slug: spec.slug, title: spec.title, blurb: spec.blurb, scope: null, file, poster: null, logo: null, bytes, commits: meta.commits }],
+        entries: [{ slug: spec.slug, title: spec.title, blurb: spec.blurb, scope: null, file, logo: null, bytes, commits: meta.commits }],
       }),
     }),
   );
@@ -344,6 +353,22 @@ for (const spec of SHIPPED) {
     // A performance of no length is not a performance, and writing a zero here
     // would put "0 s" on the card as though it were a measurement.
     durationSeconds = typeof secs === 'number' && secs > 0 ? Math.round(secs) : null;
+    // Two more facts that only a loaded plan knows, off the open that is
+    // happening anyway.
+    //
+    // `nodes` is the arrivals the choreography kept after routine pull requests
+    // collapsed into ribbons, and against the duration it gives the pace — the
+    // one number on a card that says whether a history can be *followed*. It
+    // cannot be derived from the commit count: LLVM's 595,778 commits leave 894
+    // arrivals and Rust's 339,084 leave 248,298.
+    //
+    // `years` is how long each calendar year of the plan runs, which is what
+    // prices the span offered under every card. Also not derivable: the clock
+    // gives every arrival the same beat, so a year's share of the running time
+    // is its share of the commits and not its share of the calendar.
+    const shape = await page.evaluate(() => ({ pace: window.__gittimeline.pace, years: window.__gittimeline.years }));
+    nodes = typeof shape?.pace?.nodes === 'number' ? shape.pace.nodes : null;
+    years = Array.isArray(shape?.years) && shape.years.length ? shape.years : null;
     // Which way in the app took, in the app's own words. A 200 for the
     // `.gtperf.gz` proves it was fetched and nothing more — the plan is
     // declined loudly when its engine or schema is a version behind, and
@@ -365,85 +390,7 @@ for (const spec of SHIPPED) {
     continue;
   }
 
-  try {
-    // Everything except the stage comes off, or the card is a picture of the
-    // interface rather than of the history.
-    await page.addStyleTag({ content: '.rail,.band,.banner,.toast,.topbar,.follow-btn,.view-toggles,.prelude{display:none!important}' });
-
-    // The widest parallel phrase is the moment the picture is most alive —
-    // several threads open at once, trails lit, camera pulled back. The final
-    // tableau is deliberately quiet and dim, which makes a near-black card.
-    await page.evaluate(() => {
-      const g = window.__gittimeline;
-      const widest = g.events('PARALLEL_PHRASE').sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-      g.seek(widest ? widest.start + (widest.end - widest.start) * 0.6 : g.duration * 0.72);
-      g.play();
-    });
-
-    /**
-     * Let two frames land at the new time, and then stop the render loop dead.
-     *
-     * Stopping it is what makes the capture possible at all, and the reason is
-     * not the canvas — it is the main thread. `frame()` re-arms itself and
-     * calls `renderer.render` every tick whether the performance is playing or
-     * paused, and a headless browser has no GPU, so one frame of Rust's
-     * 248,298 nodes takes about sixteen seconds of software rasterising. The
-     * loop therefore never yields for long enough to be asked anything:
-     * `page.evaluate(() => 1 + 1)` times out here. `pause()` does not help,
-     * because pausing stops time advancing and not the drawing.
-     *
-     * This was read for a long time as a *capture* problem — the stage is a
-     * `desynchronized: true` canvas, `page.screenshot` goes through the
-     * compositor, and the story that the compositor never returns above about
-     * forty thousand nodes fitted the evidence. It was the wrong culprit, and
-     * expensively so: `toDataURL` below returns in under a tenth of a second
-     * on the largest entry here, once there is a thread free to run it.
-     *
-     * Cancelling by id, up from one, is blunt and is meant to be: the loop's
-     * handle lives in a module-scoped variable this page cannot reach, and the
-     * tab is closed a moment later.
-     */
-    const settled = page.evaluate(
-      () =>
-        new Promise((resolve) => {
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-              const next = requestAnimationFrame(() => {});
-              for (let i = 1; i <= next; i++) cancelAnimationFrame(i);
-              resolve(null);
-            }),
-          );
-        }),
-    );
-    // The loser of a race still rejects, and an unhandled rejection here would
-    // take down a run that has already survived the entry it happened on.
-    settled.catch(() => {});
-    await Promise.race([
-      settled,
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`stage did not settle within ${shotBudget / 1000}s`)), shotBudget).unref()),
-    ]);
-
-    // JPEG, not PNG: the stage is a dark photographic gradient with fine
-    // strokes over it, which PNG stores at ~220 KB a frame and JPEG at a
-    // fraction of that with no visible difference at card size.
-    const dataUrl = await page.evaluate(() => {
-      const c = document.querySelector('[data-testid="stage-canvas"]');
-      return c instanceof HTMLCanvasElement ? c.toDataURL('image/jpeg', 0.82) : null;
-    });
-    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/jpeg;base64,')) throw new Error('stage canvas produced no image');
-    const shot = Buffer.from(dataUrl.slice('data:image/jpeg;base64,'.length), 'base64');
-    // A canvas that has been cleared but not drawn still encodes, to about a
-    // kilobyte of flat black. That is a broken card wearing a picture, which is
-    // worse than the hatched placeholder the card falls back to.
-    if (shot.length < 3000) throw new Error(`frame is blank (${shot.length} bytes)`);
-    poster = `${spec.slug.replace('/', '-')}.jpg`;
-    writeFileSync(join(outDir, poster), shot);
-    posterBytes = shot.length;
-  } catch (err) {
-    console.warn(`  ${spec.slug}: no thumbnail — ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
-  } finally {
-    await page.close().catch(() => {});
-  }
+  await page.close().catch(() => {});
 
   // All three have to agree before this build will call an entry precompiled:
   // the file was served, the app did not complain about it, and the app said
@@ -475,8 +422,6 @@ for (const spec of SHIPPED) {
      */
     plan: precompiled ? planFile : null,
     planBytes: precompiled ? statSync(join(outDir, planFile)).size : null,
-    poster,
-    posterBytes,
     logo,
     bytes,
     commits: meta.commits,
@@ -486,6 +431,8 @@ for (const spec of SHIPPED) {
     coverage: meta.coverage ?? 'exact',
     openSeconds,
     durationSeconds,
+    nodes: nodes ?? null,
+    years: years ?? null,
     builtAt: meta.builtAt ?? new Date().toISOString(),
   };
   entries.push(entry);
@@ -494,11 +441,12 @@ for (const spec of SHIPPED) {
     `${spec.slug.padEnd(26)} ${String(entry.commits).padStart(9)} commits  ${(entry.bytes / 1e6).toFixed(1).padStart(6)} MB  ` +
       `${`${openSeconds}s`.padStart(7)} to open ${precompiled ? `from a ${(entry.planBytes / 1e6).toFixed(1)} MB plan` : 'by compiling here '}  ` +
       `${`${(transferred / 1e6).toFixed(1)} MB`.padStart(8)} pulled down  ` +
-      `${`${durationSeconds ?? '?'}s`.padStart(6)} long  ${poster ? `${(posterBytes / 1024).toFixed(0)} KB jpg` : 'no thumbnail'}`,
+      `${`${durationSeconds ?? '?'}s`.padStart(6)} long  ` +
+      `${(nodes && durationSeconds ? `${(nodes / durationSeconds).toFixed(1)}/s` : '?').padStart(6)}  ${years ? `${years.length} years` : 'no years'}`,
   );
 }
 
 await browser.close();
 writeIndex();
-console.log(`\n${entries.length} entries written, ${entries.filter((e) => e.poster).length} with thumbnails`);
+console.log(`\n${entries.length} entries written, ${entries.filter((e) => e.logo).length} with a mark, ${entries.filter((e) => e.years).length} offering years`);
 for (const s of skipped) console.log(`  skipped — ${s}`);

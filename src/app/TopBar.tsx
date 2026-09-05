@@ -24,14 +24,24 @@ export function TopBar() {
     if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
     return from === to ? String(from) : `${from}–${to}`;
   })();
+  // A span is watching part of a whole history, which is exactly what this
+  // badge already exists to say. It overrides `exact`, because the plan being
+  // complete is no longer the interesting fact once the clock has been told to
+  // start in 2019 and stop at the end of 2019 — what is on screen is a slice,
+  // and nothing else on the page says so.
+  const chosen = store.span.value;
+  const chosenLabel = chosen ? (chosen.from === chosen.to ? String(chosen.from) : `${chosen.from}–${chosen.to}`) : null;
   const badge =
     completeness === 'synthetic'
       ? 'generated'
-      : span
-        ? completeness === 'exact'
-          ? `${span} · entire repo`
-          : `${span} · partial`
-        : completeness;
+      : chosenLabel
+        ? `${chosenLabel} · partial`
+        : span
+          ? completeness === 'exact'
+            ? `${span} · entire repo`
+            : `${span} · partial`
+          : completeness;
+  const summary = chosenLabel ? `Playing ${chosenLabel} out of ${span ?? 'the whole history'}. ${perf.coverage.summary}` : perf.coverage.summary;
   const toggle = (id: PanelId) => (store.panel.value = panel === id ? 'none' : id);
   const btn = (id: PanelId, label: string, icon: () => preact.JSX.Element, testId?: string, optional = false) => (
     <button type="button" class={`icon-btn${optional ? ' optional' : ''}`} aria-label={label} title={label} aria-expanded={panel === id} onClick={() => toggle(id)} data-testid={testId}>
@@ -57,7 +67,7 @@ export function TopBar() {
           <strong>
             {perf.source.owner}/{perf.source.name}
           </strong>
-          <button type="button" class={`quality ${completeness}`} title={perf.coverage.summary} onClick={() => toggle('help')} aria-label={`Coverage: ${badge}. ${perf.coverage.summary}`} data-testid="quality-badge">
+          <button type="button" class={`quality ${completeness}`} title={summary} onClick={() => toggle('help')} aria-label={`Coverage: ${badge}. ${summary}`} data-testid="quality-badge">
             {badge}
           </button>
         </div>

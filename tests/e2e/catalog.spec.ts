@@ -48,6 +48,42 @@ test.describe('pre-fetched catalog', () => {
     expect(calls, 'the catalog must not touch GitHub').toEqual([]);
   });
 
+  test('a single year plays out of the same plan, and the badge says so', async ({ page }) => {
+    const calls: string[] = [];
+    await page.route('https://api.github.com/**', (route) => {
+      calls.push(route.request().url());
+      return route.abort();
+    });
+
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    const shelf = page.getByTestId('catalog');
+    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+
+    const cheapest = await page.evaluate(async () => {
+      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; bytes: number }>;
+      return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
+    });
+    const key = cheapest.replace('/', '-');
+    const chooser = shelf.getByTestId(`catalog-year-${key}`);
+    // An entry whose plan predates spans simply offers none, and there is then
+    // nothing here to test rather than something broken.
+    if (!(await chooser.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
+    const year = await chooser.inputValue();
+    await shelf.getByTestId(`catalog-span-${key}`).click();
+    await waitForReady(page);
+
+    // The whole plan is loaded — a span is a window on it, not a smaller
+    // download — so the duration is the whole history's and the clock is
+    // somewhere inside it rather than at nought.
+    const state = await page.evaluate(() => ({ time: window.__gittimeline.time, duration: window.__gittimeline.duration, pace: window.__gittimeline.pace }));
+    expect(state.duration, 'the span plays the plan it was cut from').toBeGreaterThan(0);
+    expect(state.pace!.perSecond, 'a span is never denser than the suite allows').toBeLessThanOrEqual(9);
+    // The one thing on screen that distinguishes a span from a seek.
+    await expect(page.getByTestId('quality-badge')).toHaveText(new RegExp(`${year}.*partial`));
+    expect(calls, 'a span costs no GitHub requests either').toEqual([]);
+  });
+
   test('every catalog entry is real, reachable and honestly described', async ({ page }) => {
     await page.goto('/');
     const index = await page.evaluate(async (base) => {
@@ -72,14 +108,10 @@ test.describe('pre-fetched catalog', () => {
       // capturing a frame means compiling the whole history in a browser, and
       // the largest of these take minutes, so the card falls back to a drawn
       // placeholder rather than the entry falling out of the catalog.
-      if (e.poster) {
-        expect(await fetched(e.poster), `${e.slug} thumbnail is served`).toBe(200);
-      }
-      expect(e.posterBytes, `${e.slug} thumbnail is small enough for a landing page`).toBeLessThan(120_000);
-      // The owner's logo is under the same rule as the thumbnail, and for a
-      // sharper reason: the page's CSP allows no remote images, so a logo that
-      // is not a local file cannot be a logo at all. Claiming one that does not
-      // resolve would put a broken image on the page that promises no requests.
+      // The card's picture *is* the owner's mark now, so a claimed logo that
+      // does not resolve is not a missing decoration — it is the whole image on
+      // the card. The page's CSP allows no remote images either, so a logo that
+      // is not a local file cannot be a logo at all.
       if (e.logo) {
         expect(await fetched(e.logo), `${e.slug} logo is served`).toBe(200);
       }
@@ -96,10 +128,27 @@ test.describe('pre-fetched catalog', () => {
       expect(e.bytes, `${e.slug} has bytes`).toBeGreaterThan(1000);
       // How long the performance runs is the fact the card leads with, so an
       // entry that does not carry one is an entry the shelf cannot describe.
-      // The upper bound is the choreographer's own cap: a length past it did
-      // not come from a plan this app loaded, it came from somewhere wrong.
+      //
+      // There is no upper bound to assert against any more, and the assertion
+      // that used to be here — thirty-five minutes — is exactly the thing that
+      // went wrong. A cap on length is a cap on how much can be shown, and
+      // while it existed Linux's 332,279 arrivals were delivered inside it at
+      // 158 a second. The pace below is what that assertion should always have
+      // been: not how long a history takes, but whether it can be followed.
       expect(e.durationSeconds, `${e.slug} knows how long it runs`).toBeGreaterThan(0);
-      expect(e.durationSeconds, `${e.slug} runs no longer than the cap`).toBeLessThanOrEqual(35 * 60);
+      expect(e.nodes, `${e.slug} says how many arrivals are in it`).toBeGreaterThan(0);
+      expect(e.nodes / e.durationSeconds, `${e.slug} lands its arrivals slowly enough to be counted`).toBeLessThanOrEqual(9);
+      // The years a card offers as spans. Each is a calendar year and a length
+      // in seconds, and their lengths cannot add up to more than the whole —
+      // a span is a window on this plan and never a longer show than the plan.
+      if (e.years) {
+        const total = (e.years as Array<[number, number]>).reduce((n, [, secs]) => n + secs, 0);
+        expect(total, `${e.slug} spans fit inside the performance`).toBeLessThanOrEqual(e.durationSeconds + 1);
+        for (const [y, secs] of e.years as Array<[number, number]>) {
+          expect(y, `${e.slug} year ${y} is a year`).toBeGreaterThan(1969);
+          expect(secs, `${e.slug} year ${y} has a length`).toBeGreaterThan(0);
+        }
+      }
       expect(typeof e.builtAt).toBe('string');
     }
   });

@@ -22,7 +22,7 @@
  * a few hundred bytes of request handling a handful of times a day. A Render
  * instance for that idles, sleeps on the free tier — so the first sign-in
  * after a quiet period pays a cold start — and has to be maintained. A Worker
- * has no process to sleep. `server/index.mjs` is the Node original and the two
+ * has no process to sleep. the Node original this was ported from is gone, and the two
  * behave identically; it stays until this one is deployed and proven.
  *
  * Configuration (all through Worker secrets and vars, never in wrangler.toml):

@@ -1,7 +1,8 @@
 import { Fragment } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useId, useState } from 'preact/hooks';
 import { loadCatalogEntry } from './controller';
 import { trackCatalogOpen } from './analytics';
+import { hash01 } from '@/model/prng';
 
 /**
  * Histories fetched ahead of time and shipped with the site.
@@ -14,29 +15,63 @@ import { trackCatalogOpen } from './analytics';
  * build, and what ships is the result. Opening one of these costs no token and
  * no GitHub requests at all.
  *
- * Each card leads with a *real frame of that performance* — captured at build
- * time — because the shape of a history is the thing worth choosing between,
- * and a column of repository names is not. The picture also sets an honest
- * expectation: a linear project and a pull-request treadmill look nothing
- * alike, and you can see which you are about to watch.
+ * ## The picture is the project's mark, not a frame of its performance
  *
- * Under the picture the card leads with two numbers at the same size: how long
- * the performance runs, and how many commits are in it. The second was always
- * here; the first was not, and a shelf that said what every entry cost to open
- * and never what it was worth staying for was asking people to choose blind.
- * Three minutes and thirty-five minutes are different offers, and which of them
- * a card is making should be legible from across the room.
+ * Each card used to lead with a real frame of that history, captured at build
+ * time. The argument for it was that the *shape* of a history is the thing
+ * worth choosing between — and at card size that argument does not survive
+ * contact with the pictures. A commit graph is a wide, mostly horizontal
+ * texture; eleven of them ranged down a page are eleven grey smears, and no
+ * amount of re-framing changes what they are made of. Nothing on that shelf
+ * told you at a glance which card was Kubernetes.
  *
- * The owner's mark sits beside the title and is kept small, because it is there
- * to be recognised before the words are read and anything larger would argue
- * with the frame above it about which of the two is the picture. It is served
- * from this origin like everything else: the page allows no remote images at
- * all, which is the catalog's promise written somewhere a browser enforces it.
+ * The owner's mark does, instantly, and it is already downloaded — it was the
+ * twenty-pixel glyph beside the title. So it becomes the picture: large,
+ * centred, on a field tinted from the slug so the shelf is not a column of
+ * identical dark rectangles.
+ *
+ * It sits on a light plate, which is not decoration. These marks arrive in two
+ * incompatible kinds: Rust's gear and Python's logo are dark-on-transparent and
+ * vanish on a dark panel outright, while Kubernetes and Chromium come on white
+ * already. One plate makes both read the same way, and turns a photograph
+ * (Linus, BurntSushi) into the same rounded square as a logo rather than a
+ * portrait floating in a void. It is served from this origin like everything
+ * else: the page allows no remote images at all, which is the catalog's promise
+ * written somewhere a browser enforces it.
+ *
+ * ## What a card says it costs
+ *
+ * Three figures at the same size: how long the performance runs, how many
+ * commits are in it, and how fast they arrive. The last is new and it is the
+ * one that says whether a history can be *followed* rather than merely
+ * watched — a number that was catastrophically wrong for as long as a
+ * thirty-five minute ceiling existed, because Linux's 332,279 arrivals were
+ * being delivered inside it at a hundred and fifty-eight a second. There is no
+ * ceiling now. Linux is twelve hours and every commit gets its beat, and a card
+ * that says twelve hours is telling the truth for the first time.
+ *
+ * ## And a year of it, for people who do not have twelve hours
+ *
+ * Under the figures every card offers a single calendar year of its own
+ * history. That is not a remedy for density — nothing here is dense any more —
+ * it is a way to watch the part you care about: React's 2016, Node's last year.
+ *
+ * A span costs nothing to produce. The plan already shipped contains every
+ * commit with the moment it lands, and `timeMap` turns a date into that moment,
+ * so picking a year is telling the clock where to start and where to stop. No
+ * second download, no compile, no new artifact. The years and their lengths
+ * come off the plan at index time, because a year's share of the running time
+ * is its share of the *commits* and not its share of the calendar — Node's 2015
+ * and its 2024 are the same length of year and nowhere near the same length of
+ * show.
+ *
+ * The whole history stays the default and the headline: the card itself is the
+ * button for it, and the year selector sits underneath as an alternative.
  *
  * That is why the first entry is given the full width. Four equal rows of
  * picture-and-caption reads as a table with illustrations however large the
  * illustrations are; one big frame with the rest ranged beneath it reads as a
- * gallery, and the frames are the point.
+ * gallery.
  *
  * The list is absent, not broken, when no catalog has been built: this renders
  * nothing rather than an empty shelf.
@@ -47,11 +82,11 @@ export interface CatalogEntry {
   blurb: string;
   scope: string | null;
   file: string;
-  poster: string | null;
   /**
    * The owner's avatar, downloaded at build time and served from this origin.
-   * Null where that download failed; the card then names the owner and nothing
-   * else, which is what it did before logos existed.
+   * Null where that download failed; the card then sets the owner's initial in
+   * the plate instead, which is a card whose mark is missing rather than a
+   * broken image.
    */
   logo: string | null;
   /**
@@ -83,7 +118,7 @@ export interface CatalogEntry {
   contributors: number | null;
   /**
    * Seconds from click to first frame, timed at build time on the same machine
-   * that captured the thumbnail. Null when that pass never got a reading.
+   * that captured the measurement. Null when that pass never got a reading.
    */
   openSeconds: number | null;
   /**
@@ -96,6 +131,19 @@ export interface CatalogEntry {
    * leads with its commit count alone rather than inventing a number.
    */
   durationSeconds: number | null;
+  /**
+   * Arrivals in the plan — visible commits, after routine pull requests have
+   * collapsed into ribbons. Against `durationSeconds` it gives the pace, which
+   * is the only number on the card that says whether the history can be
+   * followed at all.
+   */
+  nodes: number | null;
+  /**
+   * Each calendar year the plan covers and how many seconds of stage time it
+   * occupies, in order. Null for an entry indexed before spans existed, and
+   * that card simply offers no year.
+   */
+  years: Array<[number, number]> | null;
 }
 
 /**
@@ -123,6 +171,25 @@ export interface CatalogEntry {
  */
 const SLOW_SECONDS = 15;
 
+/**
+ * How much of a plan a year has to hold before it is worth offering: eight
+ * seconds, and at least a five-hundredth of the whole show.
+ *
+ * Both halves earn their place. Eight seconds is about sixty arrivals, which is
+ * the least that can be called something you watched; below it a year is a
+ * stray commit or two that happened to fall on the wrong side of a January.
+ * The fraction is what stops a very long plan offering those anyway — Linux
+ * runs twelve hours, and three seconds of it is not a year.
+ *
+ * What puts near-empty years on the list is almost never the repository being
+ * quiet. It is one commit with a broken timestamp: presentation time may only
+ * move forward, so a single bad clock drags every descendant with it, and what
+ * is left behind is a scatter of years holding two seconds each. Linux is the
+ * extreme case and it is not subtle — 1,475,072 of its 1,481,850 timestamps are
+ * corrected by more than a day, and its plan reports years of 2037 and 2085.
+ */
+const spanFloor = (duration: number) => Math.max(8, duration / 500);
+
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 /** One decimal below ten megabytes, whole numbers above: 0.4 MB, 18 MB, 222 MB. */
@@ -139,11 +206,10 @@ const waitShort = (seconds: number) => (seconds < 90 ? `${Math.round(seconds)} s
  *
  * `12:43` is how a video player labels a position you are already inside; on a
  * card nobody has clicked yet the question is "how much of my evening is this",
- * and the answer to that is words. Seconds stay in below the hour, because the
- * difference between four minutes and four and a half is the difference between
- * watching it now and watching it later. Nothing here reaches the hour — the
- * choreographer caps a performance at thirty-five minutes — so that branch is
- * only so a cap raised one day does not have the card printing `95 min`.
+ * and the answer to that is words. Seconds stay in below the minute. The hour
+ * branch is no longer theoretical: with no cap on length, Linux's 332,279
+ * arrivals at a beat each come to twelve hours, and a card that rounded that to
+ * "720 min" would be hiding the number it most needs to give you.
  */
 const runtime = (seconds: number) => {
   const s = Math.round(seconds);
@@ -153,15 +219,30 @@ const runtime = (seconds: number) => {
   return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
 };
 
+/**
+ * A hue for this entry's panel, the same one every time.
+ *
+ * Deterministic from the slug — `hash01` is FNV-1a over the string — because a
+ * shelf whose colours moved between loads would read as decoration rather than
+ * as identity, and because there is no randomness in `src` to reach for anyway.
+ * Only the hue is taken: saturation and lightness are fixed in the stylesheet
+ * so that no entry can draw a brighter panel than its neighbours.
+ */
+const tintOf = (slug: string) => Math.round(hash01(slug) * 360);
+
 function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
   const e = entry;
+  const selectId = useId();
   // Null unless it is slow enough to be worth naming, which is also the narrowing the JSX below needs.
   const slowFor = e.openSeconds != null && e.openSeconds >= SLOW_SECONDS ? e.openSeconds : null;
   // What the click actually pulls down. Where a plan ships, the dataset is not
   // fetched at all before the first frame — the plan replaces it — and the two
   // are not close enough to stand in for one another: Kubernetes' history is
-  // 18 MB and its plan is 30, Linux's is 199 MB and its plan is 132. Quoting
+  // 18 MB and its plan is 31, Linux's is 199 MB and its plan is 132. Quoting
   // the dataset was under-promising half this shelf and over-promising the rest.
+  //
+  // A span pulls down exactly the same bytes, which is the point of it: the
+  // plan is not sliced, the clock is.
   const cost = e.planBytes ?? e.bytes;
   // A count the build never established is left out rather than printed as a
   // zero or a dash. Reading `null.toLocaleString()` here is what emptied this
@@ -173,123 +254,186 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
     { n: e.contributors, label: 'people' },
   ].filter((c): c is { n: number; label: string } => typeof c.n === 'number');
 
-  // The two facts a person actually chooses between, at the size that says so.
+  // The three facts a person actually chooses between, at the size that says so.
   //
   // How long it runs used not to be here at all, and its absence made the shelf
   // impossible to choose from honestly: every card said what it cost to arrive
-  // and none of them said what you were arriving *at*. A visitor deciding
-  // between these is deciding how to spend the next half hour, and mdBook's
-  // three minutes and Linux's thirty-five are not the same offer.
+  // and none of them said what you were arriving *at*. The pace beside it
+  // answers the question that one raises — twelve hours of *what*? — and it is
+  // the figure that a viewer can check the shelf against: every entry here
+  // lands between five and eight arrivals a second, because the choreographer
+  // gives each visible commit the same beat and the length follows from that
+  // rather than the other way round.
   //
   // Merges and contributors stayed behind in the small line below, because
-  // three counts and a length in one row is a specification sheet — and once
-  // everything is bold, the length is not.
+  // five counts in one row is a specification sheet — and once everything is
+  // bold, none of it is.
+  const pace = e.nodes != null && e.durationSeconds ? e.nodes / e.durationSeconds : null;
   const figures = [
     e.durationSeconds != null ? { value: runtime(e.durationSeconds), label: 'long' } : null,
     e.commits != null ? { value: fmt(e.commits), label: 'commits' } : null,
+    pace != null ? { value: `${pace.toFixed(1)}/s`, label: 'arrivals' } : null,
   ].filter((f): f is { value: string; label: string } => f !== null);
 
-  return (
-    <button
-      type="button"
-      class={`catalog-card${featured ? ' featured' : ''}`}
-      onClick={() => {
-        // Counted at the click rather than at the first frame, because the
-        // interesting number is the difference between the two: these are
-        // large downloads and some of them are long composes, and a card
-        // nobody waits out is the one worth knowing about.
-        trackCatalogOpen(e.slug, e.commits);
-        void loadCatalogEntry(e.file, e.scope ? `${e.title} · ${e.scope}` : e.title);
-      }}
-      data-testid={`catalog-${e.slug.replace('/', '-')}`}
-    >
-      <span class="catalog-shot">
-        {e.poster ? (
-          <img src={`${import.meta.env.BASE_URL}catalog/${e.poster}`} alt={`The shape of ${e.slug}'s history`} loading="lazy" decoding="async" />
-        ) : (
-          // A build can produce an artifact and fail to capture a frame of it.
-          // An empty black rectangle reads as a broken image; the name set into
-          // an empty plate reads as a card whose picture has not been taken.
-          <span class="catalog-noshot">{e.slug}</span>
-        )}
-        {/* What it costs, on the picture and never hidden behind a hover. The
-            page above promises no token and no requests, which is true and is
-            not the whole price: this one is 222 MB on someone's phone plan.
+  // Most recent first: the year somebody wants is far more often the last one
+  // than the first, and a select that opens on 1990 asks CPython's visitor to
+  // scroll thirty-six rows to reach the year they meant.
+  //
+  // A year later than this one is not a year of anything, whatever the plan
+  // says. It is the same broken clock as above, seen from the other end: Linux
+  // spends nine of its twelve hours in "2037" and "2085", and offering those as
+  // spans would put the repository's data-quality problem on the card as though
+  // it were a choice. They stay reachable — the whole history plays every
+  // arrival, in order, whatever date each one claims.
+  const nowYear = new Date().getUTCFullYear();
+  const floor = spanFloor(e.durationSeconds ?? 0);
+  const years = (e.years ?? []).filter(([y, secs]) => y <= nowYear && secs >= floor).reverse();
+  const [picked, setPicked] = useState<number | null>(null);
+  const year = picked != null && years.some(([y]) => y === picked) ? picked : (years[0]?.[0] ?? null);
+  const label = e.scope ? `${e.title} · ${e.scope}` : e.title;
+  const open = (span: { from: number; to: number } | null) => {
+    // Counted at the click rather than at the first frame, because the
+    // interesting number is the difference between the two: these are large
+    // downloads, and a card nobody waits out is the one worth knowing about.
+    trackCatalogOpen(e.slug, e.commits);
+    void loadCatalogEntry(e.file, span ? `${label} · ${span.from}` : label, span);
+  };
 
-            "wait", spelled out, because the caption below now carries a second
-            duration — how long the thing runs — and two bare numbers of minutes
-            on one card that mean opposite things is worse than either alone. */}
-        <span class={`catalog-cost${slowFor != null ? ' slow' : ''}`}>
-          {size(cost)}
-          {slowFor != null && ` · ~${waitShort(slowFor)} wait`}
-        </span>
-        {/* The affordance is on the picture, where the eye already is. */}
-        <span class="catalog-cue" aria-hidden="true">
-          <svg viewBox="0 0 12 12" focusable="false">
-            <path d="M3 1.6 L10 6 L3 10.4 Z" />
-          </svg>
-          Watch
-        </span>
-      </span>
-      <span class="catalog-body">
-        <span class="catalog-line">
-          {/* Decorative, so it is not described: the title beside it already
-              says which project this is, and an alt text here would make a
-              screen reader announce the name twice. */}
-          {e.logo && <img class="catalog-logo" src={`${import.meta.env.BASE_URL}catalog/${e.logo}`} alt="" loading="lazy" decoding="async" />}
-          <span class="catalog-title">{e.title}</span>
-          {e.scope && <em class="catalog-scope">{e.scope}</em>}
-        </span>
-        <span class="catalog-slug">{e.slug}</span>
-        <span class="catalog-blurb">{e.blurb}</span>
-        {figures.length > 0 && (
-          <span class="catalog-figures">
-            {figures.map((f) => (
-              <span class="catalog-figure" key={f.label}>
-                <b>{f.value}</b>
-                <span>{f.label}</span>
-              </span>
-            ))}
-          </span>
-        )}
-        {counts.length > 0 && (
-          <span class="catalog-meta">
-            {counts.map((c, i) => (
-              <Fragment key={c.label}>
-                {i > 0 && <i />}
-                <b>{fmt(c.n)}</b>
-                {c.label}
-              </Fragment>
-            ))}
-          </span>
-        )}
-        {/* Two different waits wearing the same number of seconds. Without a
-            plan the tab is composing the history and the warning it used to
-            print is exact. With one, nothing is being composed at all — the
-            plan arrives finished and the wait is unpacking it, which is a
-            sentence about size rather than about merge density, and telling
-            somebody their tab is busy compiling when it is not is the kind of
-            small lie that makes the honest numbers beside it harder to trust. */}
-        {slowFor != null && (
-          <span class="catalog-warn">
-            {e.plan ? (
-              <>
-                Shipped ready-made rather than composed here — but {size(cost)} of plan still takes about {wait(slowFor)} to unpack into a first frame
-                once it has arrived.
-              </>
+  return (
+    <article class={`catalog-card${featured ? ' featured' : ''}`}>
+      <button type="button" class="catalog-open" onClick={() => open(null)} data-testid={`catalog-${e.slug.replace('/', '-')}`}>
+        <span class="catalog-mark" style={`--tint:${tintOf(e.slug)}`}>
+          <span class="catalog-plate">
+            {e.logo ? (
+              // Decorative, so it is not described: the title below already
+              // says which project this is, and an alt text here would make a
+              // screen reader announce the name twice.
+              <img src={`${import.meta.env.BASE_URL}catalog/${e.logo}`} alt="" loading="lazy" decoding="async" />
             ) : (
-              <>Composed in this tab, not downloaded ready-made — about {wait(slowFor)} to the first frame.</>
-            )}{' '}
-            Progress is shown throughout, and it can be cancelled.
+              <b aria-hidden="true">{e.slug.slice(0, 1).toUpperCase()}</b>
+            )}
           </span>
-        )}
-      </span>
-    </button>
+          {/* What it costs, on the panel and never hidden behind a hover. The
+              page above promises no token and no requests, which is true and is
+              not the whole price: this one is 199 MB on someone's phone plan.
+
+              "wait", spelled out, because the caption below carries a second
+              duration — how long the thing runs — and two bare numbers of
+              minutes on one card that mean opposite things is worse than
+              either alone. */}
+          <span class={`catalog-cost${slowFor != null ? ' slow' : ''}`}>
+            {size(cost)}
+            {slowFor != null && ` · ~${waitShort(slowFor)} wait`}
+          </span>
+          {/* The affordance is on the picture, where the eye already is. */}
+          <span class="catalog-cue" aria-hidden="true">
+            <svg viewBox="0 0 12 12" focusable="false">
+              <path d="M3 1.6 L10 6 L3 10.4 Z" />
+            </svg>
+            Watch it all
+          </span>
+        </span>
+        <span class="catalog-body">
+          <span class="catalog-line">
+            <span class="catalog-title">{e.title}</span>
+            {e.scope && <em class="catalog-scope">{e.scope}</em>}
+          </span>
+          <span class="catalog-slug">{e.slug}</span>
+          <span class="catalog-blurb">{e.blurb}</span>
+          {figures.length > 0 && (
+            <span class="catalog-figures">
+              {figures.map((f) => (
+                <span class="catalog-figure" key={f.label}>
+                  <b>{f.value}</b>
+                  <span>{f.label}</span>
+                </span>
+              ))}
+            </span>
+          )}
+          {counts.length > 0 && (
+            <span class="catalog-meta">
+              {counts.map((c, i) => (
+                <Fragment key={c.label}>
+                  {i > 0 && <i />}
+                  <b>{fmt(c.n)}</b>
+                  {c.label}
+                </Fragment>
+              ))}
+            </span>
+          )}
+          {/* Two different waits wearing the same number of seconds. Without a
+              plan the tab is composing the history and the warning it used to
+              print is exact. With one, nothing is being composed at all — the
+              plan arrives finished and the wait is unpacking it, which is a
+              sentence about size rather than about merge density, and telling
+              somebody their tab is busy compiling when it is not is the kind of
+              small lie that makes the honest numbers beside it harder to trust. */}
+          {slowFor != null && (
+            <span class="catalog-warn">
+              {e.plan ? (
+                <>
+                  Shipped ready-made rather than composed here — but {size(cost)} of plan still takes about {wait(slowFor)} to unpack into a first frame
+                  once it has arrived.
+                </>
+              ) : (
+                <>Composed in this tab, not downloaded ready-made — about {wait(slowFor)} to the first frame.</>
+              )}{' '}
+              Progress is shown throughout, and it can be cancelled.
+            </span>
+          )}
+        </span>
+      </button>
+      {/* Outside the card's own button, because a select inside a button is
+          neither valid nor operable. The whole history keeps the card; a year
+          gets a row of its own underneath it. */}
+      {year != null && (
+        <div class="catalog-span">
+          <label class="catalog-span-label" for={selectId}>
+            Or one year of it
+          </label>
+          <div class="catalog-span-row">
+            {/* The length is in the option itself rather than in a tooltip.
+                Which year is cheap and which is an afternoon is exactly the
+                thing being chosen between, and CPython's 1996 and its 2024 are
+                four minutes apart. */}
+            <select
+              id={selectId}
+              class="catalog-year"
+              value={String(year)}
+              onChange={(ev) => setPicked(Number((ev.currentTarget as HTMLSelectElement).value))}
+              data-testid={`catalog-year-${e.slug.replace('/', '-')}`}
+            >
+              {years.map(([y, secs]) => (
+                <option value={String(y)} key={y}>
+                  {y} · {runtime(secs)}
+                </option>
+              ))}
+            </select>
+            <button type="button" class="catalog-span-go" onClick={() => open({ from: year, to: year })} data-testid={`catalog-span-${e.slug.replace('/', '-')}`}>
+              Watch {year}
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
 /** A number from JSON that may be absent, null, or something else entirely. */
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/** `[[2016, 41.2], …]`, or null if the JSON does not hold a list of those. */
+function toYears(raw: unknown): Array<[number, number]> | null {
+  if (!Array.isArray(raw)) return null;
+  const out: Array<[number, number]> = [];
+  for (const row of raw) {
+    if (!Array.isArray(row)) continue;
+    const y = num(row[0]);
+    const secs = num(row[1]);
+    if (y != null && secs != null) out.push([y, secs]);
+  }
+  return out.length ? out : null;
+}
 
 /**
  * One catalog entry, or null if the JSON does not describe one.
@@ -311,7 +455,6 @@ function toEntry(raw: unknown): CatalogEntry | null {
     blurb: typeof r.blurb === 'string' ? r.blurb : '',
     scope: typeof r.scope === 'string' ? r.scope : null,
     file: r.file,
-    poster: typeof r.poster === 'string' ? r.poster : null,
     logo: typeof r.logo === 'string' ? r.logo : null,
     plan: typeof r.plan === 'string' ? r.plan : null,
     planBytes: num(r.planBytes),
@@ -321,6 +464,8 @@ function toEntry(raw: unknown): CatalogEntry | null {
     contributors: num(r.contributors),
     openSeconds: num(r.openSeconds),
     durationSeconds: num(r.durationSeconds),
+    nodes: num(r.nodes),
+    years: toYears(r.years),
   };
 }
 

@@ -51,12 +51,12 @@ export function CatalogPage() {
         <header class="page-head">
           <h1>Selection Ready to Watch</h1>
           <p class="page-lead">
-            These histories were fetched ahead of time and ship with the site, so opening one costs no GitHub token and no requests at all. Each picture
-            is a real frame of that performance, at the moment the whole history is on screen. Every card says how long its performance runs, because
-            that is the thing you are choosing between — three minutes of a small tool and thirty-five of Linux are not the same evening. What a card{' '}
-            <em>does</em> cost is written on it too: the size of the download. Every one of these was composed ahead of time rather than in your tab, so
-            opening it is a download and no longer an argument with your laptop — and where unpacking one afterwards is still long enough to notice, the
-            card says how long.
+            These histories were fetched ahead of time and ship with the site, so opening one costs no GitHub token and no requests at all. Every card
+            says how long its performance runs and how fast its commits arrive, because those are the things you are choosing between — three minutes of
+            a small tool and twelve hours of Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
+            If a whole history is more than you want, each card also offers a single year of itself: that is the same plan with the clock told where to
+            start and stop, so it costs the same one download and no waiting at all. What a card <em>does</em> cost is written on it too — the size of
+            that download, and where unpacking it afterwards is long enough to notice, how long.
           </p>
         </header>
         <Catalog />

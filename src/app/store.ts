@@ -163,6 +163,14 @@ export const store = {
   storage: signal<{ usage: number; quota: number } | null>(null),
   isDemo: signal(false),
   loopRange: signal<{ start: number; end: number } | null>(null),
+  /**
+   * The calendar years a span covers, or null when the whole history is playing.
+   *
+   * Both ends inclusive. The coverage badge reads it, because "2016 · partial"
+   * is the only thing on screen that distinguishes a span from a performance
+   * that happens to have been seeked into.
+   */
+  span: signal<{ from: number; to: number } | null>(null),
   /** Explicit duration from a share link, overriding the derived one. */
   durationOverride: signal<number | null>(null),
   scope: signal<ScopeQuestion | null>(null),

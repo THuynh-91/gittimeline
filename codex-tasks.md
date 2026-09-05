@@ -213,7 +213,7 @@ Render backend should not be necessary, and that a tiny serverless function
 should handle only the OAuth token exchange. I built the Render version before
 reading that document. It works but it is the wrong shape.
 
-**What exists:** `server/index.mjs` (~200 lines) — GitHub OAuth, no scopes
+**What existed** (deleted once the Worker replaced it): `server/index.mjs` (~200 lines) — GitHub OAuth, no scopes
 requested, token returned in a URL fragment, HttpOnly state cookie compared
 with `timingSafeEqual`, `ALLOWED_ORIGINS` allowlist. `server/README.md`
 documents the deployment. `src/app/auth.ts` is the client half and reads

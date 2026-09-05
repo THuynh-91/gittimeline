@@ -19,6 +19,7 @@ import { buildShareHash, parseShareHash } from '@/export/share';
 import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '@/export/artifact';
 import { gunzipIfNeeded, performanceFileFor, performanceMatchesRequest, readCompiledPerformance, type PerfDatasetRef } from '@/export/performance';
 import { fmtClock } from '@/choreography/events';
+import { mapMonotone } from '@/choreography/clock';
 import { claimTokenFromUrl } from './auth';
 import { trackPerformanceStart } from './analytics';
 
@@ -56,6 +57,105 @@ let pendingScope: { repo: RepoRef; autoplay: boolean; startAt?: number; tip?: st
  */
 const SCOPE_THRESHOLD = 3500;
 let recordedChunks: Blob[] = [];
+
+/**
+ * A stretch of a performance, named by the calendar years it covers.
+ *
+ * Both ends are inclusive years, so `{ from: 2016, to: 2016 }` is that year and
+ * nothing else. Years rather than instants because a year is what somebody
+ * picks off a shelf, and because the plan's own clock is the thing being cut:
+ * `timeMap` turns any date into the moment that date lands on stage, so a span
+ * costs one lookup and no compilation at all.
+ */
+export interface SpanChoice {
+  from: number;
+  to: number;
+}
+
+/**
+ * The window the clock is allowed to run inside, or null for the whole plan.
+ *
+ * Not `player.loop`, which wraps: reaching the end of a span is the end of what
+ * was asked for, and silently starting it again is a different offer. The frame
+ * loop stops on this instead.
+ */
+let spanWindow: { start: number; end: number } | null = null;
+
+/** Where a span's years fall in the plan, in performance seconds. */
+function spanWindowOf(perf: CompiledPerformance, span: SpanChoice): { start: number; end: number } | null {
+  const map = perf.timeMap;
+  if (!map.length) return null;
+  const firstYear = new Date(map[0]![0]).getUTCFullYear();
+  const lastYear = new Date(map[map.length - 1]![0]).getUTCFullYear();
+  // The opening and the closing belong to whichever span touches them. The
+  // clock reserves a head and a tail either side of the first and last
+  // arrivals, and a span that started at the first commit's impact would skip
+  // the establishing shot the performance was built to open on.
+  const start = span.from <= firstYear ? 0 : mapMonotone(map, Date.UTC(span.from, 0, 1));
+  const end = span.to >= lastYear ? perf.duration : mapMonotone(map, Date.UTC(span.to + 1, 0, 1));
+  if (!(end > start + 0.5)) return null;
+  return { start, end };
+}
+
+/**
+ * How long each calendar year of a plan occupies on stage, in seconds.
+ *
+ * This is the whole of what a span costs, and it is not derivable from the
+ * dates: the clock gives every visible arrival the same beat, so a year's share
+ * of the running time is its share of the *commits*, not its share of the
+ * calendar. Node's 2015 and its 2024 are the same length of year and nowhere
+ * near the same length of show.
+ *
+ * Read off a loaded plan, which is why it is exposed on the debug hook: the
+ * catalog indexer opens every entry anyway, and this is the one measurement it
+ * cannot take from the dataset beside it.
+ */
+export function planYears(perf: CompiledPerformance): Array<[number, number]> {
+  const map = perf.timeMap;
+  if (!map.length) return [];
+  const firstYear = new Date(map[0]![0]).getUTCFullYear();
+  const lastYear = new Date(map[map.length - 1]![0]).getUTCFullYear();
+  if (!Number.isFinite(firstYear) || !Number.isFinite(lastYear) || lastYear - firstYear > 400) return [];
+  const out: Array<[number, number]> = [];
+  for (let y = firstYear; y <= lastYear; y++) {
+    const w = spanWindowOf(perf, { from: y, to: y });
+    if (w) out.push([y, Math.round((w.end - w.start) * 10) / 10]);
+  }
+  return out;
+}
+
+/**
+ * Arrivals per second — the pace a plan actually plays at.
+ *
+ * The choreographer gives every visible commit `SECONDS_PER_NODE`, so this
+ * comes out near 7.7 for any history large enough for length to be set by the
+ * arrivals rather than by the target, and lower for the small ones. It is on
+ * the card because it is the one fact about a performance that says whether it
+ * can be followed, and it used to be catastrophically wrong: while a
+ * thirty-five minute ceiling existed, Linux's 332,279 arrivals were delivered
+ * in 2,100 seconds — 158 a second, against a suite that asserts nine.
+ */
+export function planPace(perf: CompiledPerformance): number {
+  return perf.duration > 0 ? perf.nodes.length / perf.duration : 0;
+}
+
+/**
+ * Arrivals per second past which the eye stops counting — `tests/unit/pacing.test.ts`.
+ *
+ * A span is a *window* on a plan, and a window changes nothing about density:
+ * measured across the shipped catalog, every entry's arrivals are spread
+ * evenly enough through its plan that any stretch of it lands within a tenth of
+ * the whole. So a span cannot be made legible by being shorter — only by being
+ * played slower, which is what this is for.
+ *
+ * On today's catalog it never fires, and that is a measurement rather than an
+ * assumption: with no ceiling on length every plan is paced at 0.13s an arrival
+ * and comes in at 5.6 to 7.7 a second, so `min(1, ...)` is 1 for all twelve and
+ * a span plays at the pace it was written for. It stays because the guard is
+ * one line and the failure it prevents — a span that smears — is the one this
+ * whole feature exists to avoid.
+ */
+const LEGIBLE_ARRIVALS_PER_SECOND = 9;
 
 const LENGTH_BIAS = { brief: 0.62, natural: 1, extended: 1.55 } as const;
 
@@ -153,6 +253,14 @@ function frame(now: number) {
   lastFrame = now;
   const perf = player.perf;
   player.advance(dt);
+  // A span ends where it said it would. `player.loop` would wrap here, which
+  // is a different promise from the one the card made, so the stop is here
+  // instead — one comparison a frame, and the same freeze the end of a whole
+  // performance already produces.
+  if (spanWindow && player.playing && player.t >= spanWindow.end) {
+    player.seek(spanWindow.end);
+    player.pause();
+  }
   const t = player.t;
   if (renderer) {
     renderer.render(t, dt);
@@ -294,7 +402,7 @@ function stageLabel(stage: string): string {
   return { graph: 'Reading the commit graph…', threads: 'Finding parallel threads…', activity: 'Measuring activity…', clock: 'Setting the tempo…', layout: 'Laying out the stage…', events: 'Writing the choreography…', camera: 'Directing the camera…', done: 'Ready' }[stage] ?? stage;
 }
 
-async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean }): Promise<CompiledPerformance | null> {
+async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null }): Promise<CompiledPerformance | null> {
   store.phase.value = 'BUILDING_DAG';
   const handle = compileInWorker(dataset, { preset: presetFromSettings(), seed: store.settings.value.seed }, (stage) => {
     if (run?.id !== r.id) return;
@@ -322,7 +430,7 @@ async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolea
  * commit rail read, and `loadCatalogEntry` fetches it separately, afterwards,
  * when it is small enough to be worth the bytes.
  */
-function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean }) {
+function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null }) {
   batch(() => {
     store.perf.value = perf;
     store.dataset.value = dataset;
@@ -347,12 +455,25 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
     else if (opts.outcome === 'partial') store.banner.value = { kind: 'partial', message: perf.coverage.summary };
     else store.banner.value = null;
   });
-  player.load(perf, opts.startAt ?? 0);
+  // A span is playing part of this plan and nothing else — no second download,
+  // no second compile, no second anything. The years become two performance
+  // times through the map the plan already carries, and the clock is told where
+  // to start and where to stop.
+  spanWindow = opts.span ? spanWindowOf(perf, opts.span) : null;
+  store.span.value = spanWindow && opts.span ? { from: opts.span.from, to: opts.span.to } : null;
+  player.load(perf, spanWindow ? spanWindow.start : (opts.startAt ?? 0));
   // Behind the form the performance is scenery, and scenery moves slowly. At
   // full pace the landing page is a scrolling wall of arrivals competing with
   // the one thing it is asking you to do, which is read a sentence and type a
   // URL. In the player it stays at 1x, where it is the thing being watched.
-  player.rate = opts.isDemo && store.mode.peek() === 'landing' ? 0.22 : 1;
+  //
+  // A span is the third case, and the reason it is here rather than left at 1x
+  // is worth stating: cutting the timeline does not thin the arrivals out. Play
+  // a tenth of a plan and you get a tenth of the arrivals in a tenth of the
+  // time, at exactly the density you started with. Only the rate moves that
+  // number, so a span that would smear is slowed until it does not.
+  player.rate = opts.isDemo && store.mode.peek() === 'landing' ? 0.22 : spanWindow ? Math.min(1, LEGIBLE_ARRIVALS_PER_SECOND / Math.max(1e-6, planPace(perf))) : 1;
+  if (!opts.isDemo) store.speed.value = player.rate;
   // Every performance somebody actually started passes through here, and the
   // landing backdrop is the one nobody did — counting it would turn "how often
   // is a visualization started" into "how many people arrived". It is flagged
@@ -786,7 +907,7 @@ export function retry() {
  * and a plan baked at one pace cannot honestly answer for another). Either way
  * the entry opens; it just opens the way it used to.
  */
-export async function loadCatalogEntry(file: string, label: string) {
+export async function loadCatalogEntry(file: string, label: string, span: SpanChoice | null = null) {
   const r = newRun();
   batch(() => {
     store.mode.value = 'player';
@@ -801,7 +922,7 @@ export async function loadCatalogEntry(file: string, label: string) {
     if (run?.id !== r.id) return;
     if (ready?.matches) {
       lastRepo = null;
-      loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false });
+      loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false, span });
       toast(`${label} — fetched and composed ahead of time`);
       void hydrateInspectorDataset(r, ready.dataset);
       return;
@@ -814,7 +935,7 @@ export async function loadCatalogEntry(file: string, label: string) {
       // over a length preference helps nobody.
       if (ready) {
         lastRepo = null;
-        loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false });
+        loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false, span });
         store.banner.value = {
           kind: 'partial',
           message: `${label} ships at one length, so this is not the length you chose. Everything on stage is exact.`,
@@ -827,7 +948,7 @@ export async function loadCatalogEntry(file: string, label: string) {
     const { dataset } = await parseArtifact(await res.blob());
     if (run?.id !== r.id) return;
     lastRepo = null;
-    await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false });
+    await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false, span });
     toast(`${label} — fetched ahead of time, no requests used`);
   } catch (err) {
     if (run?.id !== r.id) return;
@@ -997,7 +1118,9 @@ export function play() {
   // already in progress: the demo has been playing quietly behind the form.
   const fromLanding = store.mode.value === 'landing';
   if (fromLanding) store.mode.value = 'player';
-  const atEnd = player.t >= player.duration - 1e-3;
+  // The end of a span is an end, so pressing play there starts it again rather
+  // than resuming into the part the viewer did not ask for.
+  const atEnd = player.t >= (spanWindow ? spanWindow.end : player.duration) - 1e-3;
   if (fromLanding || atEnd) restart();
   syncRendererSettings();
   player.play();
@@ -1030,7 +1153,7 @@ function releaseCamera() {
  * control, and starting again would replay the whole history off-screen.
  */
 function restart() {
-  player.seek(0);
+  player.seek(spanWindow ? spanWindow.start : 0);
   releaseCamera();
   audio.reset();
 }
@@ -1545,6 +1668,22 @@ export function installDebugHook() {
     },
     get planHash() {
       return store.perf.value?.planHash ?? null;
+    },
+    /** Arrivals in the plan, and the pace they land at — what the card quotes. */
+    get pace() {
+      const p = store.perf.value;
+      return p ? { nodes: p.nodes.length, perSecond: planPace(p) } : null;
+    },
+    /**
+     * How long each calendar year of this plan runs, for the catalog indexer.
+     *
+     * The shelf has to price a span before anything is downloaded, and the only
+     * place this can be measured is a loaded plan. The indexer opens every entry
+     * anyway; this is read off the same open.
+     */
+    get years() {
+      const p = store.perf.value;
+      return p ? planYears(p) : null;
     },
     get camera() {
       return renderer?.camera ?? null;
