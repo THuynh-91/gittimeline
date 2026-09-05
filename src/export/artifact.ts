@@ -3,6 +3,7 @@ import { ENGINE } from '@/model/types';
 import { contentHashOf } from '@/model/hash';
 import { safeJsonClone } from '@/model/sanitize';
 import { buildDataset, type RawCommitRecord, type RawRef } from '@/model/dataset';
+import { readStreamedArtifact, streamContentHash, type StreamHeader } from './stream';
 
 /**
  * `.gittimeline` artifact: versioned JSON (optionally gzip) carrying the
@@ -11,7 +12,20 @@ import { buildDataset, type RawCommitRecord, type RawRef } from '@/model/dataset
  * rebuilding the dataset through the same normalizer used for live data.
  */
 export const ARTIFACT_SCHEMA_VERSION = 1;
-const MAX_ARTIFACT_BYTES = 60_000_000;
+/**
+ * How large an artifact may be before it is refused.
+ *
+ * 60 MB was chosen when the largest thing anyone could export was a few
+ * thousand commits, and it is now the binding constraint on the catalog rather
+ * than a safety rail: Rust's full history is 62 MB gzipped and would have been
+ * rejected by a megabyte. The real limits are the browser's memory and how
+ * long a history takes to compile, neither of which this number measures.
+ *
+ * It stays as a bound on a *pasted* file — an artifact is untrusted input and
+ * something has to stop a browser trying to inflate an arbitrary archive — but
+ * set where it refuses hostile input rather than real repositories.
+ */
+const MAX_ARTIFACT_BYTES = 400_000_000;
 
 export function createArtifact(dataset: Dataset, options?: CompileOptions): GitTimelineArtifact {
   const artifact: GitTimelineArtifact = {
@@ -39,17 +53,18 @@ export async function serializeArtifact(artifact: GitTimelineArtifact, compress 
 export class ArtifactError extends Error {}
 
 export async function parseArtifact(blob: Blob): Promise<{ dataset: Dataset; options: CompileOptions | null }> {
-  if (blob.size > MAX_ARTIFACT_BYTES) throw new ArtifactError('Artifact is larger than the 60 MB import limit.');
+  if (blob.size > MAX_ARTIFACT_BYTES) throw new ArtifactError(`Artifact is larger than the ${Math.round(MAX_ARTIFACT_BYTES / 1e6)} MB import limit.`);
   const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
-  let text: string;
-  if (head[0] === 0x1f && head[1] === 0x8b) {
-    if (typeof DecompressionStream === 'undefined') throw new ArtifactError('This browser cannot decompress gzip artifacts.');
-    const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'));
-    const buf = await readBounded(stream, MAX_ARTIFACT_BYTES);
-    text = new TextDecoder().decode(buf);
-  } else {
-    text = await blob.text();
-  }
+  const gzipped = head[0] === 0x1f && head[1] === 0x8b;
+  if (gzipped && typeof DecompressionStream === 'undefined') throw new ArtifactError('This browser cannot decompress gzip artifacts.');
+  const bytes = () => (gzipped ? blob.stream().pipeThrough(new DecompressionStream('gzip')) : blob.stream());
+
+  // A streamed artifact announces itself in its first line, so a peek at the
+  // first few hundred bytes decides which reader to use. Everything written
+  // before the streamed format existed still opens.
+  if (await looksStreamed(blob, gzipped)) return parseStreamed(bytes());
+
+  const text = gzipped ? new TextDecoder().decode(await readBounded(bytes(), MAX_ARTIFACT_BYTES)) : await blob.text();
   let raw: unknown;
   try {
     raw = safeJsonClone(JSON.parse(text));
@@ -73,15 +88,23 @@ export function validateArtifact(raw: unknown): { dataset: Dataset; options: Com
   if (a.contentHash !== expected) throw new ArtifactError('Artifact content hash does not match; the file may be corrupted or edited.');
 
   // Rebuild through the normalizer so caps and sanitization always apply.
-  const rawCommits: RawCommitRecord[] = ds.commits.map((c) => ({
-    sha: String(c.sha),
-    parents: Array.isArray(c.parentShas) ? c.parentShas.map(String) : [],
-    message: String(c.messageSubject ?? ''),
-    author: { key: String(c.authorIdentityId ?? ''), name: lookupName(ds, c.authorIdentityId), login: lookupLogin(ds, c.authorIdentityId), date: c.authoredAtRaw ?? null },
-    committer: c.committerIdentityId ? { key: String(c.committerIdentityId), date: c.committedAtRaw ?? null } : null,
-    url: c.githubUrl ?? null,
-    stats: c.stats ?? null,
-  }));
+  // Contributor ids are referenced by every commit. Looking them up with
+  // Array.find made validation O(commits × contributors): roughly 650 million
+  // comparisons for the 60k Linux artifact. Index once so validation remains
+  // linear without changing a single reconstructed identity.
+  const contributorById = new Map((Array.isArray(ds.contributors) ? ds.contributors : []).map((contributor) => [contributor.id, contributor]));
+  const rawCommits: RawCommitRecord[] = ds.commits.map((c) => {
+    const author = contributorById.get(c.authorIdentityId);
+    return {
+      sha: String(c.sha),
+      parents: Array.isArray(c.parentShas) ? c.parentShas.map(String) : [],
+      message: String(c.messageSubject ?? ''),
+      author: { key: String(c.authorIdentityId ?? ''), name: author?.displayName ?? null, login: author?.githubLogin ?? null, date: c.authoredAtRaw ?? null },
+      committer: c.committerIdentityId ? { key: String(c.committerIdentityId), date: c.committedAtRaw ?? null } : null,
+      url: c.githubUrl ?? null,
+      stats: c.stats ?? null,
+    };
+  });
   const rawRefs: RawRef[] = ds.refs.map((r) => ({ kind: r.kind === 'tag' || r.kind === 'branch' ? r.kind : 'other', name: String(r.name), targetSha: String(r.targetSha), sourceUrl: r.sourceUrl ?? null }));
   const source = {
     provider: ds.source.provider === 'github' ? ('github' as const) : ds.source.provider === 'synthetic' ? ('synthetic' as const) : ('artifact' as const),
@@ -103,16 +126,6 @@ export function validateArtifact(raw: unknown): { dataset: Dataset; options: Com
   if (dataset.contentHash !== ds.contentHash) throw new ArtifactError('Dataset content hash does not match after validation; refusing to load.');
   const options = a.options && typeof a.options === 'object' && a.options.preset ? (a.options as CompileOptions) : null;
   return { dataset, options };
-}
-
-function lookupName(ds: Dataset, id: unknown): string | null {
-  const c = ds.contributors?.find((x) => x.id === id);
-  return c?.displayName ?? null;
-}
-
-function lookupLogin(ds: Dataset, id: unknown): string | null {
-  const c = ds.contributors?.find((x) => x.id === id);
-  return c?.githubLogin ?? null;
 }
 
 async function readBounded(stream: ReadableStream<Uint8Array>, max: number): Promise<Uint8Array> {
@@ -147,4 +160,74 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/**
+ * Does this file lead with a streamed header?
+ *
+ * Only the first chunk is read. A gzip member has to be decompressed to see
+ * inside it, but the reader is cancelled as soon as there is enough to decide,
+ * so this costs a few kilobytes rather than the whole file.
+ */
+async function looksStreamed(blob: Blob, gzipped: boolean): Promise<boolean> {
+  try {
+    const src = gzipped ? blob.slice(0, 65_536).stream().pipeThrough(new DecompressionStream('gzip')) : blob.slice(0, 4096).stream();
+    const reader = src.getReader();
+    const { value } = await reader.read();
+    void reader.cancel();
+    if (!value) return false;
+    return new TextDecoder().decode(value.slice(0, 200)).includes('"gittimeline-stream"');
+  } catch {
+    // A truncated gzip member throws here; that is not an answer to the
+    // question asked, so fall through to the whole-document reader and let it
+    // produce the real error.
+    return false;
+  }
+}
+
+/**
+ * Assemble a dataset from a line-delimited artifact.
+ *
+ * The records go straight into the arrays the normalizer wants, so the only
+ * things held are the dataset itself and one line at a time. That is the whole
+ * trick: 1.48 million commits is an unremarkable amount of *data* and an
+ * impossible amount of *string*.
+ */
+async function parseStreamed(stream: ReadableStream<Uint8Array>): Promise<{ dataset: Dataset; options: CompileOptions | null }> {
+  let header: StreamHeader | null = null;
+  const commits: Dataset['commits'] = [];
+  const refs: Dataset['refs'] = [];
+  const contributors: Dataset['contributors'] = [];
+  let trailer;
+  try {
+    trailer = await readStreamedArtifact(
+      stream,
+      (h) => (header = h),
+      (r) => {
+        if (r.t === 'c') commits.push(r.v);
+        else if (r.t === 'r') refs.push(r.v);
+        else contributors.push(r.v);
+      },
+    );
+  } catch (err) {
+    throw new ArtifactError(err instanceof Error ? err.message : 'The artifact could not be read.');
+  }
+  const h = header as StreamHeader | null;
+  if (!h) throw new ArtifactError('Artifact has no header.');
+  if (trailer.contentHash !== streamContentHash(trailer.datasetHash)) {
+    throw new ArtifactError('Artifact content hash does not match; the file may be corrupted or edited.');
+  }
+  if (commits.length !== h.counts.commits) {
+    throw new ArtifactError(`Artifact is incomplete: ${commits.length.toLocaleString('en-US')} of ${h.counts.commits.toLocaleString('en-US')} commits.`);
+  }
+  // Rebuilt through the same normalizer as everything else, so the caps and
+  // the sanitization apply to a streamed file exactly as they do to a pasted
+  // one. An artifact is untrusted input however it arrived.
+  return validateArtifact({
+    schemaVersion: ARTIFACT_SCHEMA_VERSION,
+    format: 'gittimeline',
+    engine: h.engine,
+    dataset: { schemaVersion: 1, source: h.source, coverage: h.coverage, commits, edges: [], refs, contributors, contentHash: trailer.datasetHash },
+    contentHash: contentHashOf({ dataset: trailer.datasetHash, schema: ARTIFACT_SCHEMA_VERSION }),
+  });
 }

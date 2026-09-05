@@ -1,0 +1,282 @@
+{
+  "BurntSushi/ripgrep": {
+    "slug": "BurntSushi/ripgrep",
+    "bytes": 359623,
+    "commits": null,
+    "ok": false,
+    "error": "locator.waitFor: Timeout 15000ms exceeded.",
+    "totalMs": null,
+    "lastPrelude": null,
+    "pageErrors": [
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')",
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')",
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')"
+    ]
+  },
+  "rust-lang/mdBook": {
+    "slug": "rust-lang/mdBook",
+    "bytes": 575003,
+    "commits": null,
+    "ok": false,
+    "error": "locator.waitFor: Timeout 15000ms exceeded.",
+    "totalMs": null,
+    "lastPrelude": null,
+    "pageErrors": [
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')",
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')",
+      "TypeError: Cannot read properties of null (reading 'toLocaleString')"
+    ]
+  },
+  "facebook/react": {
+    "slug": "facebook/react",
+    "bytes": 2642128,
+    "commits": 21678,
+    "totalMs": 2003,
+    "duration": 551,
+    "stats": {
+      "commits": 21678,
+      "merges": 2605,
+      "roots": 4,
+      "boundaries": 0,
+      "threads": 2576,
+      "contributors": 2096,
+      "maxConcurrentThreads": 1296,
+      "aggregatedCommits": 17474
+    },
+    "nodes": 4204,
+    "phase": "PLAYING",
+    "firstPreludeMs": 689,
+    "stageCount": 2,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel CHOREOGRAPHING"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "nodejs/node": {
+    "slug": "nodejs/node",
+    "bytes": 5758897,
+    "commits": 48272,
+    "totalMs": 2564,
+    "duration": 136,
+    "stats": {
+      "commits": 48272,
+      "merges": 349,
+      "roots": 1,
+      "boundaries": 0,
+      "threads": 327,
+      "contributors": 4727,
+      "maxConcurrentThreads": 281,
+      "aggregatedCommits": 47259
+    },
+    "nodes": 1013,
+    "phase": "PLAYING",
+    "firstPreludeMs": 1500,
+    "stageCount": 3,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Setting the tempo… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Reading the commit graph… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "python/cpython": {
+    "slug": "python/cpython",
+    "bytes": 17425486,
+    "commits": 133027,
+    "totalMs": 13581,
+    "duration": 3179,
+    "stats": {
+      "commits": 133027,
+      "merges": 12428,
+      "roots": 1,
+      "boundaries": 0,
+      "threads": 12022,
+      "contributors": 4160,
+      "maxConcurrentThreads": 11859,
+      "aggregatedCommits": 108606
+    },
+    "nodes": 24421,
+    "phase": "PLAYING",
+    "firstPreludeMs": 791,
+    "stageCount": 8,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Reading the commit graph… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Measuring activity… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Laying out the stage… Cancel LAYING_OUT",
+      "Reading repository Mapping known commits Finding parallel threads Writing the choreography… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Ready Cancel CHOREOGRAPHING"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "kubernetes/kubernetes": {
+    "slug": "kubernetes/kubernetes",
+    "bytes": 18333392,
+    "commits": 140858,
+    "totalMs": 150236,
+    "duration": 16381,
+    "stats": {
+      "commits": 140858,
+      "merges": 57863,
+      "roots": 1,
+      "boundaries": 0,
+      "threads": 57738,
+      "contributors": 6048,
+      "maxConcurrentThreads": 56091,
+      "aggregatedCommits": 14885
+    },
+    "nodes": 125973,
+    "phase": "PLAYING",
+    "firstPreludeMs": 811,
+    "stageCount": 9,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Reading the commit graph… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Measuring activity… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Setting the tempo… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Laying out the stage… Cancel LAYING_OUT",
+      "Reading repository Mapping known commits Finding parallel threads Writing the choreography… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Ready Cancel CHOREOGRAPHING"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "microsoft/vscode": {
+    "slug": "microsoft/vscode",
+    "bytes": 19246487,
+    "commits": 164682,
+    "totalMs": 45897,
+    "duration": 5776,
+    "stats": {
+      "commits": 164682,
+      "merges": 17594,
+      "roots": 2,
+      "boundaries": 0,
+      "threads": 12238,
+      "contributors": 3409,
+      "maxConcurrentThreads": 9925,
+      "aggregatedCommits": 120282
+    },
+    "nodes": 44400,
+    "phase": "PLAYING",
+    "firstPreludeMs": 861,
+    "stageCount": 8,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Reading the commit graph… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Measuring activity… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Laying out the stage… Cancel LAYING_OUT",
+      "Reading repository Mapping known commits Finding parallel threads Writing the choreography… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Ready Cancel CHOREOGRAPHING"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "tensorflow/tensorflow": {
+    "slug": "tensorflow/tensorflow",
+    "bytes": 25717450,
+    "commits": 198583,
+    "totalMs": 42101,
+    "duration": 5156,
+    "stats": {
+      "commits": 198583,
+      "merges": 14031,
+      "roots": 3,
+      "boundaries": 0,
+      "threads": 11939,
+      "contributors": 5366,
+      "maxConcurrentThreads": 11250,
+      "aggregatedCommits": 158953
+    },
+    "nodes": 39630,
+    "phase": "PLAYING",
+    "firstPreludeMs": 1042,
+    "stageCount": 8,
+    "stages": [
+      "Reading repository Mapping known commits Finding parallel threads Ready Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Reading the commit graph… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Finding parallel threads… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Setting the tempo… Cancel BUILDING_DAG",
+      "Reading repository Mapping known commits Finding parallel threads Laying out the stage… Cancel LAYING_OUT",
+      "Reading repository Mapping known commits Finding parallel threads Writing the choreography… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Directing the camera… Cancel CHOREOGRAPHING",
+      "Reading repository Mapping known commits Finding parallel threads Ready Cancel CHOREOGRAPHING"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "rust-lang/rust": {
+    "slug": "rust-lang/rust",
+    "bytes": 43595988,
+    "commits": 339084,
+    "totalMs": 638974,
+    "duration": 32283,
+    "stats": {
+      "commits": 339084,
+      "merges": 107048,
+      "roots": 19,
+      "boundaries": 0,
+      "threads": 105261,
+      "contributors": 9274,
+      "maxConcurrentThreads": 104297,
+      "aggregatedCommits": 90786
+    },
+    "nodes": 248298,
+    "phase": "PLAYING",
+    "firstPreludeMs": 709,
+    "stageCount": 9,
+    "stages": [
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Composing ",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Reading th",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Finding pa",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Measuring ",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Setting th",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Laying out",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Writing th",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Directing ",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Ready Canc"
+    ],
+    "ok": true,
+    "pageErrors": []
+  },
+  "llvm/llvm-project": {
+    "slug": "llvm/llvm-project",
+    "bytes": 79782886,
+    "commits": 595778,
+    "totalMs": 27755,
+    "duration": 155,
+    "stats": {
+      "commits": 595778,
+      "merges": 5,
+      "roots": 4,
+      "boundaries": 0,
+      "threads": 6,
+      "contributors": 9746,
+      "maxConcurrentThreads": 4,
+      "aggregatedCommits": 594884
+    },
+    "nodes": 894,
+    "phase": "PLAYING",
+    "firstPreludeMs": 1009,
+    "stageCount": 5,
+    "stages": [
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Composing ",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Reading th",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Finding pa",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Setting th",
+      "GITTIMELINE-LANDING-0 gittimeline-landing-0 Reading repository Mapping known commits Finding parallel threads Ready Canc"
+    ],
+    "ok": true,
+    "pageErrors": []
+  }
+}

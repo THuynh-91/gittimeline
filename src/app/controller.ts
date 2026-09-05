@@ -1,4 +1,4 @@
-import { batch } from '@preact/signals';
+import { batch, effect } from '@preact/signals';
 import { store, updateSettings, toast, announce, type AppError } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
@@ -12,10 +12,12 @@ import { ingestRepository, probeRepository, type IngestOutcome } from '@/github/
 import { formatReset } from '@/github/ratelimit';
 import { willOutrunTheCeiling } from '@/choreography/pace';
 import { buildDemoDataset } from '@/fixtures/demo';
+import { buildLandingDataset } from '@/fixtures/landing';
 import { fixtureById } from '@/fixtures/corpus';
 import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
 import { buildShareHash, parseShareHash } from '@/export/share';
 import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '@/export/artifact';
+import { gunzipIfNeeded, performanceFileFor, performanceMatchesRequest, readCompiledPerformance, type PerfDatasetRef } from '@/export/performance';
 import { fmtClock } from '@/choreography/events';
 import { claimTokenFromUrl } from './auth';
 
@@ -101,20 +103,36 @@ export function getRenderer(): StageRenderer | null {
 function syncRendererSettings() {
   if (!renderer) return;
   const s = store.settings.value;
+  const shopWindow = store.mode.value === 'landing';
   renderer.settings = {
     ...renderer.settings,
     reducedMotion: s.reducedMotion,
     noFlash: s.noFlash,
     highContrast: s.highContrast,
     quality: s.quality,
-    labels: s.labels,
+    // No text on the stage behind the form. The renderer writes branch names,
+    // aggregate captions and tags over the history in the same size and weight
+    // as the page's own copy, and at the landing's framing they land at eye
+    // level — "fix/i18n-410" and "7 commits converge" reading as if they were
+    // part of the sentence asking for a URL. The picture keeps its shape and
+    // its light; it just stops talking over the page.
+    labels: shopWindow ? 'minimal' : s.labels,
     showGlyphs: s.showGlyphs,
     contributorFocus: store.contributorFocus.value,
     selectedNode: store.selectedNode.value,
     hoverNode: store.hoverNode.value,
     selectedThread: store.selectedThread.value,
   };
-  renderer.attenuation = store.mode.value === 'landing' ? 0.85 : 1;
+  // Behind the landing form the performance is the page. It is framed to fill
+  // the canvas and barely veiled: the copy takes its contrast from a pool of
+  // dark directly under it rather than from a blanket over the whole stage.
+  // 0.85 was that blanket, and it took a picture that was already far too
+  // small and made it faint as well.
+  // Behind the form the history is scenery. 0.92 was tuned to win a contrast
+  // measurement and won the page along with it — the thing you are meant to
+  // read was competing with the thing behind it. It sits back down.
+  renderer.attenuation = shopWindow ? 0.62 : 1;
+  renderer.shopWindow = shopWindow;
   audio.levels = { master: s.effectsLevel, effects: s.effectsLevel, muted: s.muted };
   audio.dynamics = s.dynamics;
   audio.applyLevels();
@@ -180,15 +198,34 @@ export function stopLoop() {
   cancelAnimationFrame(rafId);
 }
 
+/**
+ * The music plays during a performance and at no other time.
+ *
+ * `audio.reset()` used to be the whole of this, and for a synthesised score it
+ * was enough — there was nothing to hear between events. A recording keeps
+ * playing until something stops it, so pausing left the soundtrack running
+ * over a frozen picture and going back to the landing page left it playing
+ * over the form. Neither is a performance, so neither gets music.
+ */
+function syncAudioToPlayback() {
+  // `PLAYING` rather than `player.playing`, because the two are not the same
+  // thing while a repository is still being fetched and compiled: the clock
+  // can be running against a performance that has nothing on screen yet, and
+  // music over a loading screen is music with nothing to accompany.
+  const performing = store.mode.value === 'player' && player.playing && !!store.perf.value && store.phase.value === 'PLAYING';
+  if (performing) audio.resume();
+  else audio.suspend();
+}
+
 player.on('play', () => {
   store.playing.value = true;
   store.phase.value = 'PLAYING';
-  audio.resume();
+  syncAudioToPlayback();
 });
 player.on('pause', () => {
   store.playing.value = false;
   if (store.phase.value === 'PLAYING') store.phase.value = 'PAUSED';
-  audio.reset();
+  syncAudioToPlayback();
 });
 player.on('seek', () => {
   audio.reset();
@@ -199,7 +236,25 @@ player.on('seek', () => {
 player.on('end', () => {
   store.playing.value = false;
   store.phase.value = 'PAUSED';
-  if (store.settings.value.loopPerformance || store.mode.value === 'landing') {
+  // Running out of history is a way of stopping, and the music has to hear
+  // about it. Only `pause` was wired to the soundtrack, and reaching the last
+  // commit does not raise `pause` — so the rock kept playing over a finished,
+  // motionless picture.
+  syncAudioToPlayback();
+  if (store.mode.value === 'landing') {
+    // Reaching the end of the landing path does not rewind it. The next seed
+    // generates a different history, so what follows is new work arriving
+    // rather than the same half-minute again — and the seam falls where the
+    // stage is naturally empty, which is the only place a change of history
+    // does not read as a glitch.
+    landingSeed++;
+    // Fade through the change rather than cutting. A different history has a
+    // different shape, and swapping it in on one frame is the only moment the
+    // landing page can look like it restarted — which is the one thing it must
+    // never look like. The fade is short enough to read as the camera moving
+    // on and long enough to hide the swap.
+    crossFadeStage(() => void loadDemo({ autoplay: true, landing: true }));
+  } else if (store.settings.value.loopPerformance) {
     player.seek(0);
     player.play();
   }
@@ -259,7 +314,14 @@ async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolea
   return perf;
 }
 
-function loadPerformance(perf: CompiledPerformance, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean }) {
+/**
+ * `dataset` is null when the plan was precompiled and shipped: a `.gtperf`
+ * carries the performance, not the commits it was made from. Everything the
+ * stage draws comes from the plan; the dataset is what the inspector and the
+ * commit rail read, and `loadCatalogEntry` fetches it separately, afterwards,
+ * when it is small enough to be worth the bytes.
+ */
+function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean }) {
   batch(() => {
     store.perf.value = perf;
     store.dataset.value = dataset;
@@ -271,6 +333,10 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset, opts: { au
     store.compileStage.value = null;
     store.error.value = null;
     store.caption.value = null;
+    // A new history is a new performance, and it was paced to be watched at
+    // 1x. Carrying the last repository's 4x over to it means the first thing a
+    // viewer sees of something they just chose is a blur they did not ask for.
+    store.speed.value = 1;
     const degraded = opts.outcome === 'partial' || opts.outcome === 'rate-limited' || opts.outcome === 'offline-cached';
     store.phase.value = degraded ? 'DEGRADED_READY' : 'READY';
     if (store.rendererMode.value === 'poster') {
@@ -281,7 +347,11 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset, opts: { au
     else store.banner.value = null;
   });
   player.load(perf, opts.startAt ?? 0);
-  player.rate = store.speed.peek();
+  // Behind the form the performance is scenery, and scenery moves slowly. At
+  // full pace the landing page is a scrolling wall of arrivals competing with
+  // the one thing it is asking you to do, which is read a sentence and type a
+  // URL. In the player it stays at 1x, where it is the thing being watched.
+  player.rate = opts.isDemo && store.mode.peek() === 'landing' ? 0.22 : 1;
   releaseCamera();
   captionPtr = 0;
   renderer?.setPerformance(perf);
@@ -305,12 +375,26 @@ function fail(error: AppError) {
   });
 }
 
+/**
+ * Which path the landing page is currently showing.
+ *
+ * Advanced rather than reset. The landing history is generated from this, so
+ * the next one is a different shape instead of the same one again — which is
+ * the difference between a background that is alive and a thirty-second loop
+ * that visibly rewinds.
+ */
+let landingSeed = 0;
+
 export async function loadDemo(opts: { autoplay: boolean; landing: boolean; startAt?: number } = { autoplay: true, landing: false }) {
   if (!opts.landing) primeAudio();
   const r = newRun();
   lastRepo = null;
   partialDataset = null;
-  const ds = buildDemoDataset();
+  // The scripted demo is a tour of the motion language and stays exactly as
+  // written — it is what `?demo=1` and gallery mode show, and those have to be
+  // reproducible. Behind the form the requirement is the opposite one: never
+  // the same twice, and never seen to start over.
+  const ds = opts.landing ? buildLandingDataset(String(landingSeed)) : buildDemoDataset();
   batch(() => {
     store.mode.value = opts.landing ? 'landing' : 'player';
     if (store.rendererMode.value !== 'poster') store.banner.value = null;
@@ -326,20 +410,44 @@ export async function loadDemo(opts: { autoplay: boolean; landing: boolean; star
 /**
  * Jump to where the current performance looks like something.
  *
- * The widest parallel phrase is the most *interesting* moment, but early in a
- * history it can still be three commits on an empty stage. Taking the later of
- * that and roughly two-thirds through means most of the graph has been drawn
- * and the picture still has movement in it, rather than the settled, dimmed
- * final tableau.
+ * The first attempt at this took the *longest* parallel phrase, which picks
+ * the history's longest-lived branch — one extra line beside the spine, for
+ * months. Long is not the same as busy. What makes a frame worth looking at is
+ * how many threads are open at once, so this counts exactly that across the
+ * performance and takes the widest moment, backing off a couple of seconds so
+ * the page opens on threads still arriving rather than mid-merge.
+ *
+ * A third of the way in is the floor: some histories fan out immediately, and
+ * their busiest instant is one where almost nothing has been drawn yet — busy
+ * and empty at the same time.
  */
 function seekToLiveliest() {
   const p0 = store.perf.value;
-  if (!p0) return;
-  const widest = p0.events
-    .filter((e) => e.type === 'PARALLEL_PHRASE')
-    .sort((a, b) => b.performanceEnd - b.performanceStart - (a.performanceEnd - a.performanceStart))[0];
-  const phrase = widest ? Math.max(0, widest.performanceStart - 1.5) : 0;
-  player.seek(Math.max(phrase, p0.duration * 0.62));
+  if (!p0 || p0.duration <= 0) return;
+  const STEPS = 240;
+  const openAt = (t: number) => {
+    let open = 0;
+    for (const th of p0.threads) if (th.start <= t && th.end >= t) open++;
+    return open;
+  };
+  let bestT = 0;
+  let bestOpen = -1;
+  for (let i = 0; i < STEPS; i++) {
+    const t = (p0.duration * i) / (STEPS - 1);
+    const open = openAt(t);
+    // Strictly greater keeps the earliest of a plateau, which is the moment the
+    // stage is filling rather than the one where it has started emptying.
+    if (open > bestOpen) {
+      bestOpen = open;
+      bestT = t;
+    }
+  }
+  // Open here and then run on. An earlier version also stopped at the far end
+  // of this stretch and jumped back, which kept the picture busy and made the
+  // landing page a four-second loop with a visible rewind in it — a worse
+  // fault than the one it fixed. The path continues to its end and a
+  // differently seeded one follows it, so nothing is ever seen twice.
+  player.seek(Math.max(p0.duration * 0.34, Math.min(bestT - 2, p0.duration - 4)));
 }
 
 /**
@@ -350,9 +458,94 @@ function seekToLiveliest() {
  * rather than the moving one they arrived at.
  */
 export function showLanding() {
-  if (store.isDemo.value && store.perf.value) {
-    store.mode.value = 'landing';
+  store.mode.value = 'landing';
+}
+
+/**
+ * The landing page is never still, and never has music.
+ *
+ * Both of those were being enforced at the call sites, and ten places set
+ * `store.mode`. Escape sets it. Cancelling a load sets it. Failing to load
+ * sets it. Every one had to remember to restart the demo and stop the
+ * soundtrack, and the ones that forgot produced exactly the two faults you
+ * would predict: a frozen picture behind the form, and a rock track playing
+ * over it.
+ *
+ * So the mode drives it instead. There is nothing left for a call site to
+ * forget, and a new one cannot reintroduce either fault.
+ */
+let lastMode = store.mode.peek();
+effect(() => {
+  const mode = store.mode.value;
+  if (mode === lastMode) return;
+  lastMode = mode;
+  if (mode === 'landing') {
+    audio.suspend();
+    startLandingDemo();
+  } else {
+    syncAudioToPlayback();
+  }
+});
+
+/**
+ * Dip the stage, change what is on it, bring it back.
+ *
+ * The renderer's veil is already there for the landing page, so this borrows
+ * it: darken to black over a beat, swap, and lift. Nothing else in the app
+ * needs this — a performance the viewer chose should cut cleanly to the next
+ * one — so it lives here beside the only thing that does.
+ */
+function crossFadeStage(swap: () => void) {
+  if (!renderer) {
+    swap();
+    return;
+  }
+  const settled = renderer.attenuation;
+  const DOWN = 420;
+  const UP = 620;
+  const started = performance.now();
+  let swapped = false;
+  const step = () => {
+    if (!renderer || store.mode.peek() !== 'landing') {
+      if (renderer) renderer.attenuation = settled;
+      if (!swapped) swap();
+      return;
+    }
+    const dt = performance.now() - started;
+    if (dt < DOWN) {
+      renderer.attenuation = settled * (1 - dt / DOWN);
+    } else {
+      if (!swapped) {
+        swapped = true;
+        swap();
+      }
+      const up = Math.min(1, (dt - DOWN) / UP);
+      renderer.attenuation = settled * up;
+      if (up >= 1) {
+        renderer.attenuation = settled;
+        return;
+      }
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/**
+ * Put something moving behind the form.
+ *
+ * If the demo is already loaded it is rewound to its liveliest stretch rather
+ * than reloaded — recompiling to show the same thing is a second of black for
+ * no reason. Anything else on the stage is a repository the viewer chose to
+ * watch, and it is not the landing page's job to keep showing that.
+ */
+function startLandingDemo() {
+  if (store.isDemo.peek() && store.perf.peek()) {
     releaseCamera();
+    // The landing framing is a renderer setting, not a consequence of loading:
+    // coming back from the catalog reuses the demo already in memory, so
+    // nothing else here would put the shop window back.
+    syncRendererSettings();
     seekToLiveliest();
     player.play();
     return;
@@ -563,6 +756,20 @@ export function retry() {
  * result is a static file: a visitor watches a large repository with no token
  * and no GitHub requests at all. The artifact still goes through the same
  * normalizer as live data, so nothing about the truth model is relaxed.
+ *
+ * Fetching ahead of time only ever removed half the wait, though, and much the
+ * smaller half. The other half is `compilePerformance`: ripgrep 0.5s, React
+ * 2.0s, CPython 20s, VS Code 36s, Kubernetes 142s, Rust 639s, and Linux and
+ * Chromium never finished at all. So the compile is done ahead of time too. If
+ * a `.gtperf.gz` sits beside the dataset, the plan inside it goes straight to
+ * the player and the compiler never runs at all — see
+ * `src/export/performance.ts` for what is in that file and why.
+ *
+ * The dataset path below is still here and still correct, because a shipped
+ * plan can be absent (nothing has built one yet) or inapplicable (the viewer
+ * has asked for a different length, or their system asks for reduced motion,
+ * and a plan baked at one pace cannot honestly answer for another). Either way
+ * the entry opens; it just opens the way it used to.
  */
 export async function loadCatalogEntry(file: string, label: string) {
   const r = newRun();
@@ -575,6 +782,15 @@ export async function loadCatalogEntry(file: string, label: string) {
   });
   primeAudio();
   try {
+    const ready = await loadPrecompiledPlan(r, file);
+    if (run?.id !== r.id) return;
+    if (ready) {
+      lastRepo = null;
+      loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false });
+      toast(`${label} — fetched and composed ahead of time`);
+      void hydrateInspectorDataset(r, ready.dataset);
+      return;
+    }
     const res = await fetch(`${import.meta.env.BASE_URL}catalog/${file}`, { signal: r.abort.signal });
     if (!res.ok) throw new Error(`catalog entry unavailable (${res.status})`);
     const { dataset } = await parseArtifact(await res.blob());
@@ -592,6 +808,93 @@ export async function loadCatalogEntry(file: string, label: string) {
       canPlayPartial: false,
       retry: false,
     });
+  }
+}
+
+/**
+ * Fetch the shipped plan for a catalog entry, if there is one this build can
+ * use.
+ *
+ * Every way this can decline returns null rather than throwing, because none
+ * of them is an error: an entry nothing has precompiled yet, a plan left over
+ * from an older engine, a viewer whose settings ask for a different show. The
+ * caller falls back to the dataset and the entry opens regardless. Only a plan
+ * that is *present and broken* is worth saying anything about, and that goes
+ * to the console rather than to the viewer, who has lost a second and nothing
+ * else.
+ *
+ * The filename is derived rather than looked up. `index.json` is written by a
+ * separate step that knows about datasets and thumbnails, and teaching it
+ * about plans as well would mean a catalog could be indexed and precompiled in
+ * either order and be wrong in one of them. A file that is either there or not
+ * there cannot get out of step with itself.
+ */
+async function loadPrecompiledPlan(r: Run, file: string): Promise<{ perf: CompiledPerformance; dataset: PerfDatasetRef | null } | null> {
+  if (typeof DecompressionStream === 'undefined') return null;
+  let res: Response;
+  try {
+    res = await fetch(`${import.meta.env.BASE_URL}catalog/${performanceFileFor(file)}`, { signal: r.abort.signal });
+  } catch {
+    return null;
+  }
+  if (!res.ok || !res.body) return null;
+  let ref: PerfDatasetRef | null = null;
+  try {
+    const perf = await readCompiledPerformance(await gunzipIfNeeded(res.body), (h) => {
+      ref = h.dataset;
+    });
+    // A precompiled plan is one plan. Someone who has chosen a different
+    // length, pinned a duration, or whose system asks for reduced motion is
+    // asking for a different one, and playing this one and calling it theirs
+    // would be a quiet lie about what they are watching.
+    if (!performanceMatchesRequest(perf, store.settings.value.seed, presetFromSettings())) return null;
+    return { perf, dataset: ref };
+  } catch (err) {
+    if (r.abort.signal.aborted) return null;
+    console.warn('Precompiled performance could not be used; compiling from the dataset instead.', err);
+    return null;
+  }
+}
+
+/**
+ * How large a dataset is worth fetching a second time, in bytes.
+ *
+ * A plan says where every commit lands and nothing about what any of them
+ * said. Subjects, parent lists and links to GitHub live in the dataset, and
+ * the inspector and the commit rail read them from there — so with a shipped
+ * plan alone the stage is complete and the reading matter beside it is blank.
+ * Fetching the dataset afterwards fills that back in, and it starts only once
+ * the performance is already playing, so nobody is waiting on it.
+ *
+ * The limit is not really about bandwidth. Reading an artifact ends in one
+ * synchronous pass through `buildDataset`, and that pass cannot be broken up:
+ * ripgrep and React come back in about a second, CPython's 133,027 commits
+ * take six, and six seconds of frozen stage in the middle of a performance
+ * that is already running is a worse thing to hand somebody than a rail
+ * without subjects. So the line is drawn where the pause stops being a hitch
+ * and starts being a stall — which on the shipped catalog means ripgrep,
+ * mdBook, React and Node.js fill in, and the six larger histories do not.
+ *
+ * The right fix is for the rail to ask for the subjects it is about to show
+ * rather than for the whole history to be re-read to supply them. Until then
+ * this is the honest half: everything on stage is exact for every entry, and
+ * the panel beside it is complete for the ones where completing it is free.
+ */
+const HYDRATE_MAX_BYTES = 8_000_000;
+
+async function hydrateInspectorDataset(r: Run, ref: PerfDatasetRef | null) {
+  if (!ref || ref.bytes > HYDRATE_MAX_BYTES) return;
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}catalog/${ref.file}`, { signal: r.abort.signal });
+    if (!res.ok) return;
+    const { dataset } = await parseArtifact(await res.blob());
+    // The run may have moved on several times while this was in flight, and a
+    // dataset for a history nobody is watching any more must never land on top
+    // of the one they are.
+    if (run?.id !== r.id || dataset.contentHash !== ref.contentHash) return;
+    store.dataset.value = dataset;
+  } catch {
+    /* the rail keeps its blank subjects; nothing on stage depends on this */
   }
 }
 
@@ -659,6 +962,7 @@ export function play() {
   if (fromLanding || atEnd) restart();
   syncRendererSettings();
   player.play();
+  syncAudioToPlayback();
 }
 
 /**
@@ -753,6 +1057,7 @@ export function toggleMute() {
   const muted = !store.settings.value.muted;
   updateSettings({ muted });
   if (!muted) audio.ensure();
+  syncAudioToPlayback();
   syncRendererSettings();
   toast(muted ? 'Sound off' : 'Sound on');
 }
@@ -819,11 +1124,40 @@ export function panCamera(dx: number, dy: number) {
   renderer.manual = { ...m, x: m.x - dx / m.scale, y: m.y - dy / m.scale };
 }
 
+/**
+ * The furthest out the viewer may go: the whole picture, plus a margin.
+ *
+ * Derived from the history rather than fixed, because "too far out" means
+ * something different for eleven commits and for a million.
+ */
+function minimumScale(): number {
+  const perf = store.perf.peek();
+  if (!renderer || !perf) return 0.05;
+  const b = perf.bounds;
+  const w = Math.max(1, b.maxX - b.minX);
+  const h = Math.max(1, b.maxY - b.minY);
+  const vp = renderer.viewport();
+  const fit = Math.min((vp.worldW * vp.scale) / w, (vp.worldH * vp.scale) / h);
+  // A quarter again beyond a perfect fit: enough air to see that the history
+  // ends, not enough to lose it.
+  return fit / 1.25;
+}
+
 export function zoomCamera(factor: number, sx?: number, sy?: number) {
   const m = takeManualCamera();
   if (!m || !renderer) return;
   const before = sx != null && sy != null ? renderer.screenToWorld(sx, sy) : null;
-  const scale = Math.max(0.05, Math.min(12, m.scale * factor));
+  // How far out you may go: far enough to see the whole history with a margin
+  // around it, and not one scroll further.
+  //
+  // The floor used to be a fixed 0.05, which on a large history is a hundred
+  // times further out than the picture — the performance became a hairline in
+  // the middle of an empty screen and there was no way back except scrolling
+  // until it happened to fit. A "frame the whole history" button existed to
+  // rescue people from that, which is a button that exists because a limit
+  // does not. The limit is better: you cannot get lost, so nothing has to find
+  // you.
+  const scale = Math.max(minimumScale(), Math.min(12, m.scale * factor));
   renderer.manual = { ...m, scale };
   if (before && sx != null && sy != null) {
     const after = renderer.screenToWorld(sx, sy);
@@ -1199,6 +1533,15 @@ export function installDebugHook() {
     posterSvg(): string | null {
       const perf = store.perf.value;
       return perf ? renderPosterSvg(perf) : null;
+    },
+    get compileStage() {
+      return store.compileStage.value;
+    },
+    get progress() {
+      return store.progress.value;
+    },
+    get settings() {
+      return store.settings.value;
     },
     get waveform() {
       return store.perf.value ? Array.from(store.perf.value.waveform) : null;

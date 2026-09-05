@@ -130,7 +130,7 @@ function loadSettings(): Settings {
 
 export const store = {
   phase: signal<AppPhase>('IDLE'),
-  mode: signal<'landing' | 'player' | 'catalog'>('landing'),
+  mode: signal<'landing' | 'player' | 'catalog' | 'signin'>('landing'),
   input: signal(''),
   inputError: signal<string | null>(null),
   progress: signal<IngestProgress | null>(null),

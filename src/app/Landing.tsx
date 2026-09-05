@@ -1,70 +1,64 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { store } from './store';
-import { AUTH_BASE, signInWithGitHub } from './auth';
-import { loadDemo, loadRepo, loadArtifactFile, play } from './controller';
+import { loadDemo, loadRepo, play } from './controller';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
 
+/**
+ * Where the project lives. Neither is discoverable from the code, so both sit
+ * here as named constants: when the repository gets its final home this is one
+ * edit rather than a search through markup.
+ */
+const PROJECT_URL = 'https://github.com/THuynh-91/gittimeline';
+const SPONSOR_URL = 'https://github.com/sponsors/THuynh-91';
+
+/**
+ * Four repositories a visitor will recognise, chosen to be *different shapes*
+ * rather than to be the four most famous projects on GitHub. The point is to
+ * show that the answer differs: ripgrep is one author becoming a community,
+ * Git is topic branches merged by hand, esbuild is one person moving very
+ * fast. The genuinely huge ones — Linux, Chromium — are not here because an
+ * anonymous visitor cannot fetch them; those live in the catalog, pre-fetched,
+ * where they cost nothing.
+ */
 const EXAMPLES: Array<{ label: string; url: string }> = [
   { label: 'ripgrep', url: 'github.com/BurntSushi/ripgrep' },
   { label: 'Preact', url: 'github.com/preactjs/preact' },
   { label: 'Git', url: 'github.com/git/git' },
-  { label: 'React', url: 'github.com/facebook/react' },
+  { label: 'esbuild', url: 'github.com/evanw/esbuild' },
 ];
 
 /**
  * Anonymous GitHub access is capped at about sixty requests an hour per
- * network, which runs out on a large project. This is where someone hits that
- * wall, so this is where the way past it belongs.
+ * network, which runs out on a large project.
+ *
+ * This used to open in the middle of the page, directly under the field, where
+ * it was a fifth thing competing with the one question the page asks. It is
+ * now a footnote that expands over the footer, which is the right weight: the
+ * two places somebody actually meets the rate limit are the error dialog and
+ * Settings, and both of them already offer this same box. Here it is only a
+ * head start for the visitor who already knows they will need it.
  */
-function TokenNote() {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState(store.token.value ?? '');
-  const active = !!store.token.value;
-  if (!open) {
-    return (
-      <button type="button" class="token-link" onClick={() => setOpen(true)} data-testid="token-disclosure">
-        {active ? 'GitHub token active — about 5,000 requests an hour' : 'Loading a large repository? Use your GitHub token'}
-      </button>
-    );
-  }
-  return (
-    <div class="token-panel">
-      <p>
-        Without a token GitHub allows your network about 60 requests an hour, which covers a few thousand commits. A free fine-grained token with read-only public access raises that to about 5,000, enough for a large project's whole history.
-      </p>
-      {AUTH_BASE && (
-        <div class="token-signin">
-          <button type="button" class="btn primary small" onClick={signInWithGitHub} data-testid="signin-github">
-            Sign in with GitHub
-          </button>
-          <span>
-            Grants no permissions at all — it reads exactly what an anonymous visitor reads, just faster. Nothing about you is stored.
-          </span>
-        </div>
-      )}
-      <div class="token-inline">
-        <input
-          type="text"
-          autoComplete="off"
-          spellcheck={false}
-          aria-label="GitHub token"
-          placeholder="github_pat_…"
-          value={value}
-          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
-          data-testid="landing-token"
-        />
-        <button type="button" class="btn primary small" onClick={() => { store.token.value = value.trim() || null; setOpen(false); }}>
-          Use
-        </button>
-      </div>
-      <p>
-        Create one at <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">github.com/settings/personal-access-tokens</a> with no extra permissions selected. It stays in memory for this tab only, goes only to api.github.com, and is never stored or shared.
-      </p>
-    </div>
-  );
-}
-
+/**
+ * The landing page asks one question — which repository? — so it is built as
+ * one question: a wordmark, a sentence, a field, and a single line of quiet
+ * alternatives for the visitor who has no repository in mind.
+ *
+ * What used to be here and is not any more:
+ *
+ * - The row of example chips and the second row of recently-opened ones. Two
+ *   rows of bordered pills under a sentence of body copy read as a wall of
+ *   fragments rather than as suggestions. They are now names in a line of
+ *   prose, and the two rows can never both appear: if you have opened
+ *   something before, your own repositories are the better suggestion and they
+ *   take the line over.
+ * - The catalog's two-line bar with its own subtitle. It was a card competing
+ *   with the field directly beneath it; it is the end of the same line now,
+ *   the brightest thing in it, and it still goes to a whole page of its own.
+ * - The hairline under the wordmark, and most of the wordmark's size. The
+ *   performance behind this page is the thing worth looking at, and eleven
+ *   letters at fifty-six pixels were the loudest object on screen.
+ */
 export function Landing() {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -75,7 +69,13 @@ export function Landing() {
     e?.preventDefault();
     const value = store.input.value.trim();
     if (!value) {
-      // An empty PLAY performs the built-in demo in full.
+      // An empty PLAY performs the built-in demo in full. There used to be a
+      // second button beside this one that did exactly this under a different
+      // name; two names for one action is not two choices.
+      //
+      // It loads the demo rather than promoting whatever is behind the form,
+      // which is a differently seeded shop-window history and not the scripted
+      // tour of the motion language this button promises.
       void loadDemo({ autoplay: true, landing: false });
       return;
     }
@@ -121,99 +121,141 @@ export function Landing() {
   const parsed = store.input.value.trim() ? parseRepoUrl(store.input.value) : null;
   const err = store.inputError.value;
   const recent = store.recent.value;
+  const typed = !!store.input.value.trim();
+  const tokenActive = !!store.token.value;
+
+  // One list, never two. Repositories you have already watched are a better
+  // suggestion than four picked by us, so when they exist they take the line
+  // rather than opening a second row underneath it.
+  const suggestions =
+    recent.length > 0
+      ? recent.slice(0, 4).map((r) => ({ key: r.slug, label: r.slug.split('/')[1] ?? r.slug, title: r.slug, target: r.slug }))
+      : EXAMPLES.map((ex) => ({ key: ex.url, label: ex.label, title: ex.url, target: ex.url }));
 
   return (
     <section class="landing" aria-labelledby="landing-title">
-      <h1 id="landing-title" class="title">
-        GitTimeline
-      </h1>
-      <p class="subtitle">Paste a public GitHub repository and watch its history perform itself.</p>
-      <form class="url-form" onSubmit={submit}>
-        <div class="url-row">
-          <input
-            ref={inputRef}
-            class="url-input"
-            type="text"
-            inputMode="url"
-            autoComplete="off"
-            spellcheck={false}
-            placeholder="github.com/owner/repository"
-            aria-label="Public GitHub repository URL"
-            aria-invalid={!!err}
-            aria-describedby="url-hint"
-            value={store.input.value}
-            onInput={onInput}
-            onPaste={onPaste}
-            onKeyDown={onKey}
-            data-testid="url-input"
-          />
-          <button type="submit" class="play-btn" data-testid="play-button">
-            <Icons.play /> {store.input.value.trim() ? 'Play' : 'Play demo'}
+      {/* A top bar, because a form floating in the middle of a dark field with
+          nothing else on the page does not read as a site — it reads as a
+          screensaver with an input on it. The wordmark anchors the top left,
+          and every route that is not "which repository?" lives on the right,
+          where navigation is looked for. Those routes used to be strung along
+          the bottom of the reading path, between the field and the end of the
+          page, competing with the one thing a visitor came to do. */}
+      <header class="landing-bar">
+        <span class="landing-mark">
+          <span class="landing-dot" aria-hidden="true" />
+          {/* Two words, and the name only makes sense as two: a *timeline* of
+              *Git*. Set as one run of letters it reads as a single coined word
+              and the idea in it is lost. Splitting the colour rather than
+              adding a space keeps the wordmark one object while letting each
+              half be read. */}
+          <span class="mark-git">Git</span>
+          <span class="mark-time">Timeline</span>
+        </span>
+        <nav class="landing-nav" aria-label="Site">
+          {/* Ordered by how many people want each one. Browsing something that
+              costs nothing comes first; the account action is last and on the
+              right, where a primary action is looked for. Support used to sit
+              at the end of this row and was the brightest thing in it, which
+              is the wrong first impression for a page that is free. */}
+          <button type="button" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
+            Selection
           </button>
-        </div>
-        <div id="url-hint" class={`form-hint${err ? '' : ' ok'}`} aria-live="polite">
-          {err ? err : parsed && parsed.ok ? `Reads ${parsed.repo.slug} from GitHub, renders on your device.` : 'Fetched from GitHub, rendered on your device. Nothing is uploaded.'}
-        </div>
-        <div class="examples" aria-label="Examples">
-          <span>Try</span>
-          {EXAMPLES.map((ex) => (
+          <button type="button" onClick={() => { store.panel.value = 'help'; play(); }}>
+            How it works
+          </button>
+          <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer">
+            Source
+          </a>
+          <button type="button" class="nav-primary" onClick={() => (store.mode.value = 'signin')} data-testid="signin-link">
+            {tokenActive ? 'GitHub connected' : 'Connect GitHub'}
+          </button>
+        </nav>
+      </header>
+
+      <div class="landing-hero">
+        <h1 id="landing-title" class="title">
+          <span class="mark-git">Git</span>
+          <span class="mark-time">Timeline</span>
+        </h1>
+        <p class="subtitle">Paste a public GitHub repository and watch its history perform itself.</p>
+        <form class="url-form" onSubmit={submit}>
+          {/* Input and action are one control, not two objects that happen to
+              sit beside each other: the border belongs to the pair and lights
+              up whichever of them has focus. */}
+          <div class={`url-row${err ? ' invalid' : ''}`}>
+            <input
+              ref={inputRef}
+              class="url-input"
+              type="text"
+              inputMode="url"
+              autoComplete="off"
+              spellcheck={false}
+              placeholder="github.com/owner/repository"
+              aria-label="Public GitHub repository URL"
+              aria-invalid={!!err}
+              aria-describedby="url-hint"
+              value={store.input.value}
+              onInput={onInput}
+              onPaste={onPaste}
+              onKeyDown={onKey}
+              data-testid="url-input"
+            />
+            <button type="submit" class="play-btn" data-testid="play-button">
+              <Icons.play /> {typed ? 'Play' : 'Play demo'}
+            </button>
+          </div>
+          <div id="url-hint" class={`form-hint${err ? '' : ' ok'}`} aria-live="polite">
+            {err ? err : parsed && parsed.ok ? `Reads ${parsed.repo.slug} from GitHub, renders on your device.` : 'Fetched from GitHub, rendered on your device. Nothing is uploaded.'}
+          </div>
+        </form>
+
+        {/* Somewhere to start, for a visitor who has not arrived with a URL in
+            mind. One line, names only, and never two lines: repositories
+            already watched are a better suggestion than four picked by us, so
+            when they exist they take the line rather than opening a second row
+            underneath. That second row was most of what made this area
+            unreadable — a label, four names, another label, three more names,
+            directly beneath a sentence of body copy. */}
+        <p class="ways">
+          <span class="ways-label">{recent.length > 0 ? 'Again' : 'Try'}</span>
+          {suggestions.map((s) => (
             <button
+              key={s.key}
               type="button"
-              key={ex.url}
+              title={s.title}
               onClick={() => {
-                store.input.value = ex.url;
+                store.input.value = s.target;
                 store.inputError.value = null;
-                void loadRepo(ex.url, { autoplay: true });
+                void loadRepo(s.target, { autoplay: true });
               }}
             >
-              {ex.label}
+              {s.label}
             </button>
           ))}
-        </div>
-        {recent.length > 0 && (
-          <div class="examples recent" aria-label="Recently opened">
-            <span>Again</span>
-            {recent.slice(0, 3).map((r) => (
-              <button type="button" key={r.slug} onClick={() => void loadRepo(r.slug, { autoplay: true })} title={`${r.commits} commits`}>
-                {r.slug}
-              </button>
-            ))}
-          </div>
-        )}
-        <div class="alt-actions">
-          <button type="button" class="alt" onClick={() => void loadDemo({ autoplay: true, landing: false })} data-testid="demo-button">
-            Watch the demo
-          </button>
-          <button type="button" class="alt" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
-            Histories ready to watch
-          </button>
-        </div>
-      </form>
-      <TokenNote />
-      <div class="meta">
-        <span>
-          <a href="#" onClick={(e) => { e.preventDefault(); store.panel.value = 'help'; play(); }}>
-            How it works
-          </a>
-          {' · '}
-          <a href="https://github.com/" target="_blank" rel="noopener noreferrer">
-            Open source
-          </a>
-          {' · '}
-          <label style="cursor:pointer">
-            Import a .gittimeline file
-            <input
-              type="file"
-              accept=".gittimeline,.gitdance,.json,.gz"
-              class="sr-only"
-              onChange={(e) => {
-                const f = (e.target as HTMLInputElement).files?.[0];
-                if (f) void loadArtifactFile(f);
-              }}
-            />
-          </label>
-        </span>
+        </p>
+
+        {/* The other way in, and the only one that costs a visitor nothing at
+            all, so it gets its own line and its own weight. */}
+        <button type="button" class="shelf-cta" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-cta">
+          Selection ready to watch
+          <span aria-hidden="true">→</span>
+        </button>
       </div>
+
+      <footer class="landing-foot">
+        {/* The history behind the form is generated, and a page that shows a
+            picture of a repository owes the reader the fact that this one is
+            not a repository. */}
+        {store.isDemo.value && <p class="landing-note">Behind this page: a generated history, not a real repository.</p>}
+        {/* Out of the navigation and into the footer. Nothing here is
+            paywalled and nothing is gated, so this asks once, quietly, at the
+            bottom — not from the top bar where it was competing with the
+            routes people actually came for. */}
+        <a class="support-link" href={SPONSOR_URL} target="_blank" rel="noopener noreferrer">
+          <span aria-hidden="true">♥</span> Support this project
+        </a>
+      </footer>
     </section>
   );
 }

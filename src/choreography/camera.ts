@@ -88,7 +88,17 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     const t = s * CAMERA_STEP;
     // maintain the set of edges that are or will shortly be active
     while (edgePtr < sortedEdges.length && sortedEdges[edgePtr]!.start <= t + LOOK_AHEAD) open.push(sortedEdges[edgePtr++]!);
-    for (let i = open.length - 1; i >= 0; i--) if (open[i]!.end < t - 0.05) open.splice(i, 1);
+    // Swap-remove rather than splice. `open` is unordered as far as this loop
+    // cares — it is only ever scanned to grow a bounding box — and `splice`
+    // shifts every element after the one removed, which on a history with tens
+    // of thousands of simultaneously live edges turns edge retirement into the
+    // dominant cost of planning the camera.
+    for (let i = open.length - 1; i >= 0; i--) {
+      if (open[i]!.end < t - 0.05) {
+        open[i] = open[open.length - 1]!;
+        open.pop();
+      }
+    }
     while (mergePtr < merges.length && merges[mergePtr]!.performanceEnd + 1.6 < t) mergePtr++;
     while (splitPtr < splits.length && splits[splitPtr]!.performanceImpact + 1.2 < t) splitPtr++;
     while (spinePtr + 1 < spineNodes.length && spineNodes[spinePtr + 1]!.impact <= t) spinePtr++;
@@ -101,7 +111,26 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
       if (y > maxY) maxY = y;
     };
     const threadsActive = new Set<number>();
-    for (const e of open) {
+    // How many of the live edges to consult for the frame.
+    //
+    // This loop is the whole cost of planning a camera: it runs once per
+    // keyframe, and a keyframe is every 0.05 seconds. On a merge-queue project
+    // the number of simultaneously live edges runs into the tens of thousands,
+    // and the product of the two is what made Rust's camera take twenty-eight
+    // minutes to plan and Linux's never finish at all.
+    //
+    // What the loop actually computes is a bounding box and a count of busy
+    // threads. Neither needs every edge: a box drawn round two thousand of
+    // them, taken at an even stride so the sample spans the whole set rather
+    // than one corner of it, is within a few pixels of the box round fifty
+    // thousand — and it is then smoothed, and then fitted to a screen. The
+    // stride is deterministic, so the plan is still reproducible.
+    //
+    // Below the budget nothing is sampled and nothing changes.
+    const BUDGET = 2000;
+    const stride = open.length > BUDGET ? Math.ceil(open.length / BUDGET) : 1;
+    for (let oi = 0; oi < open.length; oi += stride) {
+      const e = open[oi]!;
       if (e.start <= t && e.end >= t) {
         const u = (t - e.start) / Math.max(1e-6, e.end - e.start);
         pointAt(e.pts, u, tmp);

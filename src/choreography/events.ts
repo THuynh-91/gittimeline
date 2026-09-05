@@ -272,12 +272,23 @@ export function buildEvents(ctx: EventContext): EventPlan {
 
   // --- Merge storms: several impacts inside a short window become one phrase ---
   mergeEvents.sort((a, b) => a.performanceImpact - b.performanceImpact);
+  // Indexed once rather than searched per merge.
+  //
+  // This was `nodes.find(x => x.sha === ...)` inside the loop below, which is a
+  // linear scan of every node for every merge. On most histories that is
+  // invisible. On a merge-queue project it is the entire cost of compiling:
+  // Rust has 107,048 merges and 248,298 nodes, so the search ran 26.6 billion
+  // comparisons and this function took twenty-eight minutes. Linux never
+  // finished at all.
+  const nodeBySha = new Map<string, NodeGeom>();
+  for (const nd of nodes) nodeBySha.set(nd.sha, nd);
+
   let i = 0;
   while (i < mergeEvents.length) {
     let j = i;
     while (j + 1 < mergeEvents.length) {
       const cur = mergeEvents[j]!;
-      const nd = nodes.find((x) => x.sha === cur.subjectIds[0]);
+      const nd = nodeBySha.get(cur.subjectIds[0]!);
       const window = Math.max(1.0, (nd ? ctx.beatLen[nd.idx]! : 0.5) * 3.2);
       if (mergeEvents[j + 1]!.performanceImpact - cur.performanceImpact >= window) break;
       j++;
@@ -304,8 +315,21 @@ export function buildEvents(ctx: EventContext): EventPlan {
     const open: EdgeGeom[] = [];
     for (let t = 0; t <= ctx.duration; t += step) {
       while (ptr < performerEdges.length && performerEdges[ptr]!.start <= t) open.push(performerEdges[ptr++]!);
-      for (let k = open.length - 1; k >= 0; k--) if (open[k]!.end < t) open.splice(k, 1);
-      const active = new Set(open.filter((e) => e.start <= t).map((e) => e.threadIdx));
+      // Swap-remove, not splice: `open` is only ever counted over, so its order
+      // carries no meaning, and splice shifts every element after the one it
+      // drops. With tens of thousands of edges live at once that shifting was
+      // the dominant cost of this scan.
+      for (let k = open.length - 1; k >= 0; k--) {
+        if (open[k]!.end < t) {
+          open[k] = open[open.length - 1]!;
+          open.pop();
+        }
+      }
+      // Counted in place. The previous form built an intermediate array and a
+      // mapped array before the Set, three allocations per step, and there are
+      // `duration / 0.1` steps.
+      const active = new Set<number>();
+      for (const e of open) if (e.start <= t) active.add(e.threadIdx);
       if (active.size >= 2) {
         if (!run) run = { start: t, end: t, max: active.size, threads: new Set(active) };
         run.end = t;

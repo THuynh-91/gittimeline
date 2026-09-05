@@ -66,24 +66,91 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
   const threadOfNode = new Int32Array(n).fill(-1);
   threads.forEach((t) => t.nodeIds.forEach((id) => (threadOfNode[id] = t.idx)));
 
-  // Intervals per side/lane that are occupied: side → lane → [start,end][]
-  const occupied: Map<string, Array<[number, number]>> = new Map();
+  /**
+   * Which stretches of each lane are taken.
+   *
+   * Both questions asked of this — "is this span free?" and "how many lanes
+   * are busy here?" — used to be a linear scan of every interval placed so
+   * far, from inside a loop over every thread. That is quadratic, and it is
+   * fine until it isn't: CPython's 12,022 threads pass unnoticed, Rust has
+   * 107,048 merges and therefore about that many threads, and the layout stage
+   * simply never returned.
+   *
+   * So each lane keeps its intervals ordered by start, alongside a running
+   * maximum of the ends seen so far. A span overlaps something only if some
+   * interval starting before it ends finishes after it starts — which is one
+   * binary search and one comparison against that running maximum. The answers
+   * are identical to the scan's; only the cost changes. Threads are visited in
+   * order of their anchor, so `starts` is almost always already sorted and the
+   * insert is an append.
+   */
+  interface Lane {
+    starts: number[];
+    ends: number[];
+    /** `maxEnd[i]` is the largest end among intervals `0..i`. */
+    maxEnd: number[];
+  }
+  const lanes = new Map<number, Lane>();
+  const laneKey = (side: number, lane: number) => side * (MAX_LANES + 1) + lane;
+
+  /** Does any interval in this lane overlap [s, e)? */
+  const overlaps = (l: Lane, s: number, e: number): boolean => {
+    // Intervals that could overlap are those starting strictly before `e`.
+    let lo = 0;
+    let hi = l.starts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (l.starts[mid]! < e) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo === 0) return false;
+    // Among those, an overlap exists exactly when one of them ends after `s`.
+    return l.maxEnd[lo - 1]! > s;
+  };
+
   const isFree = (side: number, lane: number, s: number, e: number) => {
-    const list = occupied.get(`${side}:${lane}`);
-    if (!list) return true;
-    return !list.some(([a, b]) => s < b && e > a);
+    const l = lanes.get(laneKey(side, lane));
+    return !l || !overlaps(l, s, e);
   };
+
   const occupy = (side: number, lane: number, s: number, e: number) => {
-    const key = `${side}:${lane}`;
-    const list = occupied.get(key) ?? [];
-    list.push([s, e]);
-    occupied.set(key, list);
+    const key = laneKey(side, lane);
+    let l = lanes.get(key);
+    if (!l) {
+      l = { starts: [], ends: [], maxEnd: [] };
+      lanes.set(key, l);
+    }
+    const last = l.starts.length - 1;
+    if (last < 0 || s >= l.starts[last]!) {
+      l.starts.push(s);
+      l.ends.push(e);
+      l.maxEnd.push(last < 0 ? e : Math.max(l.maxEnd[last]!, e));
+      return;
+    }
+    // Out of order, which the anchor ordering makes rare. Insert and repair
+    // the running maxima from that point on.
+    let lo = 0;
+    let hi = l.starts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (l.starts[mid]! <= s) lo = mid + 1;
+      else hi = mid;
+    }
+    l.starts.splice(lo, 0, s);
+    l.ends.splice(lo, 0, e);
+    l.maxEnd.splice(lo, 0, 0);
+    for (let i = lo; i < l.maxEnd.length; i++) l.maxEnd[i] = i === 0 ? l.ends[0]! : Math.max(l.maxEnd[i - 1]!, l.ends[i]!);
   };
+
+  /** How many lanes on this side have work in progress at `at`. */
   const activeOnSide = (side: number, at: number) => {
     let count = 0;
-    for (const [key, list] of occupied) {
-      if (!key.startsWith(`${side}:`)) continue;
-      if (list.some(([a, b]) => at >= a && at <= b)) count++;
+    for (let lane = 0; lane <= MAX_LANES; lane++) {
+      const l = lanes.get(laneKey(side, lane));
+      // `[a, b]` containing `at` is `a <= at && b >= at`, which is the same
+      // question as overlapping the degenerate span at `at` — with the
+      // inclusive bounds the scan used.
+      if (l && overlaps(l, at - 1e-9, at + 1e-9)) count++;
     }
     return count;
   };

@@ -21,7 +21,9 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await expect(page.locator('#url-hint')).toContainText('Reads acme/widget');
     await page.getByTestId('play-button').click();
     await waitForReady(page);
-    await expect(page.getByTestId('quality-badge')).toHaveText('exact');
+    // The badge names the span it covers, and says whether anything is missing
+    // from it. Matching the whole string would pin the fixture's years.
+    await expect(page.getByTestId('quality-badge')).toContainText('entire repo');
     await expect(page.locator('.repo-id')).toContainText('acme/widget');
     const stats = await page.evaluate(() => window.__gittimeline.stats);
     expect(stats).toMatchObject({ commits: 9, merges: 1, threads: 3 });
@@ -96,7 +98,7 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await page.getByTestId('url-input').fill('acme/widget');
     await page.getByTestId('play-button').click();
     await waitForReady(page);
-    await expect(page.getByTestId('quality-badge')).toHaveText('partial');
+    await expect(page.getByTestId('quality-badge')).toContainText('partial');
     await expect(page.locator('.banner')).toContainText('recent commits loaded');
     await expect(page.locator('.banner')).toContainText('request limit');
     const stats = await page.evaluate(() => window.__gittimeline.stats);
@@ -179,7 +181,9 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     expect(mock.conditional, 'the probe primes a page that ingestion then revalidates').toBeGreaterThan(0);
     const stats = await page.evaluate(() => window.__gittimeline.stats);
     expect(stats!.commits, 'every page of the history is loaded').toBe(350);
-    await expect(page.getByTestId('quality-badge')).toHaveText('exact');
+    // The badge names the span it covers, and says whether anything is missing
+    // from it. Matching the whole string would pin the fixture's years.
+    await expect(page.getByTestId('quality-badge')).toContainText('entire repo');
   });
 
   test('pasting a repository URL replaces the field, but never mid-edit', async ({ page, context }) => {

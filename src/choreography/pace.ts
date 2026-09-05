@@ -111,3 +111,20 @@ export function willOutrunTheCeiling(commits: number | null, mergeRatio: number 
   if (!commits || mergeRatio == null) return false;
   return predictVisible(commits, mergeRatio, lengthBias) > MAX_LEGIBLE_NODES;
 }
+
+
+/**
+ * The longest a performance may run.
+ *
+ * Not a taste judgement — a measured limit. Rust's whole history leaves 248,298
+ * nodes after aggregation, and giving each a readable moment came to 32,278
+ * seconds: a nine-hour performance. Beyond being unwatchable it is unbuildable,
+ * because the camera is keyframed every `CAMERA_STEP` and nine hours is 645,561
+ * keyframes to plan, smooth and carry in memory. Planning Rust's camera alone
+ * took twenty-eight minutes.
+ *
+ * Thirty-five minutes is where a history stops being something you watch and
+ * starts being something you leave running, which is the point at which
+ * stretching further buys nothing. Anything under it is unaffected.
+ */
+export const MAX_PERFORMANCE_SECONDS = 35 * 60;

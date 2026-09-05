@@ -11,9 +11,29 @@ export const LIMITS = {
   refName: 120,
   description: 240,
   login: 60,
-  maxCommits: 60_000,
+  /**
+   * The structural ceiling on a normalized dataset.
+   *
+   * This used to be 60,000, which was really a *fetch* budget wearing a
+   * normalizer's clothes: it existed so a browser could not be talked into
+   * paging through a million commits from the API one hundred at a time. But
+   * it also silently truncated precomputed artifacts, which are built by
+   * cloning rather than fetching and have no such problem — Linux arrived with
+   * 1,481,850 commits and came out the other side with 60,000, described as
+   * whole. A cap that quietly changes what a history *is* has to be far above
+   * anything real rather than in the middle of it.
+   *
+   * The fetch budget it was standing in for is now `maxLiveCommits`.
+   */
+  maxCommits: 2_000_000,
+  /** What a live GitHub fetch will pull before it stops and says so. */
+  maxLiveCommits: 60_000,
   maxRefs: 4_000,
-  maxParents: 64,
+  /**
+   * Linux has an octopus merge with 66 parents, so 64 was not a generous
+   * bound — it was one that silently rewrote the topology of a real commit.
+   */
+  maxParents: 128,
 } as const;
 
 // Control characters, bidi overrides and zero-width characters are removed so

@@ -134,18 +134,72 @@ export function ancestorsOf(g: GraphIndex, start: number, limit = Infinity): Set
 
 /** Commits reachable from `from` that are not ancestors of `exclude` (the unique side history of a merge). */
 export function uniqueAncestry(g: GraphIndex, from: number, excludeFrom: number, limit = 5000): number[] {
-  const excluded = ancestorsOf(g, excludeFrom, limit * 4);
-  const out: number[] = [];
-  const seen = new Set<number>();
-  const stack = [from];
-  while (stack.length && out.length < limit) {
-    const v = stack.pop()!;
-    if (seen.has(v) || excluded.has(v)) continue;
-    seen.add(v);
-    out.push(v);
-    for (const p of g.parents[v]!) stack.push(p);
+  return new UniqueAncestryWalker(g).walk(from, excludeFrom, limit);
+}
+
+/**
+ * Reusable bounded ancestry walker for merge analysis.
+ *
+ * A Set is convenient for a single query, but compilation asks the same kind
+ * of question for every merge. Allocating and hashing thousands of Sets made
+ * this pass dominate large repositories. Generation-stamped typed arrays give
+ * the traversal identical membership semantics with no per-query clearing or
+ * hash allocation.
+ */
+export class UniqueAncestryWalker {
+  private excluded: Uint32Array;
+  private seen: Uint32Array;
+  private stack: Int32Array;
+  private generation = 0;
+
+  constructor(private g: GraphIndex) {
+    this.excluded = new Uint32Array(g.shas.length);
+    this.seen = new Uint32Array(g.shas.length);
+    let edgeCount = 0;
+    for (const parents of g.parents) edgeCount += parents.length;
+    this.stack = new Int32Array(edgeCount + 1);
   }
-  return out;
+
+  walk(from: number, excludeFrom: number, limit = 5000): number[] {
+    this.generation++;
+    if (this.generation === 0xffff_ffff) {
+      this.excluded.fill(0);
+      this.seen.fill(0);
+      this.generation = 1;
+    }
+    const mark = this.generation;
+    const excludeLimit = limit * 4;
+    let top = 0;
+    this.stack[top++] = excludeFrom;
+    this.excluded[excludeFrom] = mark;
+    let excludedCount = 1;
+    // Match ancestorsOf's bounded DFS exactly: the bound is checked between
+    // nodes, while every parent of the current node is still admitted.
+    while (top && excludedCount < excludeLimit) {
+      const v = this.stack[--top]!;
+      const parents = this.g.parents[v]!;
+      for (let i = 0; i < parents.length; i++) {
+        const parent = parents[i]!;
+        if (this.excluded[parent] === mark) continue;
+        this.excluded[parent] = mark;
+        excludedCount++;
+        this.stack[top++] = parent;
+      }
+    }
+
+    const out: number[] = [];
+    top = 0;
+    this.stack[top++] = from;
+    while (top && out.length < limit) {
+      const v = this.stack[--top]!;
+      if (this.seen[v] === mark || this.excluded[v] === mark) continue;
+      this.seen[v] = mark;
+      out.push(v);
+      const parents = this.g.parents[v]!;
+      for (let i = 0; i < parents.length; i++) this.stack[top++] = parents[i]!;
+    }
+    return out;
+  }
 }
 
 class Heap {

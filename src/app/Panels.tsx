@@ -36,8 +36,26 @@ export function Panels() {
   );
 }
 
+/**
+ * A provenance label, in words rather than in the vocabulary of the code.
+ *
+ * These read `exact`, `partial` and `synthetic` internally, which are precise
+ * and mean nothing to a reader: "synthetic" in particular is jargon for *made
+ * up*, shown against a history nobody wrote, and the one thing it needed to
+ * say — that this is a demonstration and not a repository — is the one thing
+ * it did not.
+ */
+const PILL_WORDS: Record<string, string> = {
+  exact: 'the whole history',
+  partial: 'part of the history',
+  aggregate: 'summarised',
+  estimated: 'estimated',
+  unknown: 'unknown',
+  synthetic: 'a made-up example',
+};
+
 function Pill({ p }: { p: string }) {
-  return <span class={`pill ${p}`}>{p}</span>;
+  return <span class={`pill ${p}`}>{PILL_WORDS[p] ?? p}</span>;
 }
 
 function Inspector() {
@@ -205,6 +223,18 @@ function SettingsPanel() {
       </p>
       <Toggle label="Sound" value={!s.muted} onChange={(v) => { updateSettings({ muted: !v }); applySettingsToRuntime(); }} />
       <Toggle label="Loop" value={s.loopPerformance} onChange={(v) => updateSettings({ loopPerformance: v })} />
+      {/* The notes drawn onto the history: branch names, "40 commits" over a
+          collapsed run, tag labels, and the marks those commits leave on the
+          scrubber. One setting, because they are one idea — annotation of the
+          picture, as against the picture. It lives here rather than on the
+          stage because it is a preference about how the history is drawn, not
+          a control anyone reaches for while watching. */}
+      <Toggle
+        label="Notes on the history"
+        value={s.labels !== 'minimal'}
+        onChange={(v) => { updateSettings({ labels: v ? 'landmarks' : 'minimal' }); applySettingsToRuntime(); }}
+        testId="labels-toggle"
+      />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
       <Toggle label="High contrast" value={s.highContrast} onChange={(v) => { updateSettings({ highContrast: v }); applySettingsToRuntime(); }} />
 

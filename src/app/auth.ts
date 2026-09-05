@@ -13,7 +13,18 @@ import { store } from './store';
  * request reads, and differs only in rate limit: about 5,000 requests an hour
  * rather than 60.
  */
-export const AUTH_BASE: string = (import.meta.env.VITE_AUTH_BASE ?? '').replace(/\/$/, '');
+/**
+ * Where the token exchange happens.
+ *
+ * `VITE_AUTH_BASE` overrides it — a fork with its own service, or a local one
+ * during development. The default is the deployed instance, because leaving it
+ * empty meant the sign-in button did not render at all: the page explained
+ * what connecting GitHub would do and then offered no way to do it, which
+ * reads as broken rather than as unconfigured.
+ */
+const DEFAULT_AUTH_BASE = 'https://gittimeline-auth.onrender.com';
+
+export const AUTH_BASE: string = (import.meta.env.VITE_AUTH_BASE ?? DEFAULT_AUTH_BASE).replace(/\/$/, '');
 
 export function signInWithGitHub() {
   if (!AUTH_BASE) return;
@@ -37,6 +48,17 @@ export function claimTokenFromUrl(): boolean {
   if (token) {
     store.token.value = token;
     return true;
+  }
+  // A failed sign-in used to vanish silently: the fragment was stripped, no
+  // token appeared, and the page looked exactly as it had before the round
+  // trip. Somebody who has just authorised an application and been returned to
+  // an unchanged screen has no way to tell whether it worked.
+  const err = new URLSearchParams(location.hash.replace(/^#/, '')).get('gh_error') ?? params.get('gh_error');
+  if (err !== null) {
+    store.banner.value = {
+      kind: 'rate-limited',
+      message: 'GitHub sign-in did not complete. Public repositories still work at the anonymous rate, and the ready-made histories cost no requests at all.',
+    };
   }
   return false;
 }

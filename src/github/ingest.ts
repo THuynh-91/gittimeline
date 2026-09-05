@@ -208,7 +208,7 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
         },
         url: c.html_url ?? null,
       });
-      if (commits.size >= LIMITS.maxCommits) break;
+      if (commits.size >= LIMITS.maxLiveCommits) break;
     }
   };
 
@@ -293,7 +293,7 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
       }
       if (stop) break;
       report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
-      if (commits.size >= LIMITS.maxCommits) {
+      if (commits.size >= LIMITS.maxLiveCommits) {
         truncated = true;
         stop = true;
         break;
@@ -318,7 +318,7 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
         addCommits(res.data);
         report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
         url = res.link.next;
-        if (commits.size >= LIMITS.maxCommits) {
+        if (commits.size >= LIMITS.maxLiveCommits) {
           truncated = true;
           break;
         }

@@ -16,6 +16,7 @@ import { ScopeChooser } from './ScopeChooser';
 import { ExploreBar } from './ExploreBar';
 import { ViewToggles } from './ViewToggles';
 import { CatalogPage } from './CatalogPage';
+import { SignIn } from './SignIn';
 
 export function App() {
   useEffect(() => {
@@ -45,8 +46,26 @@ export function App() {
   return (
     <div class={`app${chromeHidden ? ' chrome-hidden' : ''}`}>
       <Stage />
-      {mode === 'landing' && <Landing />}
-      {mode === 'catalog' && <CatalogPage />}
+      {/* A stable container that always exists, holding whichever page the
+          mode selects.
+
+          This was three adjacent conditionals — `{a && <A/>}{b && <B/>}` — and
+          then a keyed ternary, and both left dead pages in the DOM: navigating
+          to the catalog produced two catalog pages, and navigating back left
+          one of them on top of the landing page. The Back button was working
+          the whole time; it changed the mode underneath a corpse that was
+          still covering the screen.
+
+          The cause is that this element's siblings appear and disappear with
+          the mode too, so the routed page's *position* among them moves, and a
+          child that changes both type and position mid-list is the case where
+          diffing goes wrong. A wrapper that is always present, in the same
+          place, can only ever hold one child — the failure is unrepresentable
+          rather than merely fixed. `display: contents` keeps it out of the
+          layout entirely, so every page's own positioning is untouched. */}
+      <div class="route">
+        {mode === 'landing' ? <Landing /> : mode === 'catalog' ? <CatalogPage /> : mode === 'signin' ? <SignIn /> : null}
+      </div>
       <ScopeChooser />
       <Prelude />
       {showPlayer && perf && !chromeHidden && <TopBar />}

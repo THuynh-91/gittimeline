@@ -4,13 +4,19 @@ import { Volume } from './Volume';
 /**
  * Taking things off the stage.
  *
- * The commit ledger and the player furniture are useful while you are working
- * out what you are looking at, and they are the only things in the way once
- * you have. So both come off, and what is left is the performance.
+ * Two things, and only two, because these sit over the performance and every
+ * one of them costs a piece of it. The running list of commit messages at the
+ * top, and the player furniture at the bottom. Both are useful while you are
+ * working out what you are looking at and both are in the way once you have.
  *
- * These two buttons deliberately stay put when everything else goes: a
- * control that hides itself along with what it hides is a trap. They fade
- * back almost to nothing until you go looking for them.
+ * The notes drawn onto the history itself — branch names, "40 commits" over a
+ * collapsed run, the marks on the scrubber — are a setting rather than a
+ * button. They are part of the picture rather than furniture over it, and it
+ * is not a switch anyone reaches for mid-performance.
+ *
+ * These deliberately stay put when everything else goes: a control that hides
+ * itself along with what it hides is a trap. They fade back almost to nothing
+ * until you go looking for them.
  */
 export function ViewToggles() {
   const s = store.settings.value;
@@ -20,11 +26,11 @@ export function ViewToggles() {
         type="button"
         class={`vbtn${s.showRail ? ' on' : ''}`}
         aria-pressed={s.showRail}
-        title="Show or hide the commit ledger"
+        title="Show or hide the running list of commit messages at the top"
         onClick={() => updateSettings({ showRail: !s.showRail })}
         data-testid="toggle-rail"
       >
-        Names
+        Messages
       </button>
       <button
         type="button"

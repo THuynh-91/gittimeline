@@ -1,4 +1,4 @@
-import type { CameraCue, ChoreographyEvent, CompiledPerformance, EdgeGeom, NodeGeom } from '@/model/types';
+import type { AggregateSpan, CameraCue, ChoreographyEvent, CompiledPerformance, EdgeGeom, NodeGeom, ThreadGeom } from '@/model/types';
 import { sampleCamera } from '@/choreography/camera';
 import { describeAggregate } from '@/analysis/aggregate';
 import { pointAt, headingAt } from '@/layout/paths';
@@ -51,6 +51,8 @@ interface ViewTransform {
 }
 
 const HEAVY = new Set(['MERGE_IMPACT', 'MAJOR_MERGE', 'OCTOPUS_MERGE']);
+const EDGE_BUCKET_WIDTH = 640;
+const MAX_EDGE_BUCKET_SPAN = 48;
 
 /**
  * Twenty commits converging must look unmistakably bigger than two. Volume is
@@ -70,8 +72,21 @@ export class StageRenderer {
   private glowCtx: CanvasRenderingContext2D;
   private perf: CompiledPerformance | null = null;
   private edgeBounds: Float32Array = new Float32Array(0);
+  private edgeBuckets: number[][] = [];
+  private edgeBucketOrigin = 0;
+  private longEdges: number[] = [];
+  private edgeSeen = new Uint32Array(0);
+  private edgeGeneration = 0;
+  private edgeCandidates: number[] = [];
   private impactEvents: ChoreographyEvent[] = [];
-  private eventPtr = 0;
+  private aggregateByNode: Array<AggregateSpan | null> = [];
+  private aggregateEdges: EdgeGeom[] = [];
+  private unknownEdges: EdgeGeom[] = [];
+  private mergeLabelNodes: NodeGeom[] = [];
+  private taggedNodes: NodeGeom[] = [];
+  private labelThreads: ThreadGeom[] = [];
+  private tipThreads: ThreadGeom[] = [];
+  private nodesByX = new Int32Array(0);
   private width = 1;
   private height = 1;
   private dpr = 1;
@@ -86,6 +101,13 @@ export class StageRenderer {
   private frameCounter = 0;
   private tmp = { x: 0, y: 0 };
   private tmp2 = { x: 0, y: 0 };
+  /** Node indices in landing order, so the shop window can grow a bounding box. */
+  private byImpact = new Int32Array(0);
+  private landedPtr = 0;
+  private landedT = -1;
+  /** Empty until a node lands: an all-zero box would drag the bounds to the origin. */
+  private landed = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  private shopView: { cx: number; cy: number; scale: number } | null = null;
 
   settings: RenderSettings = {
     reducedMotion: false,
@@ -109,6 +131,21 @@ export class StageRenderer {
   zoomLock: number | null = null;
   /** Dim factor for the gallery/landing state (0..1). */
   attenuation = 1;
+  /**
+   * Shop-window framing: frame the history that has been drawn, not the front
+   * of the work.
+   *
+   * The director points the camera at whatever is happening now, which is the
+   * right answer while somebody is watching a performance and the wrong one
+   * behind a form. Everything that has already happened lies off to the left,
+   * so the half of the screen the camera is aimed at is the half nothing has
+   * reached yet — the landing page ended up as one thin line in a corner of an
+   * otherwise black page. Here the camera takes the last few seconds of work,
+   * overscans it and keeps the front of it four fifths of the way across, so
+   * drawn history reaches every edge and stays the same size however long the
+   * path behind it gets.
+   */
+  shopWindow = false;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
@@ -127,14 +164,41 @@ export class StageRenderer {
 
   setPerformance(p: CompiledPerformance | null) {
     this.perf = p;
-    this.eventPtr = 0;
     this.lastT = -1;
     this.nodeBySha.clear();
+    this.aggregateByNode = [];
+    this.aggregateEdges = [];
+    this.unknownEdges = [];
+    this.mergeLabelNodes = [];
+    this.taggedNodes = [];
+    this.labelThreads = [];
+    this.tipThreads = [];
+    this.nodesByX = new Int32Array(0);
+    this.edgeBuckets = [];
+    this.longEdges = [];
+    this.edgeSeen = new Uint32Array(0);
+    this.edgeCandidates.length = 0;
     if (!p) return;
     for (const nd of p.nodes) this.nodeBySha.set(nd.sha, nd);
     this.tints = p.threads.map((t) => threadTint(t.side, t.lane, this.settings.highContrast));
     this.impactEvents = p.events.filter((e) => HEAVY.has(e.type) || e.type === 'DIVERGENCE' || e.type === 'TAG_LANDMARK' || e.type === 'REPO_BIRTH' || e.type === 'MULTI_ROOT_REVEAL' || e.type === 'REPO_PRESENT');
+    this.aggregateByNode = new Array<AggregateSpan | null>(p.nodes.length).fill(null);
+    for (const aggregate of p.aggregates) {
+      const exit = this.nodeBySha.get(aggregate.boundaryShas[1]!);
+      if (exit) this.aggregateByNode[exit.idx] = aggregate;
+    }
+    this.aggregateEdges = p.edges.filter((edge) => edge.kind === 'aggregate');
+    this.unknownEdges = p.edges.filter((edge) => edge.kind === 'unknown');
+    this.mergeLabelNodes = p.nodes.filter((node) => node.isMerge && node.mergeVolume >= 6);
+    this.taggedNodes = p.nodes.filter((node) => node.tagLabels.length > 0);
+    const nameAnonymousThreads = p.threads.length <= 40;
+    this.labelThreads = p.threads.filter((thread) => thread.role !== 'primary' && (!!thread.label || nameAnonymousThreads));
+    this.tipThreads = p.threads.filter((thread) => thread.ending === 'tip');
     this.edgeBounds = new Float32Array(p.edges.length * 4);
+    this.edgeBucketOrigin = Math.floor(p.bounds.minX / EDGE_BUCKET_WIDTH) * EDGE_BUCKET_WIDTH;
+    const bucketCount = Math.max(1, Math.ceil((p.bounds.maxX - this.edgeBucketOrigin) / EDGE_BUCKET_WIDTH) + 1);
+    this.edgeBuckets = Array.from({ length: bucketCount }, () => []);
+    this.edgeSeen = new Uint32Array(p.edges.length);
     p.edges.forEach((e, i) => {
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (let k = 0; k < e.pts.length; k += 2) {
@@ -149,11 +213,28 @@ export class StageRenderer {
       this.edgeBounds[i * 4 + 1] = y0 - 12;
       this.edgeBounds[i * 4 + 2] = x1 + 12;
       this.edgeBounds[i * 4 + 3] = y1 + 12;
+      const firstBucket = Math.max(0, Math.floor((x0 - 12 - this.edgeBucketOrigin) / EDGE_BUCKET_WIDTH));
+      const lastBucket = Math.min(bucketCount - 1, Math.floor((x1 + 12 - this.edgeBucketOrigin) / EDGE_BUCKET_WIDTH));
+      // A long-lived branch can cross most of a million-pixel history. Copying
+      // its index into every bucket turns a compact spatial index into millions
+      // of entries. Keep those rare edges in one exact fallback list instead.
+      if (lastBucket - firstBucket > MAX_EDGE_BUCKET_SPAN) this.longEdges.push(i);
+      else for (let bucket = firstBucket; bucket <= lastBucket; bucket++) this.edgeBuckets[bucket]!.push(i);
     });
+    const order = new Int32Array(p.nodes.length);
+    for (let i = 0; i < order.length; i++) order[i] = i;
+    order.sort((a, b) => p.nodes[a]!.impact - p.nodes[b]!.impact);
+    this.byImpact = order;
+    const byX = new Int32Array(p.nodes.length);
+    for (let i = 0; i < byX.length; i++) byX[i] = i;
+    byX.sort((a, b) => p.nodes[a]!.x - p.nodes[b]!.x || a - b);
+    this.nodesByX = byX;
+    this.resetLanded();
+    this.shopView = null;
     const first = p.camera[0];
     if (first) {
       this.lastCue = first;
-      this.applyCamera(first, 0);
+      this.applyCamera(first, 0, 0);
     }
   }
 
@@ -239,7 +320,144 @@ export class StageRenderer {
     return { node: null, aggregateEdge: null };
   }
 
-  private applyCamera(cue: CameraCue, dtReal: number) {
+  private resetLanded() {
+    this.landedPtr = 0;
+    this.landedT = -1;
+    this.landed = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  }
+
+  /**
+   * The rectangle the work of the last few seconds occupies.
+   *
+   * Not everything drawn: everything *recent*. Framing the whole of what has
+   * landed works on a short history and fails on a long one, because the box
+   * only ever grows — a seventy-second path ends up an inch of hairlines while
+   * the camera keeps retreating to hold onto commits from a minute ago. A
+   * trailing window is scale-free: it is as wide as the work is fast and as
+   * tall as the number of threads currently open, so the framing follows the
+   * density of the history rather than its length.
+   *
+   * The head pointer advances with the clock and only the tail is rescanned,
+   * so the cost is the size of the window rather than the size of the history,
+   * and the scan is bounded in case a history lands hundreds of commits a
+   * second.
+   */
+  private recentBounds(t: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    const p = this.perf;
+    if (!p) return null;
+    if (t < this.landedT) this.resetLanded();
+    this.landedT = t;
+    while (this.landedPtr < this.byImpact.length && p.nodes[this.byImpact[this.landedPtr]!]!.impact <= t) this.landedPtr++;
+    if (this.landedPtr === 0) return null;
+    const b = this.landed;
+    b.minX = Infinity;
+    b.minY = Infinity;
+    b.maxX = -Infinity;
+    b.maxY = -Infinity;
+    const floor = Math.max(0, this.landedPtr - 500);
+    const since = t - 9;
+    for (let i = this.landedPtr - 1; i >= floor; i--) {
+      const nd = p.nodes[this.byImpact[i]!]!;
+      // Always take a few, so a quiet stretch with nothing recent still has a
+      // box rather than falling back to the director's framing mid-page.
+      if (nd.impact < since && this.landedPtr - i > 8) break;
+      if (nd.x < b.minX) b.minX = nd.x;
+      if (nd.x > b.maxX) b.maxX = nd.x;
+      if (nd.y < b.minY) b.minY = nd.y;
+      if (nd.y > b.maxY) b.maxY = nd.y;
+    }
+    return b;
+  }
+
+  /**
+   * Frame what has been drawn so far, filling the canvas rather than fitting
+   * inside it.
+   *
+   * A history is many times wider than it is tall, so framing one whole
+   * letterboxes it into a thin band across the middle with black above and
+   * below. Covering instead — the larger of the two fit ratios — crops the
+   * older end and puts real work in every corner, which is what a shop window
+   * is for. The newest arrivals sit four fifths of the way across: far enough
+   * from the edge that their halos are not clipped, close enough that the
+   * space in front of them — where nothing has happened yet — is a fifth of
+   * the frame rather than half of it, which is what the director's framing
+   * left there.
+   *
+   * The zoom is clamped at both ends, and the floor is the one that matters.
+   * A long history keeps growing sideways, so a camera that always frames
+   * everything drawn keeps pulling back: by the end of a seventy-second path
+   * the picture had shrunk to hairlines a pixel wide. Past the floor the
+   * camera stops widening and travels instead, which keeps threads the same
+   * legible size however much history is behind them. The ceiling is the
+   * opposite case — a history that has only just begun, blown up into three
+   * enormous circles.
+   */
+  private applyShopWindow(t: number, dtReal: number): boolean {
+    const b = this.recentBounds(t);
+    if (!b) return false;
+    const safeW = Math.max(80, this.width);
+    const safeH = Math.max(80, this.height);
+    const bh = Math.max(200, b.maxY - b.minY);
+    // Fill the height, not the box.
+    //
+    // Fitting the whole recent-work box inside the frame letterboxes it, and
+    // measuring the result made that unarguable: ink per horizontal twelfth of
+    // the canvas came out [0,0,0,0, 8.1, 5.5, 6.2, 5.0, 0,0,0,0]. Not dim at
+    // the edges — *zero*. Two thirds of the page was empty because a history
+    // is far wider than it is tall, so fitting both axes is really fitting the
+    // width and letting the height fall where it may.
+    //
+    // A history running off the left and right edges is what a history looks
+    // like; there is always more of it in both directions. Running out of
+    // picture vertically is just a void. So the vertical axis is what gets
+    // filled, with a margin, and the horizontal is allowed to overflow.
+    // Air around the work, not a picture pressed against the glass.
+    //
+    // Filling the height edge to edge fixed the letterboxing but overcorrected:
+    // threads ran off all four sides, so there was nowhere to see a thread
+    // arrive from or watch one leave, and behind a page of copy there was
+    // nowhere for the eye to rest. Two thirds of the height leaves roughly a
+    // sixth of the frame as margin above and below — enough to anticipate what
+    // is coming rather than only see what has arrived.
+    const vertical = (safeH * 0.64) / bh;
+    // Bounded at both ends: a moment with three lanes open would otherwise be
+    // magnified until three strokes fill the screen, and one with fourteen
+    // would retreat until they are hairlines.
+    const scale = Math.min(Math.max(vertical, 0.45), 1.9);
+    const winW = safeW / scale;
+    const target = {
+      // The newest work sits four fifths of the way across: far enough from the
+      // edge that its halo is not clipped, close enough that the space in front
+      // of it — where nothing has happened yet — is a fifth of the frame rather
+      // than half of it, which is what the director's framing left there.
+      cx: b.maxX + winW * 0.2 - winW / 2,
+      cy: (b.minY + b.maxY) / 2,
+      scale,
+    };
+    // Nodes land in steps, so an unsmoothed box snaps sideways every arrival.
+    // A slow follow turns that into a drift; `dtReal` is zero on a seek, which
+    // is exactly when the framing should cut rather than glide.
+    // Slower than the director's follow. Behind a page of copy, movement in
+    // the corner of the eye is the whole cost and none of the benefit: the
+    // picture only has to look alive, not keep up. At 2.4 the frame chased
+    // every arrival and the page felt busy in a way nobody could point at.
+    const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 0.9) : 1;
+    const v = this.shopView ?? target;
+    this.shopView = {
+      cx: v.cx + (target.cx - v.cx) * k,
+      cy: v.cy + (target.cy - v.cy) * k,
+      scale: v.scale + (target.scale - v.scale) * k,
+    };
+    // No punch at all. A merge landing hard is the right instinct on a stage
+    // being watched and the wrong one behind a form being read: the page moved
+    // under the reader for a reason they could not see, which is the precise
+    // description of "overstimulating".
+    const punch = 1;
+    this.view = { scale: this.shopView.scale * punch, ox: safeW / 2, oy: safeH / 2, rotation: 0, cx: this.shopView.cx, cy: this.shopView.cy };
+    return true;
+  }
+
+  private applyCamera(cue: CameraCue, dtReal: number, t: number) {
     const s = this.settings.safe;
     const safeW = Math.max(80, this.width - s.left - s.right);
     const safeH = Math.max(80, this.height - s.top - s.bottom);
@@ -250,6 +468,7 @@ export class StageRenderer {
     const targetPunch = this.settings.reducedMotion ? 1 : cue.punch;
     const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 14) : 1;
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
+    if (this.shopWindow && this.applyShopWindow(t, dtReal)) return;
     const fit = Math.min(safeW / cue.w, safeH / cue.h);
     const scale = (this.zoomLock ?? fit) * this.smoothedPunch;
     this.view = {
@@ -260,6 +479,39 @@ export class StageRenderer {
       cx: cue.x,
       cy: cue.y,
     };
+  }
+
+  /**
+   * Edges touching the current horizontal view, in the compiler's draw order.
+   * Returning null deliberately selects the straight full scan when a tableau
+   * covers most of the history; merging buckets would cost more in that case.
+   */
+  private visibleEdgeIndices(x0: number, x1: number): number[] | null {
+    if (!this.edgeBuckets.length) return null;
+    const first = Math.max(0, Math.floor((x0 - this.edgeBucketOrigin) / EDGE_BUCKET_WIDTH));
+    const last = Math.min(this.edgeBuckets.length - 1, Math.floor((x1 - this.edgeBucketOrigin) / EDGE_BUCKET_WIDTH));
+    if (last < first || last - first + 1 > this.edgeBuckets.length / 2) return null;
+    this.edgeGeneration++;
+    if (this.edgeGeneration === 0xffff_ffff) {
+      this.edgeSeen.fill(0);
+      this.edgeGeneration = 1;
+    }
+    const mark = this.edgeGeneration;
+    const candidates = this.edgeCandidates;
+    candidates.length = 0;
+    for (const edge of this.longEdges) {
+      this.edgeSeen[edge] = mark;
+      candidates.push(edge);
+    }
+    for (let bucket = first; bucket <= last; bucket++) {
+      for (const edge of this.edgeBuckets[bucket]!) {
+        if (this.edgeSeen[edge] === mark) continue;
+        this.edgeSeen[edge] = mark;
+        candidates.push(edge);
+      }
+    }
+    candidates.sort((a, b) => a - b);
+    return candidates;
   }
 
   render(t: number, dtReal: number) {
@@ -274,7 +526,7 @@ export class StageRenderer {
     }
     const cue = sampleCamera(p.camera, t);
     this.lastCue = cue;
-    this.applyCamera(cue, this.lastT < 0 || Math.abs(t - this.lastT) > 1 ? 0 : dtReal);
+    this.applyCamera(cue, this.lastT < 0 || Math.abs(t - this.lastT) > 1 ? 0 : dtReal, t);
     this.lastT = t;
     if (p.nodes.length === 0) {
       this.drawEmptyStage(t);
@@ -327,7 +579,10 @@ export class StageRenderer {
     ctx.lineJoin = 'round';
     const edges = p.edges;
     const activeEdges: EdgeGeom[] = [];
-    for (let i = 0; i < edges.length; i++) {
+    const visibleEdges = this.visibleEdgeIndices(vx0, vx1);
+    const edgeCount = visibleEdges?.length ?? edges.length;
+    for (let at = 0; at < edgeCount; at++) {
+      const i = visibleEdges ? visibleEdges[at]! : at;
       const e = edges[i]!;
       if (e.start > t) {
         if (e.start > t + 3) {
@@ -348,10 +603,18 @@ export class StageRenderer {
 
     // --- Nodes ---
     const nodes = p.nodes;
-    for (let i = 0; i < nodes.length; i++) {
-      const nd = nodes[i]!;
+    let nodeLo = 0;
+    let nodeHi = this.nodesByX.length;
+    while (nodeLo < nodeHi) {
+      const mid = (nodeLo + nodeHi) >> 1;
+      if (nodes[this.nodesByX[mid]!]!.x < vx0) nodeLo = mid + 1;
+      else nodeHi = mid;
+    }
+    for (let at = nodeLo; at < this.nodesByX.length; at++) {
+      const nd = nodes[this.nodesByX[at]!]!;
+      if (nd.x > vx1) break;
       if (nd.impact > t + 0.001) continue;
-      if (nd.x < vx0 || nd.x > vx1 || nd.y < vy0 || nd.y > vy1) continue;
+      if (nd.y < vy0 || nd.y > vy1) continue;
       this.drawNode(ctx, useGlow ? glow : null, nd, t, ripples, ivory, slate, focusIdx);
     }
 
@@ -362,8 +625,8 @@ export class StageRenderer {
     this.drawEffects(ctx, useGlow ? glow : null, t, ivory);
 
     // --- Live tip beacons ---
-    for (const th of p.threads) {
-      if (th.ending !== 'tip' || th.end > t) continue;
+    for (const th of this.tipThreads) {
+      if (th.end > t) continue;
       const last = nodes[th.nodeIdxs[th.nodeIdxs.length - 1]!];
       if (!last || last.x < vx0 || last.x > vx1) continue;
       const pulse = this.settings.reducedMotion ? 0.5 : 0.5 + 0.5 * Math.sin(t * 2.2 + last.idx);
@@ -383,6 +646,16 @@ export class StageRenderer {
       ctx.filter = 'blur(6px)';
       ctx.globalAlpha = this.settings.noFlash ? 0.55 : 0.85;
       ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
+      if (this.shopWindow) {
+        // A second, wider pass of the same light, so the picture reads as one
+        // scene rather than a scatter of bright strokes. It was twice this
+        // strength and the page paid for it: a background that wins the
+        // attention it is competing for has stopped being a background. This
+        // spreads light already drawn and claims nothing new.
+        ctx.filter = 'blur(30px)';
+        ctx.globalAlpha = this.settings.noFlash ? 0.08 : 0.14;
+        ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
+      }
       ctx.filter = 'none';
       ctx.restore();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -482,7 +755,7 @@ export class StageRenderer {
       return;
     }
     if (e.kind === 'aggregate') {
-      const count = p.aggregates.find((a) => a.boundaryShas[1] === child.sha)?.memberCount ?? 0;
+      const count = this.aggregateByNode[e.child]?.memberCount ?? 0;
       const width = Math.min(16, 5 + Math.log2(1 + count) * 1.6);
       ctx.strokeStyle = rgba(spine ? ivory : slate, alpha * 0.28);
       ctx.lineWidth = width;
@@ -611,10 +884,18 @@ export class StageRenderer {
   private activeRipples(t: number): Array<{ x: number; y: number; age: number; amp: number; reach: number }> {
     if (this.settings.reducedMotion) return [];
     const out: Array<{ x: number; y: number; age: number; amp: number; reach: number }> = [];
-    for (const ev of this.impactEvents) {
+    let lo = 0;
+    let hi = this.impactEvents.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.impactEvents[mid]!.performanceImpact < t - 2.4) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < this.impactEvents.length; i++) {
+      const ev = this.impactEvents[i]!;
+      if (ev.performanceImpact > t) break;
       if (!HEAVY.has(ev.type)) continue;
       const age = t - ev.performanceImpact;
-      if (age < 0 || age > 2.4) continue;
       const nd = this.nodeBySha.get(ev.subjectIds[0]!);
       if (!nd) continue;
       out.push({ x: nd.x, y: nd.y, age, amp: (4 + 9 * ev.salience) * ev.effectBudget * volumeScale(nd.mergeVolume), reach: 220 * volumeScale(nd.mergeVolume) });
@@ -823,7 +1104,7 @@ export class StageRenderer {
     }
     // aggregate ribbons carry an internal rhythm: ticks flowing behind the performer
     if (e.kind === 'aggregate') {
-      const count = p.aggregates.find((a) => a.boundaryShas[1] === p.nodes[e.child]!.sha)?.memberCount ?? 8;
+      const count = this.aggregateByNode[e.child]?.memberCount ?? 8;
       const ticks = Math.min(24, count);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -841,7 +1122,17 @@ export class StageRenderer {
   private drawEffects(ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D | null, t: number, ivory: string) {
     const noFlash = this.settings.noFlash;
     const reduced = this.settings.reducedMotion;
-    for (const ev of this.impactEvents) {
+    let lo = 0;
+    let hi = this.impactEvents.length;
+    const firstImpact = t - 3;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.impactEvents[mid]!.performanceImpact < firstImpact) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < this.impactEvents.length; i++) {
+      const ev = this.impactEvents[i]!;
+      if (ev.performanceImpact > t + 0.6) break;
       const age = t - ev.performanceImpact;
       if (age < -0.6 || age > 3) continue;
       const nd = this.nodeBySha.get(ev.subjectIds[0]!);
@@ -948,8 +1239,12 @@ export class StageRenderer {
     ctx.textBaseline = 'middle';
     const drawn: Array<{ x: number; y: number; w: number }> = [];
     const place = (x: number, y: number, text: string, alpha: number, color: string = PALETTE.text) => {
+      // Reject off-screen candidates before asking Canvas to shape their text.
+      // A large history can have thousands of aggregate captions behind the
+      // camera; measuring every one was far more expensive than locating it.
+      if (x < 0 || x > this.width || y < this.settings.safe.top - 10 || y > this.height - this.settings.safe.bottom + 10) return;
       const w = ctx.measureText(text).width + 10;
-      if (x < 0 || y < this.settings.safe.top - 10 || x + w > this.width || y > this.height - this.settings.safe.bottom + 10) return;
+      if (x + w > this.width) return;
       for (const d of drawn) if (Math.abs(d.y - y) < 14 && x < d.x + d.w && x + w > d.x) return;
       drawn.push({ x, y, w });
       ctx.fillStyle = rgba(PALETTE.ink, 0.55 * alpha);
@@ -963,11 +1258,8 @@ export class StageRenderer {
     // win, and anonymous threads are only named when there are few enough for
     // the name to be worth reading.
     if (labels !== 'minimal') {
-      const nameAnonymous = p.threads.length <= 40;
       const candidates: Array<{ th: (typeof p.threads)[number]; latest: NodeGeom; alpha: number; label: string }> = [];
-      for (const th of p.threads) {
-        if (th.role === 'primary') continue;
-        if (!th.label && !nameAnonymous) continue;
+      for (const th of this.labelThreads) {
         const first = p.nodes[th.nodeIdxs[0]!];
         if (!first || first.impact > t) continue;
         let latest = first;
@@ -1000,8 +1292,8 @@ export class StageRenderer {
     }
     // how much converged, on the merges big enough to warrant saying so
     if (labels !== 'minimal') {
-      for (const nd of p.nodes) {
-        if (!nd.isMerge || nd.mergeVolume < 6 || nd.impact > t) continue;
+      for (const nd of this.mergeLabelNodes) {
+        if (nd.impact > t) break;
         const age = t - nd.impact;
         const alpha = Math.max(0, Math.min(1, 1 - (age - 2.2) / 1.2));
         if (alpha <= 0) continue;
@@ -1010,9 +1302,9 @@ export class StageRenderer {
       }
     }
     // tags & aggregates
-    for (const nd of p.nodes) {
-      if (nd.impact > t) continue;
-      if (nd.tagLabels.length && labels !== 'minimal') {
+    if (labels !== 'minimal') {
+      for (const nd of this.taggedNodes) {
+        if (nd.impact > t) break;
         const age = t - nd.impact;
         const alpha = labels === 'all' ? 0.85 : Math.max(0, Math.min(1, 1 - (age - 4) / 1.5));
         if (alpha > 0) {
@@ -1021,23 +1313,29 @@ export class StageRenderer {
         }
       }
     }
-    for (const e of p.edges) {
-      if (e.kind !== 'aggregate' || e.start > t) continue;
-      const agg = p.aggregates.find((a) => a.boundaryShas[1] === p.nodes[e.child]!.sha);
-      if (!agg || agg.memberCount < 3) continue;
-      const m = pointAt(e.pts, 0.5, this.tmp);
-      const s = this.worldToScreen(m.x, m.y);
-      place(s.x - 30, s.y - 14, describeAggregate(agg), 0.75, PALETTE.textDim);
+    // "40 commits" over a collapsed run is a commit name like any other, so it
+    // goes when the rest do. It was outside the gate, which is why turning the
+    // names off left the stage still captioned — and why the landing page was
+    // printing "6 commits" through the sentence asking for a URL.
+    if (labels !== 'minimal') {
+      for (const e of this.aggregateEdges) {
+        if (e.start > t) break;
+        const agg = this.aggregateByNode[e.child];
+        if (!agg || agg.memberCount < 3) continue;
+        const m = pointAt(e.pts, 0.5, this.tmp);
+        const s = this.worldToScreen(m.x, m.y);
+        place(s.x - 30, s.y - 14, describeAggregate(agg), 0.75, PALETTE.textDim);
+      }
     }
-    for (const e of p.edges) {
-      if (e.kind !== 'unknown' || e.start > t) continue;
+    for (const e of this.unknownEdges) {
+      if (e.start > t) break;
       const m = pointAt(e.pts, 0.2, this.tmp);
       const s = this.worldToScreen(m.x, m.y);
       place(s.x - 40, s.y - 14, 'history not loaded', 0.75, PALETTE.fogText);
     }
-    // live tips
-    for (const th of p.threads) {
-      if (th.ending !== 'tip' || th.end > t || th.role === 'primary' || !th.label) continue;
+    // Live tips carry a branch name, so they follow the branch names.
+    for (const th of labels === 'minimal' ? [] : this.tipThreads) {
+      if (th.end > t || th.role === 'primary' || !th.label) continue;
       const last = p.nodes[th.nodeIdxs[th.nodeIdxs.length - 1]!]!;
       const s = this.worldToScreen(last.x, last.y);
       place(s.x + 12, s.y, th.label, 0.7, PALETTE.accent);

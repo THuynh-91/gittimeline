@@ -1,0 +1,145 @@
+name: Build pre-fetched histories
+
+# The showcase repositories are mapped ahead of time and shipped as static
+# files, so opening one costs a visitor a download and no GitHub API requests
+# at all. That is the whole point: an anonymous visitor gets about sixty API
+# requests an hour and Linux alone would need 14,819 of them.
+#
+# None of this uses the API. Each job clones with `--filter=tree:0`, which asks
+# for commit objects and nothing else — no source code is transferred, and the
+# git protocol has no REST rate limit to spend. Linux clones in about four
+# minutes and `git log` reads all 1,481,850 commits out of it in fourteen
+# seconds.
+#
+# One repository per job rather than one job for everything: the runner has
+# roughly 14 GB of disk and Chromium's clone alone is 900 MB, so sharing a
+# runner between the two largest would be tight for no benefit.
+
+on:
+  schedule:
+    # Weekly. These are historical — a repository does not become materially
+    # different overnight, and re-cloning Chromium daily would be rude.
+    - cron: '17 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Build a single repository (owner/name), or blank for all'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      # Keep going: one repository failing to clone should cost that history,
+      # not the other nine.
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        repo:
+          - facebook/react
+          - nodejs/node
+          - python/cpython
+          - kubernetes/kubernetes
+          - microsoft/vscode
+          - tensorflow/tensorflow
+          - rust-lang/rust
+          - llvm/llvm-project
+          - torvalds/linux
+          - chromium/chromium
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Free disk space
+        # The default runner image carries several gigabytes of Android SDK and
+        # .NET that nothing here uses, and Chromium's clone needs the room.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Restore the bare clone
+        id: clone-cache
+        uses: actions/cache@v4
+        with:
+          path: .clones
+          # Keyed by day so a hit is reused within a week and a fresh clone is
+          # taken eventually; the fetch below brings it up to date either way.
+          key: clone-${{ matrix.repo }}-${{ github.run_id }}
+          restore-keys: |
+            clone-${{ matrix.repo }}-
+
+      - name: Build the history
+        if: ${{ github.event.inputs.only == '' || github.event.inputs.only == matrix.repo }}
+        run: |
+          node --max-old-space-size=6144 scripts/build-clone-dataset.mjs "${{ matrix.repo }}" \
+            --out public/catalog \
+            --work .clones
+
+      - name: Report
+        if: always()
+        run: |
+          ls -la public/catalog/ || true
+          du -sh .clones || true
+
+      - name: Upload the artifact
+        if: ${{ github.event.inputs.only == '' || github.event.inputs.only == matrix.repo }}
+        uses: actions/upload-artifact@v4
+        with:
+          # Named per repository so the collect job below can pull them all
+          # into one directory without them colliding.
+          name: history-${{ strategy.job-index }}
+          path: |
+            public/catalog/*.gittimeline.gz
+            public/catalog/*.meta.json
+          retention-days: 7
+          if-no-files-found: error
+
+  collect:
+    # The index is written once, from all the artifacts together, because it is
+    # a description of the whole shelf. It also captures a card frame for each
+    # history by opening it in a real browser — that can fail on the largest
+    # ones and is allowed to: the entry falls back to a drawn placeholder
+    # rather than dropping out of the catalog.
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: history-*
+          merge-multiple: true
+          path: public/catalog
+
+      - name: Serve the site and write the index
+        run: |
+          npm run build
+          npx vite preview --port 4173 --strictPort &
+          npx wait-on http://localhost:4173 --timeout 60000 || sleep 10
+          node scripts/index-artifacts.mjs --base http://localhost:4173 --shot-seconds 200
+
+      - name: Upload the finished catalog
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog
+          path: public/catalog
+          retention-days: 30

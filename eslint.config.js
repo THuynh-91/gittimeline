@@ -3,7 +3,11 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'playwright-report/**', 'test-results/**'] },
+  // Build output, never source. `dist-*` covers the scratch output directories
+  // a build gets pointed at when `dist/` is busy being served; without it a
+  // single `vite build --outDir dist-agent` puts several hundred errors from
+  // minified bundles into `eslint .`.
+  { ignores: ['dist/**', 'dist-*/**', 'node_modules/**', 'playwright-report/**', 'test-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

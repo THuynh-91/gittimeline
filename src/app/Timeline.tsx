@@ -18,6 +18,9 @@ export function Timeline() {
   const perf = store.perf.value;
   const t = store.time.value;
   const scale = store.settings.value.timelineScale;
+  // The scrubber's marks are notes on the picture, not the message ledger —
+  // they follow the same switch as the captions drawn on the history itself.
+  const showRail = store.settings.value.labels !== 'minimal';
   const loop = store.loopRange.value;
   const focus = store.contributorFocus.value;
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
@@ -25,14 +28,14 @@ export function Timeline() {
 
   useEffect(() => {
     const canvas = ref.current;
-    if (canvas && perf) draw(canvas, perf, t, scale, loop, focus, hover?.t ?? null);
+    if (canvas && perf) draw(canvas, perf, t, scale, loop, focus, hover?.t ?? null, showRail);
   }, [perf, t, scale, loop, focus, hover]);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const ro = new ResizeObserver(() => {
-      if (perf) draw(canvas, perf, store.time.peek(), scale, loop, focus, null);
+      if (perf) draw(canvas, perf, store.time.peek(), scale, loop, focus, null, store.settings.peek().labels !== 'minimal');
     });
     ro.observe(canvas);
     return () => ro.disconnect();
@@ -164,6 +167,7 @@ function draw(
   loop: { start: number; end: number } | null,
   focus: string | null,
   hoverT: number | null,
+  showCommitMarks: boolean,
 ) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -233,9 +237,12 @@ function draw(
     }
   }
 
-  // Landmarks worth jumping to.
+  // Landmarks worth jumping to — merges, divergences, tags. These are commits,
+  // so hiding the commit names hides these too: a scrubber stippled with marks
+  // is as much a description of individual commits as the ledger is, and
+  // "hide the commits" that leaves them behind has not done what it says.
   const y = line + 7;
-  for (const l of perf.landmarks) {
+  for (const l of showCommitMarks ? perf.landmarks : []) {
     const x = xOf(l.time);
     ctx.beginPath();
     if (l.kind === 'merge') {

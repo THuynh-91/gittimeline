@@ -96,9 +96,30 @@ React's entire history loads with a token, at exact coverage. Aggregation collap
 
 GitHub gives an anonymous visitor about **60 requests an hour** — a few thousand commits — and a large repository needs hundreds. The obvious fix is to ship a token, and it does not work: the browser has to send it as an `Authorization` header, so anyone who opens the network tab can read it. There is no way to hide a credential in a static site.
 
-So the fetching happens once, in CI, with the token GitHub Actions issues to the job and which never leaves it, and what ships is the **result**. `catalog.json` lists the histories; `scripts/build-catalog.mjs` drives the real interface to produce each one — the same ingestion and the same normalizer as live data, so nothing about the truth model is relaxed — and the landing page offers them as a shelf. Opening one costs **no token and no GitHub requests at all**, which `tests/e2e/catalog.spec.ts` asserts by blocking `api.github.com` outright.
+So the fetching happens once, ahead of time, and what ships is the **result**. Opening one costs **no token and no GitHub requests at all**, which `tests/e2e/catalog.spec.ts` asserts by blocking `api.github.com` outright.
 
-The current shelf is four histories in 1.4 MB, including a year of `public-apis` at 1,796 commits and 781 merges. Adding one is a line in `catalog.json`. The step is best-effort: if a fetch fails, that build simply has no shelf.
+It is not done through the API. `scripts/build-clone-dataset.mjs` clones instead:
+
+```
+git clone --bare --filter=tree:0    # commit objects only; no source code is transferred
+git log  --format=...               # the whole graph, in one pass
+```
+
+The difference is not incremental. Linux is 1,481,850 commits, which is 14,819 API requests — hours of waiting and three times an authenticated user's hourly allowance. The clone takes about four minutes, `git log` reads the entire graph out of it in fourteen seconds, and the git protocol has no REST rate limit to spend. `--filter=tree:0` is what keeps it cheap: it asks for commit objects and nothing else, so none of the repository's source code is ever downloaded. The shape of the history is all this project ever needed.
+
+The result is normalized by `buildDataset` — the same function the browser calls on live data, loaded through Vite so it cannot drift into a second implementation — so nothing about the truth model is relaxed.
+
+Ten histories ship, whole:
+
+| | commits | | | commits |
+|---|---:|---|---|---:|
+| chromium/chromium | 1,817,062 | | microsoft/vscode | 164,682 |
+| torvalds/linux | 1,481,850 | | kubernetes/kubernetes | 140,858 |
+| llvm/llvm-project | 595,778 | | python/cpython | 133,027 |
+| rust-lang/rust | 339,084 | | nodejs/node | 48,272 |
+| tensorflow/tensorflow | 198,583 | | facebook/react | 21,678 |
+
+Nearly five million commits, and not one API request to obtain them. Adding another is a line in `SHIPPED` in `scripts/index-artifacts.mjs`. The step is best-effort: if a build fails, that deploy simply has one fewer history.
 
 ## Truth model
 
@@ -134,6 +155,9 @@ docs/            architecture, data truth, choreography, testing, deployment, ac
 | `npm run verify` | type-check, lint, unit tests, production build |
 | `npm test` / `npm run test:e2e` | unit tests / browser tests (needs `npx playwright install chromium`) |
 | `npm run build` / `npm run preview` | static build to `dist/` / serve it on :4173 |
+| `node scripts/build-clone-dataset.mjs owner/repo` | clone a repository and build its history artifact (no API requests) |
+| `node scripts/index-artifacts.mjs` | assemble `catalog/index.json` and capture a card frame for each history |
+| `node scripts/build-music.mjs` | fetch the soundtrack; fails if a track is not filed under Rock |
 | `node scripts/inspect.mjs <dir>` | capture frames of the demo from the preview server (visual QA) |
 | `node scripts/live-smoke.mjs owner/repo` | read-only smoke test against the real GitHub API (few requests) |
 
@@ -149,13 +173,15 @@ The soundtrack is **real recorded music**, and there are no sound effects at all
 
 It used to be synthesised: a piano piece derived from the repository's own hash, with a small orchestra answering individual events — harp on every commit, woodwind at a branch point, timpani and brass on every merge. Every voice was tied to something true about the history, all of it was measured and spaced against the corpus, and it was still hard to listen to. That is the only test a soundtrack has to pass.
 
-There is no public-domain rock — the genre is entirely inside copyright, composition and recording both — but there is a great deal of freely licensed instrumental music. Three tracks ship, chosen for range:
+There is no public-domain rock — the genre is entirely inside copyright, composition and recording both — but Kevin MacLeod's catalog is released under Creative Commons Attribution 4.0 and sixty-one of its pieces are filed under Rock. Three ship, chosen for range, all of them guitar, bass and drums:
 
-| Register | Track | For |
-|---|---|---|
-| frantic | *Volatile Reaction* | a history that never stops moving |
-| driving | *Exit the Premises* | steady, sustained work |
-| calm | *Chill Wave* | a long, quiet history |
+| Register | Track | | For |
+|---|---|---:|---|
+| frantic | *Ready Aim Fire* | 172 bpm | a history that never stops moving |
+| driving | *Riptide* | 128 bpm | steady, sustained work |
+| calm | *Cold Funk* | 112 bpm | a long, quiet history |
+
+The first attempt shipped by title alone and got it badly wrong. *Volatile Reaction* is filed under **Soundtrack** and described by its own composer as "blasting brass, pounding percussion... suitable for fights, evil"; the other two were Electronica and Funk. It sounded like a war film because it was one. So `scripts/build-music.mjs` now checks each pick against the catalog's own genre metadata and **fails the build** if a track is not actually rock. A guitar-bass-drums lineup is not something to take on trust from a title.
 
 Music by [Kevin MacLeod](https://incompetech.com/), licensed under [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/). The credit appears in the app's help panel, which is the condition the licence attaches to using it at all.
 

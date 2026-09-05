@@ -72,6 +72,15 @@ export class AudioEngine {
   private wanted: Track | null = null;
   /** True while the viewer is scrubbing: the music holds rather than lurches. */
   private scrubbing = false;
+  /**
+   * Whether a performance is actually running. The music is *for* the
+   * performance, so it plays during one and at no other time — not over the
+   * landing form, not over a paused frame, not while a repository is loading.
+   * Every path that could start playback checks this, because there are
+   * several of them (starting the element, changing the volume, picking a new
+   * track) and any one of them getting it wrong is music in a silent room.
+   */
+  private enabled = false;
 
   levels: AudioLevels = { master: 0.7, effects: 0.7, muted: false };
   dynamics: 'quiet' | 'standard' | 'dramatic' = 'dramatic';
@@ -86,7 +95,7 @@ export class AudioEngine {
 
   /** Whether sound is actually coming out, for diagnostics and tests. */
   get playing(): boolean {
-    return !!this.el && !this.el.paused && this.el.volume > 0;
+    return !!this.el && !this.el.paused && this.el.volume > 0 && this.enabled;
   }
 
   /** The track now playing, for the credit the licence requires. */
@@ -97,7 +106,7 @@ export class AudioEngine {
   /** Must be called from a user gesture, like any audio on the web. */
   ensure(): boolean {
     if (this.el) {
-      if (this.el.paused && !this.levels.muted && !this.scrubbing) void this.el.play().catch(() => {});
+      if (this.el.paused && this.wants) void this.el.play().catch(() => {});
       return true;
     }
     if (!this.available) return false;
@@ -113,8 +122,8 @@ export class AudioEngine {
     if (!this.el) return;
     const range = this.dynamics === 'quiet' ? 0.55 : this.dynamics === 'dramatic' ? 1 : 0.8;
     this.el.volume = Math.max(0, Math.min(1, this.levels.muted ? 0 : this.levels.master * range));
-    if (this.levels.muted) this.el.pause();
-    else if (!this.scrubbing) void this.el.play().catch(() => {});
+    if (this.wants) void this.el.play().catch(() => {});
+    else this.el.pause();
   }
 
   setPerformance(p: CompiledPerformance | null) {
@@ -137,7 +146,7 @@ export class AudioEngine {
     this.wanted = pick;
     this.el.src = `${import.meta.env.BASE_URL}music/${pick.file}`;
     this.el.currentTime = 0;
-    if (!this.levels.muted && !this.scrubbing) void this.el.play().catch(() => {});
+    if (this.wants) void this.el.play().catch(() => {});
   }
 
   /**
@@ -149,8 +158,8 @@ export class AudioEngine {
     if (this.scrubbing === active) return;
     this.scrubbing = active;
     if (!this.el) return;
-    if (active) this.el.pause();
-    else if (!this.levels.muted) void this.el.play().catch(() => {});
+    if (this.wants) void this.el.play().catch(() => {});
+    else this.el.pause();
   }
 
   /** Called on seek and pause. A recording has nothing to re-schedule. */
@@ -158,12 +167,21 @@ export class AudioEngine {
     /* nothing to unwind: playback is continuous and independent of the clock */
   }
 
+  /** Everything that has to be true before a single sound comes out. */
+  private get wants(): boolean {
+    return this.enabled && !this.levels.muted && !this.scrubbing;
+  }
+
+  /** No performance is running. Called on pause, on landing, on load. */
   suspend() {
+    this.enabled = false;
     this.el?.pause();
   }
 
+  /** A performance is running. */
   resume() {
-    if (this.el && !this.levels.muted && !this.scrubbing) void this.el.play().catch(() => {});
+    this.enabled = true;
+    if (this.el && this.wants) void this.el.play().catch(() => {});
   }
 
   /**

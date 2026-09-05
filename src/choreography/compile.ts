@@ -11,15 +11,15 @@ import type {
   ThreadGeom,
 } from '@/model/types';
 import { ENGINE } from '@/model/types';
-import { contentHashOf } from '@/model/hash';
-import { buildGraph, uniqueAncestry } from '@/dag/graph';
+import { contentHashOf, planHashOf } from '@/model/hash';
+import { buildGraph, UniqueAncestryWalker } from '@/dag/graph';
 import { correctTimestamps } from '@/dag/time';
 import { selectSpine } from '@/dag/spine';
 import { assignThreads } from '@/dag/threads';
 import { aggregateHistory } from '@/analysis/aggregate';
 import { analyzeActivity } from '@/analysis/activity';
 import { buildClock, mapMonotone, CLOCK_HEAD, CLOCK_TAIL, type ClockItem } from './clock';
-import { SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
+import { MAX_PERFORMANCE_SECONDS, SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
 import { layoutGraph, routeAlongLane, routeCurve, X_PER_SECOND, type ThreadLayoutInput } from '@/layout/layout';
 import { buildEvents } from './events';
 import { planCamera } from './camera';
@@ -93,8 +93,33 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   for (const list of refsOf.values()) list.sort();
 
   // Merge salience (spec §18.4).
+  //
+  // How big a merge looks depends on how much unique history it absorbed, and
+  // finding that means walking the side branch. The walk is bounded per merge —
+  // but not in aggregate, and the aggregate is what bites: CPython has 12,428
+  // merges, which at 2,000 nodes each is twenty-five million visits and was
+  // forty of the forty-seven seconds this function spent. Rust, which lands
+  // everything through a merge queue, never finished at all.
+  //
+  // So the per-merge budget is derived from how many merges there are, holding
+  // the total roughly constant. What that costs is precision on the largest
+  // merges in the largest histories, and it costs nothing visible: the volume
+  // is consumed as a logarithm and lands on a stroke a few pixels wide, so the
+  // difference between "absorbed 1,900" and "absorbed 2,000" was never on
+  // screen. A small history is unaffected — the budget only bites above about
+  // fifteen hundred merges.
+  const MERGE_ANCESTRY_VISITS = 3_000_000;
+  let mergeCount = 0;
+  for (let i = 0; i < n; i++) if (commits[i]!.parentShas.length > 1) mergeCount++;
+  // The floor is low because the repositories that reach it are the ones where
+  // it matters least: Rust lands 107,048 merges through a queue, so its merges
+  // are individually small and uniform, and measuring each to a depth of 2,000
+  // would be 214 million visits to distinguish things that all draw the same.
+  const ancestryBudget = Math.max(32, Math.min(2000, Math.floor(MERGE_ANCESTRY_VISITS / Math.max(1, mergeCount))));
+
   const mergeRaw = new Float32Array(n);
   const mergeVolume = new Int32Array(n);
+  const ancestry = new UniqueAncestryWalker(g);
   let maxMergeRaw = 0;
   for (let i = 0; i < n; i++) {
     const ps = g.parents[i]!;
@@ -103,7 +128,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     const contribs = new Set<number>();
     let oldest = presentation[i]!;
     for (let k = 1; k < ps.length; k++) {
-      const side = uniqueAncestry(g, ps[k]!, ps[0]!, 2000);
+      const side = ancestry.walk(ps[k]!, ps[0]!, ancestryBudget);
       unique += side.length;
       for (const s of side) {
         contribs.add(contributorOf[s]!);
@@ -243,13 +268,21 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // readable moment, up to a firm ceiling.
   // An explicitly chosen length is honoured exactly. Only the automatic length
   // is allowed to stretch, and then only as far as legibility asks for.
+  //
+  // There is a ceiling, and it exists because the alternative was measured:
+  // Rust's 248,298 visible nodes at a readable moment each came to 32,278
+  // seconds — a performance nine hours long. Nothing about that is a show. It
+  // also poisons everything downstream, because the camera is keyframed every
+  // 0.05s and a nine-hour plan is 645,561 keyframes to compute and carry.
+  //
+  // Past the ceiling the honest thing is to admit the history is bigger than
+  // an afternoon and let the arrivals compress, rather than to pretend a nine
+  // hour file is a viewing option. Below it nothing changes: a history that
+  // needs eleven minutes still gets eleven.
   const paced =
     opts.preset.targetDuration > 0
       ? targetSeconds
-      // No upper bound. A history that cannot be shown in six minutes without
-      // blurring is shown in longer than six minutes — the viewer was asked
-      // before it was fetched, and every arrival keeps the time it needs.
-      : Math.max(targetSeconds, HEAD + TAIL + visible.length * perNode);
+      : Math.min(MAX_PERFORMANCE_SECONDS, Math.max(targetSeconds, HEAD + TAIL + visible.length * perNode));
   const clock = buildClock(items, paced, reducedMotion);
 
   onProgress('layout');
@@ -577,14 +610,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
       aggregatedCommits: agg.spans.reduce((s, a) => s + a.memberCount, 0),
     },
   };
-  result.planHash = contentHashOf({
-    nodes: nodes.map((nd) => [nd.sha, nd.x, nd.y, nd.impact, nd.threadIdx]),
-    edges: edges.map((e) => [e.parent, e.child, e.kind, e.start, e.end]),
-    events: plan.events.map((e) => [e.type, e.performanceImpact, e.subjectIds]),
-    camera: camera.filter((_, i) => i % 10 === 0).map((c) => [c.x, c.y, c.w, c.h, c.state]),
-    seed: opts.seed,
-    engine: ENGINE,
-  });
+  result.planHash = planHashOf(result);
   onProgress('done');
   return result;
 }

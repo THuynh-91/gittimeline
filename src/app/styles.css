@@ -634,58 +634,111 @@ a {
 .landing {
   position: absolute;
   inset: 0;
+  z-index: 7;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  /* Centred while it fits, scrollable when it does not. Without this the
+     footer links become unreachable on a short window as soon as anything is
+     added above them. */
+  overflow-y: auto;
+  /* A well of dark under the column of copy, and nothing else.
+
+     This used to lift the whole performance with `backdrop-filter:
+     brightness(1.45)` on the theory that a shop window should be lit brighter
+     than the room it is read in. It was working against the picture: the
+     performance behind this page had already been dimmed and slowed on
+     purpose, and brightening all of it back up here made the thread labels
+     bright enough to be read as page copy, so the sentence under the wordmark
+     arrived with "fix/i18n-410" written through it.
+
+     What is left is two nested ellipses measured in pixels rather than
+     percentages, so the well is the size of the column of copy it exists for
+     at every window width instead of shrinking with the viewport. The inner
+     one carries the words; the outer one is only a haze, so the well has no
+     edge anywhere and never reads as a box cut into the picture. Everything
+     outside it is the performance at exactly the brightness the renderer drew
+     it — which is also where the white space is. */
+  background:
+    radial-gradient(ellipse 420px 235px at 50% 47%, rgba(7, 8, 12, 0.95) 0%, rgba(7, 8, 12, 0.92) 44%, rgba(7, 8, 12, 0.78) 66%, rgba(7, 8, 12, 0.4) 84%, rgba(7, 8, 12, 0) 100%),
+    radial-gradient(ellipse 760px 430px at 50% 47%, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0.22) 62%, rgba(7, 8, 12, 0) 100%),
+    linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 18%, rgba(7, 8, 12, 0) 70%, rgba(7, 8, 12, 0.82) 100%);
+}
+
+.landing-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  z-index: 7;
-  padding: 24px;
-  /* A pool of dark behind the text, not a blanket over the stage. Darkening
-     the whole thing made the form legible and the performance behind it
-     invisible, which is half of what this page is for. */
-  background: radial-gradient(ellipse 62% 52% at 50% 46%, rgba(7, 8, 12, 0.9) 30%, rgba(7, 8, 12, 0.62) 68%, rgba(7, 8, 12, 0.28) 100%);
-  /* Centred while it fits, scrollable when it does not. Without this the
-     footer links become unreachable on a short window as soon as anything is
-     added above them — a shelf of pre-fetched histories, for instance. */
-  overflow-y: auto;
   justify-content: safe center;
+  padding: 40px 24px 8px;
 }
 
+/* One measure for everything in the column, so the field, the sentence above
+   it and the line of alternatives below it share a left and a right edge and
+   the well behind them only has to be one shape. */
+.landing .subtitle,
+.url-form,
+.ways {
+  width: min(540px, 100%);
+}
+
+/* Smaller than it was by a third. Eleven letters at fifty-six pixels and
+   0.42em of tracking were the loudest object on the page, and the page is
+   supposed to be a window onto the performance rather than a title card. */
 .landing .title {
-  font-size: clamp(30px, 6vw, 58px);
-  letter-spacing: 0.42em;
+  font-size: clamp(24px, 3.1vw, 34px);
+  letter-spacing: 0.36em;
   font-weight: 300;
   color: var(--ivory);
-  margin: 0 0 8px;
-  text-indent: 0.42em;
+  margin: 0 0 12px;
+  text-indent: 0.36em;
+  /* The wordmark sits directly on the performance. A halo of the page's own
+     ink keeps it readable over whatever thread passes behind it, without
+     putting a box around it. */
+  text-shadow: 0 0 24px rgba(7, 8, 12, 0.95), 0 0 60px rgba(7, 8, 12, 0.85);
 }
 
 .landing .subtitle {
-  margin: 0 0 28px;
+  margin: 0 0 22px;
   color: var(--text-dim);
-  font-size: 15px;
+  font-size: 14.5px;
   text-align: center;
+  text-shadow: 0 0 14px rgba(7, 8, 12, 0.96), 0 0 34px rgba(7, 8, 12, 0.85);
 }
 
 .url-form {
-  width: min(680px, 100%);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* Field and action are one control rather than two objects that happen to sit
+   beside each other: the border belongs to the pair, and lights up for
+   whichever of them has focus. */
 .url-row {
   display: flex;
-  gap: 10px;
   align-items: stretch;
+  padding: 5px 5px 5px 4px;
+  border: 1px solid rgba(230, 225, 214, 0.22);
+  border-radius: 999px;
+  background: rgba(9, 11, 17, 0.86);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.url-row:focus-within {
+  border-color: rgba(244, 233, 210, 0.62);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(244, 233, 210, 0.1);
+}
+
+.url-row.invalid {
+  border-color: var(--danger);
 }
 
 .url-input {
   flex: 1;
-  background: rgba(13, 15, 22, 0.8);
-  border: 1px solid rgba(230, 225, 214, 0.22);
-  border-radius: 999px;
-  padding: 14px 22px;
+  background: none;
+  border: 0;
+  padding: 12px 10px 12px 20px;
   font-size: 16px;
   color: var(--text);
   min-width: 0;
@@ -695,93 +748,127 @@ a {
   color: var(--text-faint);
 }
 
+/* The focus ring belongs to the pair, drawn by `.url-row:focus-within`; a
+   second one around the field inside it reads as two controls again. */
 .url-input:focus {
-  border-color: var(--ivory);
   outline: none;
-  box-shadow: 0 0 0 4px rgba(244, 233, 210, 0.12);
-}
-
-.url-input[aria-invalid="true"] {
-  border-color: var(--danger);
 }
 
 .play-btn {
   border-radius: 999px;
-  padding: 0 26px;
+  padding: 0 24px;
   background: var(--ivory);
   color: var(--ink);
   font-weight: 600;
-  letter-spacing: 0.22em;
-  font-size: 13px;
+  letter-spacing: 0.18em;
+  font-size: 11.5px;
   text-transform: uppercase;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  white-space: nowrap;
+  transition: background 0.16s ease, transform 0.12s ease;
 }
 
 .play-btn:hover {
   background: #fff6e2;
 }
 
+.play-btn:active {
+  transform: scale(0.985);
+}
+
 .play-btn svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   fill: currentColor;
 }
 
 .form-hint {
-  min-height: 20px;
-  font-size: 13px;
+  min-height: 18px;
+  font-size: 12.5px;
   color: var(--danger);
   text-align: center;
+  /* The lines of bare text on this page each carry their own halo of the
+     page's ink, so the well behind them can stay small enough to leave the
+     performance visible. A halo is local to the glyphs; a well is a hole cut
+     in the picture. */
+  text-shadow: 0 0 12px rgba(7, 8, 12, 0.95), 0 0 26px rgba(7, 8, 12, 0.8);
 }
 
 .form-hint.ok {
-  color: var(--text-dim);
+  color: var(--text-faint);
 }
 
-.examples {
+/* Every way in that is not the field, on one line, as prose.
+
+   These were two rows of bordered pills — four examples, then up to three
+   recently-opened repositories — sitting under a bar for the catalog that had
+   a heading and a subtitle of its own. Three stacked blocks of fragments under
+   a sentence of body copy is a wall, and a wall is what a visitor reads
+   instead of the one question above it. Names in a line separated by middots
+   are read as a suggestion; the same names in boxes are read as a menu. */
+.ways {
+  margin: 16px 0 0;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px 6px;
+  align-items: baseline;
+  gap: 4px 9px;
+  font-size: 13px;
   color: var(--text-faint);
-  font-size: 13px;
+  text-shadow: 0 0 12px rgba(7, 8, 12, 0.95), 0 0 26px rgba(7, 8, 12, 0.8);
 }
 
-.examples button {
+.ways-label {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.ways-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.ways button {
   color: var(--text-dim);
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  transition: color 0.16s ease, border-color 0.16s ease;
 }
 
-.examples button:hover {
+.ways button:hover,
+.ways button:focus-visible {
+  color: var(--ivory);
+  border-bottom-color: rgba(244, 233, 210, 0.45);
+}
+
+/* The catalog is the one alternative that costs nothing at all — no token, no
+   GitHub requests — so it ends the line and is the brightest thing in it. */
+.ways .ways-catalog {
   color: var(--text);
-  border-color: var(--line);
+  border-bottom-color: rgba(244, 233, 210, 0.22);
 }
 
-.token-link {
-  margin-top: 26px;
-  font-size: 13px;
-  color: var(--text-dim);
-  border-bottom: 1px dashed rgba(230, 225, 214, 0.3);
-  padding-bottom: 1px;
-}
-
-.token-link:hover {
-  color: var(--text);
+.ways .ways-catalog:hover,
+.ways .ways-catalog:focus-visible {
+  color: var(--ivory);
+  border-bottom-color: rgba(244, 233, 210, 0.6);
 }
 
 .token-panel {
-  margin-top: 22px;
-  width: min(560px, 100%);
-  background: rgba(13, 15, 22, 0.85);
+  width: min(540px, 100%);
+  margin: 0 0 6px;
+  background: rgba(13, 15, 22, 0.94);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px 18px;
   font-size: 13px;
   color: var(--text-dim);
+  text-align: left;
 }
 
 .token-panel p {
@@ -793,36 +880,97 @@ a {
   font-size: 12px;
 }
 
-.landing .meta {
-  margin-top: 34px;
-  color: var(--text-faint);
-  font-size: 12px;
-  text-align: center;
+.landing-foot {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   align-items: center;
-}
-
-.landing .meta a {
-  color: var(--text-dim);
-}
-
-.recent {
-  display: flex;
   gap: 8px;
+  padding: 18px 24px 22px;
+}
+
+/* Says what the moving picture is. Without it the animation reads as
+   decoration rather than as the product doing its one trick. */
+.landing-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-align: center;
+  text-shadow: 0 0 12px rgba(7, 8, 12, 0.95), 0 0 26px rgba(7, 8, 12, 0.85);
+}
+
+/* Footnotes, and the token now among them. Somebody who needs a token meets
+   the offer twice more — in the rate-limit dialog and in Settings — so on this
+   page it belongs at the size of a footnote rather than as a line of its own
+   between the field and the footer. */
+.landing .meta {
+  display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 6px;
+  align-items: center;
+  gap: 3px 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-shadow: 0 0 12px rgba(7, 8, 12, 0.95), 0 0 26px rgba(7, 8, 12, 0.85);
 }
 
-.recent button {
-  font-family: var(--mono);
-  font-size: 12px;
+/* The separator rides on the item before it, so a wrapped row never opens a
+   line with a middot standing on its own. */
+.landing .meta > *:not(:last-child)::after {
+  /* The empty alternative text keeps the separator out of the link's
+     accessible name; a screen reader should not read "How it works middot". */
+  content: "·" / "";
+  /* An atomic inline box, so the underline on the link it is attached to stops
+     at the last letter rather than running under the separator. */
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--text-faint);
+}
+
+.landing .meta a,
+.landing .meta .meta-link,
+.landing .meta .file-link {
   color: var(--text-dim);
-  padding: 4px 10px;
+  cursor: pointer;
+  /* Four footnotes of three different element types; the underline is what
+     says all four are the same kind of thing. */
+  text-decoration: underline;
+  text-decoration-color: rgba(230, 225, 214, 0.22);
+  text-underline-offset: 3px;
+}
+
+.landing .meta a:hover,
+.landing .meta .meta-link:hover,
+.landing .meta .file-link:hover {
+  color: var(--ivory);
+  text-decoration-color: rgba(244, 233, 210, 0.55);
+}
+
+/* Asks once, from the corner. Nothing in GitTimeline is behind it, so it has
+   no business competing with what someone came here to do. */
+.support-link {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-decoration: none;
+  padding: 5px 13px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 999px;
+  background: rgba(9, 11, 17, 0.72);
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.support-link span {
+  color: #ff8fa3;
+}
+
+.support-link:hover {
+  color: var(--text);
+  border-color: rgba(255, 143, 163, 0.5);
 }
 
 /* ---------- prelude / errors ---------- */
@@ -1529,11 +1677,51 @@ kbd {
 
   .url-row {
     flex-direction: column;
+    border-radius: 26px;
+    padding: 6px;
+  }
+
+  .url-input {
+    padding: 11px 14px;
   }
 
   .play-btn {
     padding: 14px;
     justify-content: center;
+  }
+
+  .landing-hero {
+    padding: 30px 16px 6px;
+  }
+
+  /* The well is measured in pixels so that it fits the column of copy rather
+     than the window — but a phone stacks the same column into roughly twice
+     the height, so here it is a tall oval instead of a wide one. */
+  .landing {
+    background:
+      radial-gradient(ellipse 290px 255px at 50% 43%, rgba(7, 8, 12, 0.95) 0%, rgba(7, 8, 12, 0.92) 44%, rgba(7, 8, 12, 0.78) 72%, rgba(7, 8, 12, 0.35) 88%, rgba(7, 8, 12, 0) 100%),
+      radial-gradient(ellipse 460px 400px at 50% 43%, rgba(7, 8, 12, 0.44) 0%, rgba(7, 8, 12, 0.2) 62%, rgba(7, 8, 12, 0) 100%),
+      linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 14%, rgba(7, 8, 12, 0) 66%, rgba(7, 8, 12, 0.82) 100%);
+  }
+
+  /* Eleven letters of tracking are still wider than a phone. The wordmark
+     keeps its spacing as an idea and loses some of it as a measurement. */
+  .landing .title {
+    letter-spacing: 0.22em;
+    text-indent: 0.22em;
+  }
+
+  .landing .subtitle {
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+
+  /* In the corner it would sit on top of the footer it is beside; at this
+     width it joins the end of it instead. */
+  .support-link {
+    position: static;
+    justify-self: center;
+    margin: 0 auto 18px;
   }
 
   .icon-btn.optional,
@@ -1672,70 +1860,59 @@ kbd {
   }
 }
 
-/* Histories fetched ahead of time: a shelf you can look at, not a list. */
+/* Histories fetched ahead of time: a gallery, not a list.
+   Equal rows of picture-and-caption read as a table with illustrations however
+   large the illustrations are. One frame given the whole width, with the rest
+   ranged underneath it, reads as a wall of pictures — and the pictures are
+   what there is to choose between. */
 .catalog {
-  margin: 30px auto 6px;
-  width: min(820px, 100%);
-  text-align: left;
-}
-
-.catalog-head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 12px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.catalog-head h2 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.catalog-head p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-faint);
-}
-
-.catalog-row {
+.catalog-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(258px, 1fr));
+  gap: 16px;
 }
 
 .catalog-card {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   padding: 0;
   overflow: hidden;
   text-align: left;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: rgba(13, 15, 22, 0.72);
+  border-radius: 14px;
+  background: rgba(13, 15, 22, 0.66);
   color: inherit;
   cursor: pointer;
-  transition: border-color 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .catalog-card:hover,
 .catalog-card:focus-visible {
-  border-color: var(--accent);
-  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  transform: translateY(-3px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
 }
 
-/* The hero: a real frame of that performance's final tableau. */
+/* The posters are 1200x420, and the one card that has room for that shape gets
+   it uncropped. Three of them across a page would be ninety pixels tall, which
+   is a strip rather than a picture, so the grid crops to something that can
+   actually be looked at and gives up the ends of the history to do it. */
 .catalog-shot {
   position: relative;
   display: block;
-  aspect-ratio: 40 / 11;
+  aspect-ratio: 16 / 9;
   background: var(--ink);
-  border-bottom: 1px solid var(--line);
   overflow: hidden;
+}
+
+.catalog-card.featured .catalog-shot {
+  aspect-ratio: 20 / 7;
 }
 
 .catalog-shot img {
@@ -1743,18 +1920,172 @@ kbd {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.92;
+  opacity: 0.9;
+  transition: opacity 0.25s ease, transform 0.4s ease;
 }
 
 .catalog-card:hover .catalog-shot img,
 .catalog-card:focus-visible .catalog-shot img {
   opacity: 1;
+  transform: scale(1.03);
+}
+
+/* A catalog entry whose frame was never captured. Hatched rather than blank so
+   it reads as deliberately empty rather than as an image that failed. */
+.catalog-noshot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  background: repeating-linear-gradient(135deg, rgba(230, 225, 214, 0.035) 0 6px, rgba(230, 225, 214, 0) 6px 13px);
+}
+
+/* The picture fades into its caption instead of being cut off from it by a
+   rule. A border across the middle of a card turns it back into a row. */
+.catalog-shot::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 62%;
+  background: linear-gradient(to top, rgba(11, 13, 19, 0.97) 12%, rgba(11, 13, 19, 0));
+  pointer-events: none;
+}
+
+/* What the card costs, on the picture and never behind a hover.
+   The page above this promises no token and no GitHub requests, which is true
+   and is not the whole price: Chromium is a 222 MB download, and Kubernetes
+   spends two and a half minutes threading 58,000 merges in the visitor's own
+   tab before there is anything to look at. A card that reads as instant and
+   then holds the page is worse than one that says the number, so the number is
+   always on. It turns amber only past the point where the wait needs naming. */
+.catalog-cost {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  /* Nearly opaque, because this pill has to be legible over both ends of a
+     photographic gradient — the featured card puts it exactly where the frame
+     fades up towards its caption, and at 74% it disappeared there. */
+  background: rgba(7, 8, 12, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.catalog-cost.slow {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 38%, var(--line));
+}
+
+.catalog-card.featured .catalog-cost {
+  top: 14px;
+  right: 14px;
+}
+
+/* The affordance goes on the picture, where the eye already is, and only when
+   the card is being considered. */
+.catalog-cue {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--ivory);
+  border-radius: 999px;
+  padding: 3px 10px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.catalog-cue svg {
+  width: 8px;
+  height: 8px;
+  fill: currentColor;
+}
+
+.catalog-card:hover .catalog-cue,
+.catalog-card:focus-visible .catalog-cue {
+  opacity: 1;
+  transform: none;
+}
+
+.catalog-body {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 0 15px 14px;
+  /* Sits up inside the picture's fade, so the caption belongs to the frame
+     rather than sitting in a tray beneath it. */
+  margin-top: -30px;
+}
+
+.catalog-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The owner's mark, beside the title and smaller than it.
+
+   On a light plate, because these arrive in two incompatible kinds and the card
+   is nearly black: six of the twelve are transparent PNGs whose marks are dark
+   — Node's green hexagon, LLVM's dragon — and would sink into the background
+   entirely, while the rest already come on white. One plate makes both kinds
+   read the same way, and turns a photograph (Linus, BurntSushi) into the same
+   rounded square as a logo instead of a portrait floating in the caption.
+
+   Held slightly back at rest and brought up with the rest of the card, for the
+   same reason it is twenty pixels and not forty: the picture above it is a real
+   frame of that history, and this is a label on it. */
+.catalog-logo {
+  flex: none;
+  /* The line sets its items on the baseline; an image has none worth using. */
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  object-fit: cover;
+  background: rgba(236, 231, 222, 0.86);
+  opacity: 0.86;
+  transition: opacity 0.2s ease;
+}
+
+.catalog-card:hover .catalog-logo,
+.catalog-card:focus-visible .catalog-logo {
+  opacity: 1;
+}
+
+.catalog-card.featured .catalog-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.catalog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ivory);
 }
 
 .catalog-scope {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   font-style: normal;
   font-size: 10px;
   letter-spacing: 0.09em;
@@ -1765,18 +2096,6 @@ kbd {
   padding: 1px 7px;
 }
 
-.catalog-body {
-  display: grid;
-  gap: 3px;
-  padding: 11px 13px 12px;
-}
-
-.catalog-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ivory);
-}
-
 .catalog-slug {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -1784,17 +2103,57 @@ kbd {
 }
 
 .catalog-blurb {
-  margin-top: 3px;
+  margin-top: 5px;
   font-size: 12.5px;
   color: var(--text-dim);
-  line-height: 1.36;
+  line-height: 1.4;
 }
 
+/* How long it runs, and how much history is in it — the two things a person is
+   actually choosing between, set large enough to be read before the blurb is.
+
+   A number over its own label rather than a run of "35 min long · 1,481,850
+   commits": stacked, the two figures line up as a pair to be compared across
+   cards, and the labels can be small without the numbers going small with them.
+   Everything else the build knows stays in the faint line underneath, which is
+   where it belongs — a card that shouts four numbers is shouting none. */
+.catalog-figures {
+  margin-top: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+}
+
+.catalog-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.catalog-figure b {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--ivory);
+  font-variant-numeric: tabular-nums;
+}
+
+.catalog-figure span {
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Two counts on one line until the card is too narrow for them, and then on
+   two. Left to overflow they were cut off mid-word, which reads as a bug and
+   loses the number the card is there to give you. */
 .catalog-meta {
-  margin-top: 5px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 2px 7px;
   font-size: 11px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -1812,10 +2171,207 @@ kbd {
   background: var(--line);
 }
 
+/* The same warning as the amber pill, in a sentence, because the pill says
+   "~3 minutes" and does not say why. "Composed in this tab" is the part that
+   makes the wait make sense — nothing is being downloaded slowly, the
+   choreography for 141,000 commits is being written on the spot. */
+.catalog-warn {
+  margin-top: 8px;
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--warn) 62%, var(--text-dim));
+}
+
+.catalog-card.featured .catalog-warn {
+  font-size: 12.5px;
+  max-width: 52ch;
+}
+
+/* The first frame is given the width, and its caption is set beside it rather
+   than under it. Stacked, a sparse history — one bright line across an
+   otherwise dark frame — left four hundred pixels of empty card above the
+   title. Side by side, the empty part of the picture is the space the words
+   sit in. */
+.catalog-card.featured {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.catalog-card.featured .catalog-shot {
+  flex: 0 0 58%;
+  aspect-ratio: auto;
+  min-height: 232px;
+}
+
+/* Fading down the picture would cut it in half here; the caption is to the
+   right, so the picture fades that way instead. */
+.catalog-card.featured .catalog-shot::after {
+  inset: 0 0 0 auto;
+  width: 34%;
+  height: auto;
+  background: linear-gradient(to right, rgba(11, 13, 19, 0), rgba(11, 13, 19, 0.9) 78%);
+}
+
+.catalog-card.featured .catalog-body {
+  flex: 1;
+  align-content: center;
+  padding: 22px 26px;
+  margin-top: 0;
+  margin-left: -12%;
+}
+
+.catalog-card.featured .catalog-title {
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.catalog-card.featured .catalog-slug {
+  font-size: 11.5px;
+}
+
+.catalog-card.featured .catalog-blurb {
+  font-size: 14px;
+  max-width: 56ch;
+}
+
+/* The featured card has the room, and the length of the thing it is offering is
+   the largest claim on the page after the frame itself. */
+.catalog-card.featured .catalog-figures {
+  margin-top: 16px;
+  gap: 6px 30px;
+}
+
+.catalog-card.featured .catalog-figure b {
+  font-size: 25px;
+}
+
+.catalog-card.featured .catalog-figure span {
+  font-size: 10px;
+}
+
+.catalog-card.featured .catalog-cue {
+  top: 14px;
+  left: 14px;
+}
+
 @media (max-width: 620px) {
-  .catalog-row {
+  .catalog-grid {
     grid-template-columns: 1fr;
   }
+
+  /* Too narrow to set a caption beside a picture: back to a stack. */
+  .catalog-card.featured {
+    flex-direction: column;
+  }
+
+  .catalog-card.featured .catalog-shot {
+    flex: none;
+    aspect-ratio: 16 / 9;
+    min-height: 0;
+  }
+
+  .catalog-card.featured .catalog-shot::after {
+    inset: auto 0 0 0;
+    width: auto;
+    height: 62%;
+    background: linear-gradient(to top, rgba(11, 13, 19, 0.97) 12%, rgba(11, 13, 19, 0));
+  }
+
+  .catalog-card.featured .catalog-body {
+    padding: 0 15px 14px;
+    margin: -30px 0 0;
+  }
+
+  .catalog-card.featured .catalog-title {
+    font-size: 17px;
+  }
+
+  /* Stacked, the featured card is the same shape as every other one, so its
+     mark goes back to the same size too. */
+  .catalog-card.featured .catalog-logo {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+  }
+
+  .catalog-card.featured .catalog-blurb {
+    font-size: 12.5px;
+  }
+
+  /* Same reason as the mark above it: stacked, this is an ordinary card. */
+  .catalog-card.featured .catalog-figures {
+    margin-top: 11px;
+    gap: 6px 22px;
+  }
+
+  .catalog-card.featured .catalog-figure b {
+    font-size: 17px;
+  }
+
+  .catalog-card.featured .catalog-figure span {
+    font-size: 9.5px;
+  }
+}
+
+/* The projects people ask for by name, which are also the ones that cannot be
+   fetched by an anonymous visitor. Kept below the shelf and quieter than it:
+   these cost something, and the ones above cost nothing. */
+.famous {
+  margin-top: 42px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line);
+}
+
+.famous h2 {
+  margin: 0 0 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.famous p {
+  margin: 0 0 15px;
+  max-width: 68ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.famous-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.famous-row button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 13px;
+  background: rgba(13, 15, 22, 0.62);
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.famous-row button i {
+  font-family: var(--font);
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.famous-row button:hover,
+.famous-row button:focus-visible {
+  color: var(--ivory);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
 /* Taking things off the stage. Deliberately faint until looked for, and
@@ -1870,9 +2426,12 @@ kbd {
 }
 
 .page-inner {
-  width: min(880px, 100%);
+  /* Wide enough for three frames beside each other. The gallery is the page,
+     and at 880px the cards were too small to read the shape of a history off,
+     which is the only reason the pictures are there. */
+  width: min(1140px, 100%);
   margin: 0 auto;
-  padding: 42px 24px 56px;
+  padding: 40px 26px 64px;
 }
 
 .page-back {
@@ -1881,7 +2440,7 @@ kbd {
   background: none;
   border: 0;
   padding: 0;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
   cursor: pointer;
 }
 
@@ -1889,9 +2448,13 @@ kbd {
   color: var(--ivory);
 }
 
+.page-head {
+  margin-bottom: 24px;
+}
+
 .page-inner h1 {
-  margin: 0 0 8px;
-  font-size: clamp(22px, 3.4vw, 32px);
+  margin: 0 0 10px;
+  font-size: clamp(22px, 3.4vw, 34px);
   font-weight: 300;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1899,42 +2462,11 @@ kbd {
 }
 
 .page-lead {
-  margin: 0 0 26px;
-  max-width: 62ch;
+  margin: 0;
+  max-width: 78ch;
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--text-dim);
-}
-
-/* Two ways in that are not examples, so they do not share the examples row's
-   punctuation — that read as one long undifferentiated list of links. */
-.alt-actions {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.alt-actions .alt {
-  font-size: 12.5px;
-  color: var(--text-dim);
-  background: rgba(13, 15, 22, 0.66);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 14px;
-  cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease;
-}
-
-.alt-actions .alt:hover,
-.alt-actions .alt:focus-visible {
-  color: var(--ivory);
-  border-color: var(--accent);
-}
-
-.examples.recent button {
-  font-family: var(--mono);
-  font-size: 11.5px;
 }
 
 /* Optional sign-in, shown only when a deployment provides the service. */
@@ -2016,4 +2548,639 @@ kbd {
 .volume-range:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
+}
+
+
+/* ---------- landing legibility ----------
+
+   The page copy sits on top of a moving picture, and text chosen to be quiet
+   against flat ink reads as *washed out* against one — the complaint was that
+   it looked transparent, and it was: 58% and 34% alpha, inherited from a
+   palette designed for panels over a static background.
+
+   So the copy on this page is opaque. Only the text is raised; the animation
+   stays exactly as dim as the renderer drew it, because brightening the
+   background to make the foreground readable is how the background stopped
+   being a background the first time.
+
+   The halo does the separating: a wide, soft shadow in the page's own ink
+   travels with the glyphs, so a thread passing behind a word is darkened where
+   the word is and nowhere else. */
+
+.landing .subtitle {
+  color: #f2ede2;
+  font-weight: 450;
+  text-shadow:
+    0 0 8px rgba(7, 8, 12, 1),
+    0 0 18px rgba(7, 8, 12, 1),
+    0 0 40px rgba(7, 8, 12, 0.95);
+}
+
+.landing .form-hint,
+.landing .landing-note {
+  color: rgba(240, 235, 224, 0.92);
+  text-shadow:
+    0 0 8px rgba(7, 8, 12, 1),
+    0 0 18px rgba(7, 8, 12, 1),
+    0 0 38px rgba(7, 8, 12, 0.92);
+}
+
+.landing .examples-label {
+  color: rgba(240, 235, 224, 0.72);
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 18px rgba(7, 8, 12, 1);
+}
+
+.landing .examples button,
+.landing .ways a,
+.landing .ways button {
+  color: #f2ede2;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 1);
+}
+
+.landing .meta a,
+.landing .meta button {
+  color: rgba(240, 235, 224, 0.9);
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.98);
+}
+
+/* The wordmark is the one thing that was never faint; keep it that way and
+   give it the same halo so it separates from a bright thread crossing it. */
+.landing .title {
+  color: #fbf7ee;
+  text-shadow: 0 0 10px rgba(7, 8, 12, 1), 0 0 28px rgba(7, 8, 12, 0.95);
+}
+
+/* ---------- landing: one hero, one quiet corner ----------
+
+   Everything that is not "which repository?" was on the reading path between
+   the field and the bottom of the page — how it works, the source link, a file
+   import, a second row of recently-opened repositories. Each was reasonable on
+   its own and together they were the page. They are now either in the corner
+   or gone. */
+
+.ways {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px 14px;
+  margin: 18px 0 0;
+}
+
+.ways-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(240, 235, 224, 0.5);
+  margin-right: 2px;
+}
+
+.ways button {
+  font-size: 13.5px;
+  color: #f2ede2;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 1);
+}
+
+.ways button:hover,
+.ways button:focus-visible {
+  border-bottom-color: rgba(244, 233, 210, 0.55);
+}
+
+/* The one route that costs a visitor nothing gets its own line and its own
+   weight, rather than being the tail of a list of examples. */
+.shelf-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 26px auto 0;
+  padding: 9px 20px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #f6f1e6;
+  background: rgba(12, 14, 21, 0.82);
+  border: 1px solid rgba(244, 233, 210, 0.22);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.shelf-cta:hover,
+.shelf-cta:focus-visible {
+  border-color: rgba(244, 233, 210, 0.55);
+  background: rgba(18, 21, 30, 0.92);
+}
+
+.shelf-cta span {
+  color: rgba(240, 235, 224, 0.6);
+}
+
+/* The corner. Small, fixed, and the last thing the eye reaches. */
+.corner {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 3;
+}
+
+.corner-link {
+  font-size: 11.5px;
+  color: rgba(240, 235, 224, 0.55);
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: none;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 18px rgba(7, 8, 12, 0.95);
+  transition: color 0.16s ease;
+}
+
+.corner-link:hover,
+.corner-link:focus-visible {
+  color: #f2ede2;
+}
+
+.corner-link.support {
+  color: rgba(255, 176, 176, 0.72);
+}
+
+.corner-link.support:hover,
+.corner-link.support:focus-visible {
+  color: rgb(255, 190, 190);
+}
+
+@media (max-width: 640px) {
+  .corner {
+    position: static;
+    justify-content: center;
+    margin-top: 18px;
+    gap: 14px;
+  }
+}
+
+/* ---------- connecting GitHub ---------- */
+
+.token-why {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: rgba(240, 235, 224, 0.82);
+}
+
+.token-route {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.token-route .btn.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 10px 16px;
+  font-size: 13.5px;
+}
+
+/* Three sentences, because "sign in with GitHub" is a request for trust and
+   the honest answer to it is short and worth reading. */
+.token-facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+
+.token-facts li {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: rgba(240, 235, 224, 0.62);
+  padding-left: 15px;
+  position: relative;
+}
+
+.token-facts li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.token-facts-note {
+  margin: 0 0 14px;
+  font-size: 11.5px;
+  color: rgba(240, 235, 224, 0.5);
+}
+
+.token-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(240, 235, 224, 0.38);
+}
+
+.token-or::before,
+.token-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(244, 233, 210, 0.12);
+}
+
+.token-fine {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(240, 235, 224, 0.5);
+}
+
+/* Connected: state, what it bought, and the way out. */
+.token-state {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.token-state div {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.token-state b {
+  font-size: 13px;
+  color: #f2ede2;
+}
+
+.token-state span {
+  font-size: 11.5px;
+  color: rgba(240, 235, 224, 0.6);
+}
+
+.token-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7ee0a6;
+  box-shadow: 0 0 10px rgba(126, 224, 166, 0.7);
+  flex: none;
+}
+
+/* ---------- landing top bar ---------- */
+
+.landing-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 26px;
+  z-index: 4;
+}
+
+.landing-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(240, 235, 224, 0.72);
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.95);
+}
+
+.landing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.landing-nav button,
+.landing-nav a {
+  font-size: 12px;
+  color: rgba(240, 235, 224, 0.66);
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.95);
+  transition: color 0.16s ease;
+}
+
+.landing-nav button:hover,
+.landing-nav a:hover,
+.landing-nav button:focus-visible,
+.landing-nav a:focus-visible {
+  color: #f6f1e6;
+}
+
+.landing-support {
+  color: rgba(255, 176, 176, 0.72) !important;
+}
+
+.landing-support:hover,
+.landing-support:focus-visible {
+  color: rgb(255, 194, 194) !important;
+}
+
+@media (max-width: 720px) {
+  .landing-bar {
+    padding: 12px 14px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .landing-nav {
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .landing-nav button,
+  .landing-nav a {
+    font-size: 11.5px;
+  }
+}
+
+/* ---------- connect GitHub, as its own page ---------- */
+
+.page-inner.narrow {
+  max-width: 760px;
+}
+
+.rate-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 26px 0;
+}
+
+.rate-card {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(12, 14, 21, 0.6);
+  display: grid;
+  gap: 4px;
+}
+
+.rate-card b {
+  font-family: var(--mono);
+  font-size: 27px;
+  color: rgba(240, 235, 224, 0.55);
+  line-height: 1.1;
+}
+
+.rate-card span {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.rate-card i {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(240, 235, 224, 0.6);
+  margin-top: 6px;
+}
+
+/* Which of the two you are living in right now. */
+.rate-card.now {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  background: rgba(18, 21, 30, 0.75);
+}
+
+.rate-card.now b,
+.rate-card.better b {
+  color: #f6f1e6;
+}
+
+.signin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 30px;
+}
+
+.btn.big {
+  padding: 12px 22px;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.signin-unavailable {
+  margin: 4px 0 30px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.grant {
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+}
+
+.grant h2 {
+  margin: 0 0 14px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.grant ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 11px;
+}
+
+.grant li {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(240, 235, 224, 0.72);
+  padding-left: 18px;
+  position: relative;
+}
+
+.grant li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.grant li b {
+  color: #f2ede2;
+  font-weight: 550;
+}
+
+.grant code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.grant-revoke {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* A sign-in page that does not admit you can skip it is a sign-in wall. */
+.signin-alt {
+  margin: 26px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ivory);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .rate-compare {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The account action reads as the primary route in the bar without shouting:
+   a hairline capsule rather than a filled button, because the page's one real
+   call to action is the field in the middle. */
+.landing-nav .nav-primary {
+  padding: 5px 13px;
+  border: 1px solid rgba(244, 233, 210, 0.26);
+  border-radius: 999px;
+  color: rgba(240, 235, 224, 0.86);
+}
+
+.landing-nav .nav-primary:hover,
+.landing-nav .nav-primary:focus-visible {
+  border-color: rgba(244, 233, 210, 0.6);
+  color: #f6f1e6;
+}
+
+.landing-foot .support-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 11.5px;
+  color: rgba(255, 176, 176, 0.62);
+  text-decoration: none;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.95);
+  transition: color 0.16s ease;
+}
+
+.landing-foot .support-link:hover,
+.landing-foot .support-link:focus-visible {
+  color: rgb(255, 196, 196);
+}
+
+/* The routed page's container. `display: contents` means it contributes no box
+   of its own, so `.landing` and `.page` position against `.app` exactly as they
+   did when they were direct children. */
+.route {
+  display: contents;
+}
+
+.grant + .grant {
+  margin-top: 26px;
+}
+
+.grant-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(240, 235, 224, 0.78);
+}
+
+.grant-lead b {
+  color: #f2ede2;
+}
+
+
+/* The two halves of the name.
+   `Git` takes the accent — the same blue used everywhere else for "this is a
+   real thing from the repository" — and `Timeline` stays ivory, the colour of
+   the spine. Read together it is still one word at a glance; read at all, it
+   is two. */
+/* Which half is which, and why round this way.
+   On the stage, ivory is the default branch — the repository's own spine — and
+   the accent is what this app adds on top of it: selection, live tips, focus.
+   So `Git` is ivory because it is the thing that already exists, and
+   `Timeline` is the accent because it is what we do to it. The bright colour
+   landing on the last four letters also finishes the eye on the noun rather
+   than trailing off it. */
+.mark-git {
+  color: var(--ivory);
+}
+
+.mark-time {
+  color: var(--accent);
+}
+
+.title .mark-git,
+.title .mark-time {
+  /* The hero is letterspaced, so the gap after `Git` would otherwise read as a
+     word break. Pull the second half back by one tracking step. */
+  letter-spacing: inherit;
+}
+
+.title .mark-time {
+  margin-left: -0.12em;
+}
+
+.landing-mark .mark-git,
+.landing-mark .mark-time {
+  letter-spacing: inherit;
 }
