@@ -366,6 +366,9 @@ export interface Landmark {
 }
 
 export interface CompiledPerformance {
+  /** Present only on a bounded catalog view; the compiler's complete result has none. */
+  window?: { key: string; start: number; end: number; minX: number; maxX: number; residentBytes: number; manifestUrl: string };
+  soundtrack?: 'calm' | 'driving' | 'frantic';
   engine: typeof ENGINE;
   seed: string;
   preset: PlaybackPreset;

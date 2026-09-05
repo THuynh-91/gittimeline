@@ -4,6 +4,7 @@ import type { IngestOutcome, IngestProgress } from '@/github/ingest';
 import type { RateInfo } from '@/github/ratelimit';
 import type { RecentRepo } from '@/github/cache';
 import type { Quality } from '@/renderer/canvas';
+import type { CatalogManifest } from '@/export/catalogPackage';
 
 /**
  * Explicit application state (spec §20.3). Playback time is published at a
@@ -158,6 +159,8 @@ function loadSettings(): Settings {
 }
 
 export const store = {
+  buffering: signal(false),
+  catalogManifest: signal<CatalogManifest | null>(null),
   phase: signal<AppPhase>('IDLE'),
   mode: signal<'landing' | 'player' | 'catalog' | 'signin'>('landing'),
   input: signal(''),

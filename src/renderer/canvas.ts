@@ -251,7 +251,7 @@ export class StageRenderer {
     this.resize();
   }
 
-  setPerformance(p: CompiledPerformance | null) {
+  setPerformance(p: CompiledPerformance | null, at = 0) {
     this.perf = p;
     this.lastT = -1;
     this.nodeBySha.clear();
@@ -289,7 +289,7 @@ export class StageRenderer {
     this.unknownEdges = p.edges.filter((edge) => edge.kind === 'unknown');
     this.mergeLabelNodes = p.nodes.filter((node) => node.isMerge && node.mergeVolume >= 6);
     this.taggedNodes = p.nodes.filter((node) => node.tagLabels.length > 0);
-    const nameAnonymousThreads = p.threads.length <= 40;
+    const nameAnonymousThreads = p.stats.threads <= 40;
     this.labelThreads = p.threads.filter((thread) => thread.role !== 'primary' && (!!thread.label || nameAnonymousThreads));
     this.tipThreads = p.threads.filter((thread) => thread.ending === 'tip');
     this.edgeBounds = new Float32Array(p.edges.length * 4);
@@ -345,10 +345,10 @@ export class StageRenderer {
     this.nodesByX = byX;
     this.resetLanded();
     this.shopView = null;
-    const first = p.camera[0];
+    const first = p.camera.length ? sampleCamera(p.camera,at) : null;
     if (first) {
       this.lastCue = first;
-      this.applyCamera(first, 0, 0);
+      this.applyCamera(first, 0, at);
     }
   }
 
@@ -636,6 +636,7 @@ export class StageRenderer {
     const safeW = Math.max(80, this.width - s.left - s.right);
     const safeH = Math.max(80, this.height - s.top - s.bottom);
     if (this.manual) {
+      if(this.perf?.window)this.manual.scale=Math.max(this.manual.scale,safeW/16000);
       this.view = { scale: this.manual.scale, ox: s.left + safeW / 2, oy: s.top + safeH / 2, rotation: 0, cx: this.manual.x, cy: this.manual.y };
       return;
     }
@@ -648,7 +649,7 @@ export class StageRenderer {
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
     if (this.shopWindow && this.applyShopWindow(t, dtReal)) return;
     const fit = Math.min(safeW / cue.w, safeH / cue.h);
-    const scale = (this.zoomLock ?? fit) * this.smoothedPunch;
+    const scale = Math.max(this.perf?.window?safeW/16000:0,(this.zoomLock ?? fit) * this.smoothedPunch);
     this.view = {
       scale,
       ox: s.left + safeW / 2,

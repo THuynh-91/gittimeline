@@ -19,6 +19,7 @@ import { ExploreBar } from './ExploreBar';
 import { ViewToggles } from './ViewToggles';
 import { CatalogPage } from './CatalogPage';
 import { SignIn } from './SignIn';
+import './experience.css';
 
 export function App() {
   useEffect(() => {
@@ -81,6 +82,7 @@ export function App() {
       </div>
       <ScopeChooser />
       <Prelude />
+      {showPlayer && store.buffering.value && <div class="buffering" role="status">Loading this part of history… <button type="button" onClick={()=>{store.mode.value='catalog';}}>Back to selection</button></div>}
       {showPlayer && perf && !chromeHidden && <TopBar />}
       {showPlayer && perf && !chromeHidden && view.showRail && <CommitRail />}
       {showPlayer && perf && <FollowButton />}

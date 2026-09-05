@@ -2,6 +2,12 @@
 
 Updated 2026-09-05. Every number was measured, not estimated.
 
+Implementation direction: [Fast static playback and a new viewing experience](docs/static-playback-plan.md).
+That plan preserves the existing architecture and sequences progressive catalog
+loading, playback optimisation, UI/demo redesign, and Pages release validation.
+Its proposed acceptance budgets are targets, not completed measurements; no runtime
+changes are implied by the plan.
+
 Sections 4–7 are **briefs, not specifications**. They state the problem, the
 constraint and how you would know it was solved, and deliberately stop short of
 saying how. Where a number is given it is evidence, not a target to hard-code.

@@ -71,9 +71,19 @@ describe('camera planning', () => {
     ['Rust', 32_283],
     ['Linux', 43_200],
     ['longer than anything built', 200_000],
-  ])('stays finite when the grid is stretched for %s', (_name, duration) => {
-    const cues = check(duration);
-    // The grid really is stretched — otherwise this proves nothing.
-    expect(cues[1]!.time - cues[0]!.time).toBeGreaterThan(CAMERA_STEP);
-  });
+  ])(
+    'stays finite when the grid is stretched for %s',
+    (_name, duration) => {
+      const cues = check(duration);
+      // The grid really is stretched — otherwise this proves nothing.
+      expect(cues[1]!.time - cues[0]!.time).toBeGreaterThan(CAMERA_STEP);
+    },
+    // Each case plans, smooths and then asserts over 60,001 cues, which is the
+    // point — the bug being guarded against only appears once the grid has been
+    // stretched to that ceiling. It costs about five seconds a case on an idle
+    // machine and rather more on a busy one, so the default five-second limit
+    // makes this fail whenever anything else is running rather than whenever
+    // the camera is wrong.
+    30_000,
+  );
 });

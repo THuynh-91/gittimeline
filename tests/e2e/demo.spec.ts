@@ -11,7 +11,9 @@ test.describe('built-in demo performance', () => {
     await page.goto('/');
     await expect(page.getByTestId('url-input')).toBeVisible();
     await expect(page.getByTestId('play-button')).toBeVisible();
-    await expect(page.getByText('Fetched from GitHub, rendered on your device', { exact: false }).first()).toBeVisible();
+    // The hint reads back what the field understood, and says where the work
+    // happens when it has nothing to read back yet.
+    await expect(page.locator('#url-hint')).toContainText('Rendered on your device');
     await waitForReady(page);
     expect(await page.evaluate(() => window.__gittimeline.mode)).toBe('landing');
     const a = await stageHash(page);
@@ -181,7 +183,10 @@ test.describe('built-in demo performance', () => {
     expect(await page.evaluate(() => window.__gittimeline.zoomLocked)).toBe(false);
     void hash;
     const stats = await page.evaluate(() => window.__gittimeline.stats);
-    expect(stats!.commits).toBe(56);
+    // The built-in demo was re-cut denser: it ran at 0.97 arrivals a second
+    // against the shelf's 7.7, and showed one moving thing for its first eight
+    // seconds. 177 commits at 2.53 a second, with one deliberate quiet stretch.
+    expect(stats!.commits).toBe(177);
     // The stage keeps changing frame to frame.
     const a = await stageHash(page);
     await page.waitForTimeout(700);
@@ -194,7 +199,7 @@ test.describe('built-in demo performance', () => {
     await waitForReady(page);
     // The ledger prints commits as they land, and docks to the top by default.
     await expect(page.getByTestId('commit-rail')).toHaveClass(/dock-top/);
-    await expect(page.getByTestId('commit-rail')).toContainText('Initial commit');
+    await expect(page.getByTestId('commit-rail')).toContainText('Bring the work together');
     // Help carries the coverage truth and the legend.
     await page.getByTestId('help-button').click();
     await expect(page.getByTestId('panel-help')).toContainText('exact');

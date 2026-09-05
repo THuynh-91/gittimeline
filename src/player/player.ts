@@ -9,6 +9,8 @@ import { mapMonotone } from '@/choreography/clock';
 export type PlayerEvent = 'time' | 'play' | 'pause' | 'seek' | 'end' | 'load';
 
 export class Player {
+  beforeSeek: ((t: number) => boolean) | null = null;
+  buffered = true;
   perf: CompiledPerformance | null = null;
   t = 0;
   playing = false;
@@ -59,6 +61,7 @@ export class Player {
 
   seek(t: number) {
     if (!this.perf) return;
+    if (this.beforeSeek && !this.beforeSeek(t)) return;
     this.t = Math.min(Math.max(0, t), this.duration);
     this.emit('seek');
     this.emit('time');
@@ -81,7 +84,7 @@ export class Player {
 
   /** Advance by real seconds. Returns true when time changed. */
   advance(dtReal: number): boolean {
-    if (!this.playing || !this.perf) return false;
+    if (!this.playing || !this.perf || !this.buffered) return false;
     const next = this.t + dtReal * this.rate;
     const end = this.loop ? this.loop.end : this.duration;
     if (next >= end) {

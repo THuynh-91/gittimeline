@@ -165,7 +165,7 @@ export class AudioEngine {
   private async choose(): Promise<void> {
     const tracks = await loadCatalogue();
     if (!tracks.length || !this.el) return;
-    const register: Register = this.perf ? registerFor(characterOf(this.perf)) : 'driving';
+    const register: Register = this.perf ? this.perf.soundtrack ?? registerFor(characterOf(this.perf)) : 'driving';
     const pick = tracks.find((t) => t.register === register) ?? tracks[0]!;
     if (this.wanted?.id === pick.id) return;
     this.wanted = pick;

@@ -11,7 +11,7 @@ import { ApiCache } from '@/github/cache';
 import { ingestRepository, probeRepository, type IngestOutcome } from '@/github/ingest';
 import { formatReset } from '@/github/ratelimit';
 import { willOutrunTheCeiling } from '@/choreography/pace';
-import { buildDemoDataset } from '@/fixtures/demo';
+import { buildShowcaseDataset } from '@/fixtures/showcase';
 import { buildLandingDataset } from '@/fixtures/landing';
 import { fixtureById } from '@/fixtures/corpus';
 import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
@@ -22,6 +22,9 @@ import { fmtClock } from '@/choreography/events';
 import { mapMonotone } from '@/choreography/clock';
 import { claimTokenFromUrl } from './auth';
 import { trackPerformanceStart } from './analytics';
+import { CatalogSource } from '@/player/catalogSource';
+import { validateManifest, type CatalogManifest } from '@/export/catalogPackage';
+import { sampleCamera } from '@/choreography/camera';
 
 /**
  * Orchestration: ingestion runs, compilation, the frame loop, keyboard,
@@ -32,6 +35,58 @@ export const audio = new AudioEngine();
 export const cache = new ApiCache();
 let renderer: StageRenderer | null = null;
 let canvasEl: HTMLCanvasElement | null = null;
+let catalogSource: CatalogSource | null = null;
+let windowGeneration = 0;
+let windowPending = false;
+let committingSeek = false;
+
+async function prepareCatalogWindow(t: number, manual = false) {
+  const source = catalogSource;
+  if (!source) return;
+  const generation = ++windowGeneration;
+  windowPending = true;
+  player.buffered = false;
+  store.buffering.value = true;
+  syncAudioToPlayback();
+  const view = manual ? renderer?.viewport() : null;
+  try {
+    const perf = await source.prepare({ t, ...(view ? { x:view.cx,width:view.worldW } : {}) });
+    if (source !== catalogSource || generation !== windowGeneration) return;
+    const selected = player.perf?.nodes[store.selectedNode.value ?? -1]?.sha;
+    const thread = player.perf?.threads[store.selectedThread.value ?? -1]?.id;
+    player.perf = perf;
+    batch(() => {
+      store.perf.value = perf;
+      store.selectedNode.value = selected ? perf.nodes.findIndex(n=>n.sha===selected) : null;
+      if(store.selectedNode.value === -1)store.selectedNode.value=null;
+      store.selectedThread.value = thread ? perf.threads.findIndex(th=>th.id===thread) : null;
+      if(store.selectedThread.value === -1)store.selectedThread.value=null;
+      store.hoverNode.value = null;
+    });
+    renderer?.setPerformance(perf,t);
+    syncRendererSettings();
+    captionPtr = perf.events.findIndex(e=>e.performanceImpact>t);
+    if(captionPtr<0)captionPtr=perf.events.length;
+    committingSeek = true;
+    if(Math.abs(player.t-t)>.001) player.seek(t);
+    committingSeek = false;
+    player.buffered = true;
+    store.banner.value = null;
+  } catch(error) {
+    if(source!==catalogSource||generation!==windowGeneration)return;
+    player.pause();
+    store.banner.value={kind:'info',message:error instanceof Error?error.message:'Could not load this interval.',action:{label:'Retry',run:()=>void prepareCatalogWindow(t,manual)}};
+  } finally {
+    if(source===catalogSource&&generation===windowGeneration){windowPending=false;store.buffering.value=false;syncAudioToPlayback();}
+  }
+}
+player.beforeSeek = (t) => {
+  if(!catalogSource||committingSeek)return true;
+  const w=player.perf?.window;
+  if(!windowPending&&w&&t>=w.start&&t<w.end){return true;}
+  void prepareCatalogWindow(Math.max(0,Math.min(player.duration,t)));
+  return false;
+};
 
 interface Run {
   id: number;
@@ -273,6 +328,14 @@ function frame(now: number) {
   const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
   lastFrame = now;
   const perf = player.perf;
+  if(catalogSource&&perf?.window&&!windowPending&&player.buffered){
+    const t=Math.min(perf.duration,player.t+(player.playing?dt*player.rate:0));
+    const v=renderer?.viewport();
+    const manual=!!renderer?.manual;
+    const x=manual&&v?v.cx:sampleCamera(perf.camera,t).x;
+    const half=manual&&v?Math.min(16000,v.worldW)/2:3000;
+    if(t>=perf.window.end&&t<perf.duration||t<perf.window.start||x-half<perf.window.minX||x+half>perf.window.maxX)void prepareCatalogWindow(t,manual);
+  }
   player.advance(dt);
   // A span ends where it said it would. `player.loop` would wrap here, which
   // is a different promise from the one the card made, so the stop is here
@@ -284,11 +347,11 @@ function frame(now: number) {
   }
   const t = player.t;
   if (renderer) {
-    renderer.render(t, dt);
+    if(player.buffered)renderer.render(t, dt);
     const cam = renderer.camera;
     if (cam && cam.state !== store.cameraState.peek()) store.cameraState.value = cam.state;
   }
-  if (perf && player.playing) {
+  if (perf && player.playing && player.buffered) {
     const idx = Math.min(perf.waveform.length - 1, Math.floor((t / Math.max(1e-6, perf.duration)) * (perf.waveform.length - 1)));
     audio.schedule(t, player.rate, perf.waveform[idx] ?? 0);
   }
@@ -342,7 +405,7 @@ function syncAudioToPlayback() {
   // thing while a repository is still being fetched and compiled: the clock
   // can be running against a performance that has nothing on screen yet, and
   // music over a loading screen is music with nothing to accompany.
-  const performing = store.mode.value === 'player' && player.playing && !!store.perf.value && store.phase.value === 'PLAYING';
+  const performing = store.mode.value === 'player' && player.playing && player.buffered && !!store.perf.value && store.phase.value === 'PLAYING';
   if (performing) audio.resume();
   else audio.suspend();
 }
@@ -400,6 +463,13 @@ function newRun(): Run {
 }
 
 export function cancelRun() {
+  catalogSource?.dispose();
+  catalogSource=null;
+  windowGeneration++;
+  windowPending=false;
+  player.buffered=true;
+  store.buffering.value=false;
+  store.catalogManifest.value=null;
   if (!run) return;
   run.abort.abort();
   run.compile?.cancel();
@@ -553,7 +623,7 @@ export async function loadDemo(opts: { autoplay: boolean; landing: boolean; star
   // written — it is what `?demo=1` and gallery mode show, and those have to be
   // reproducible. Behind the form the requirement is the opposite one: never
   // the same twice, and never seen to start over.
-  const ds = opts.landing ? buildLandingDataset(String(landingSeed)) : buildDemoDataset();
+  const ds = opts.landing ? buildLandingDataset(String(landingSeed)) : buildShowcaseDataset();
   batch(() => {
     store.mode.value = opts.landing ? 'landing' : 'player';
     if (store.rendererMode.value !== 'poster') store.banner.value = null;
@@ -979,7 +1049,7 @@ export function retry() {
  * and a plan baked at one pace cannot honestly answer for another). Either way
  * the entry opens; it just opens the way it used to.
  */
-export async function loadCatalogEntry(file: string, label: string, span: SpanChoice | null = null) {
+export async function loadCatalogEntry(file: string, label: string, span: SpanChoice | null = null, startAt=0, autoplay=true, identity:string|null=null) {
   const r = newRun();
   batch(() => {
     enterPlayer();
@@ -990,6 +1060,35 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
   });
   primeAudio();
   try {
+    const manifestUrl=new URL(`${import.meta.env.BASE_URL}catalog/${file.replace(/\.gittimeline\.gz$/,'.pages/manifest.json')}`,location.origin).href;
+    const response=await fetch(manifestUrl,{signal:r.abort.signal});
+    // A 200 is not enough to conclude there is a package here.
+    //
+    // Single-page hosts answer a missing path with index.html and a 200 — the
+    // dev preview does, and so does any host given an SPA fallback. Trusting
+    // `response.ok` then hands HTML to `JSON.parse`, and the throw escapes
+    // before the whole-plan fallback below is ever reached: every unpackaged
+    // entry on the shelf fails to open at all, rather than opening the old way.
+    // Requiring the content type is what distinguishes "no package" from "a
+    // package that failed".
+    const looksLikeManifest = response.ok && (response.headers.get('content-type') ?? '').includes('json');
+    if(looksLikeManifest){
+      const manifest=await response.json() as CatalogManifest;
+      validateManifest(manifest);
+      if(identity&&identity!==manifest.summary.planHash)throw new Error('This shared catalog revision is no longer published. Open the current history from Selection.');
+      if(run?.id!==r.id)return;
+      catalogSource=new CatalogSource(manifestUrl,manifest);
+      store.catalogManifest.value=manifest;
+      const t=span?(manifest.years.find(([y])=>y===span.from)?.[1]??0):startAt;
+      const perf=await catalogSource.prepare({t});
+      if(run?.id!==r.id)return;
+      lastRepo=null;
+      loadPerformance(perf,null,{autoplay,outcome:'artifact',isDemo:false,span,startAt:t});
+      if(store.settings.value.seed!==perf.seed||store.durationOverride.value||store.settings.value.lengthMode!=='natural')store.banner.value={kind:'info',message:'This curated history uses its published composition. Playback speed and date range remain adjustable.'};
+      return;
+    }
+    // Anything else that is not a plain absence is a real failure worth naming.
+    if(!response.ok&&response.status!==404)throw new Error(`Catalog unavailable (${response.status}).`);
     const ready = await loadPrecompiledPlan(r, file);
     if (run?.id !== r.id) return;
     if (ready?.matches) {
@@ -1586,6 +1685,9 @@ export async function exportArtifact() {
 }
 
 export function exportTranscript() {
+  if(catalogSource){
+    const a=document.createElement('a');a.href=new URL(store.catalogManifest.value!.transcript,catalogSource.url).href;a.download='history-transcript.txt.gz';a.click();return;
+  }
   const perf = store.perf.value;
   if (!perf) return;
   const text = [`# ${perf.source.owner}/${perf.source.name} — GitTimeline transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');

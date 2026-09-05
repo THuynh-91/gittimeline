@@ -138,7 +138,8 @@ function advanceFeed(
   last: number,
 ): Entry[] {
   const f = ref.current;
-  if (f.hash !== perf.planHash || last < f.cursor || t < f.at) {
+  const identity=perf.window?.key ?? perf.planHash;
+  if (f.hash !== identity || last < f.cursor || t < f.at) {
     // Rebuild: take the most recent commits, spaced by their own landings.
     const entries: Entry[] = [];
     let i = last;
@@ -151,7 +152,7 @@ function advanceFeed(
       }
       i--;
     }
-    ref.current = { hash: perf.planHash, at: entries.length ? entries[entries.length - 1]!.at : t, cursor: last, entries };
+    ref.current = { hash: identity, at: entries.length ? entries[entries.length - 1]!.at : t, cursor: last, entries };
     return ref.current.entries;
   }
   if (last > f.cursor && t - f.at >= DWELL) {
