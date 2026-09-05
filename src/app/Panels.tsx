@@ -282,11 +282,27 @@ function TokenField() {
   );
 }
 
+/**
+ * What the app is and how to read the stage — and, when something is playing,
+ * what *this* history is.
+ *
+ * The second half used to be the whole premise: the panel read
+ * `store.perf.value!` on its first line, so it could only exist during a
+ * performance, and the "How it works" item in the site bar had to call
+ * `play()` before opening it. Asking how something works is not asking to be
+ * dropped into the middle of it — from the catalog that answer threw away the
+ * page you were reading and started a demo you did not choose.
+ *
+ * So the explanation stands on its own and the repository-specific half
+ * appears only when there is a repository to describe.
+ */
 function HelpPanel() {
-  const perf = store.perf.value!;
-  const completeness = perf.source.provider === 'synthetic' ? 'synthetic' : perf.coverage.completeness;
-  const focus = store.contributorFocus.value;
-  const people = [...perf.contributors].sort((a, b) => Number(a.isBot) - Number(b.isBot) || b.commitCount - a.commitCount);
+  // The landing page keeps a demo compiled and running behind the hero, so a
+  // performance object exists there even though the visitor never asked for
+  // one. Describing *that* under "This repository" would put a made-up
+  // history's commit counts and invented contributors in front of someone who
+  // only clicked a help link, so the section follows the player, not the data.
+  const perf = store.mode.value === 'player' ? store.perf.value : null;
   return (
     <div>
       <p>
@@ -316,6 +332,40 @@ function HelpPanel() {
         <dd>An exact run of many commits, drawn once with its count.</dd>
       </dl>
 
+      {perf && <HelpThisRepository perf={perf} />}
+
+      <h3>Keyboard</h3>
+      <div class="keys">
+        <kbd>Space</kbd>
+        <span>play / pause</span>
+        <kbd>← →</kbd>
+        <span>step a beat</span>
+        <kbd>Shift ← →</kbd>
+        <span>previous / next landmark</span>
+        <kbd>↑ ↓</kbd>
+        <span>walk the active threads</span>
+        <kbd>M</kbd>
+        <span>sound</span>
+        <kbd>C</kbd>
+        <span>free look, follow at your zoom, auto</span>
+        <kbd>Esc</kbd>
+        <span>close</span>
+      </div>
+
+      <h3>Limits</h3>
+      <p>
+        GitHub allows a network about 60 anonymous requests an hour, which covers a few thousand commits. A free read-only token in Settings raises that to about 5,000 and lets GitTimeline read far deeper. When the limit is reached the performance is still played, and labelled as partial.
+      </p>
+    </div>
+  );
+}
+
+function HelpThisRepository({ perf }: { perf: CompiledPerformance }) {
+  const completeness = perf.source.provider === 'synthetic' ? 'synthetic' : perf.coverage.completeness;
+  const focus = store.contributorFocus.value;
+  const people = [...perf.contributors].sort((a, b) => Number(a.isBot) - Number(b.isBot) || b.commitCount - a.commitCount);
+  return (
+    <>
       <h3>This repository</h3>
       <p>
         <Pill p={completeness} /> {perf.coverage.summary}
@@ -362,30 +412,9 @@ function HelpPanel() {
         ))}
       </ul>
 
-      <h3>Keyboard</h3>
-      <div class="keys">
-        <kbd>Space</kbd>
-        <span>play / pause</span>
-        <kbd>← →</kbd>
-        <span>step a beat</span>
-        <kbd>Shift ← →</kbd>
-        <span>previous / next landmark</span>
-        <kbd>↑ ↓</kbd>
-        <span>walk the active threads</span>
-        <kbd>M</kbd>
-        <span>sound</span>
-        <kbd>C</kbd>
-        <span>free look, follow at your zoom, auto</span>
-        <kbd>Esc</kbd>
-        <span>close</span>
-      </div>
-
-      <h3>Limits</h3>
-      <p>
-        GitHub allows a network about 60 anonymous requests an hour, which covers a few thousand commits. A free read-only token in Settings raises that to about 5,000 and lets GitTimeline read far deeper. When the limit is reached the performance is still played, and labelled as partial.
-      </p>
-    </div>
+    </>
   );
 }
+
 
 export type { CompiledPerformance, NodeGeom };

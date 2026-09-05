@@ -1,6 +1,6 @@
 import { Fragment } from 'preact';
-import { useEffect, useId, useState } from 'preact/hooks';
-import { loadCatalogEntry } from './controller';
+import { useEffect, useState } from 'preact/hooks';
+import { askCatalogScope } from './controller';
 import { trackCatalogOpen } from './analytics';
 import { hash01 } from '@/model/prng';
 
@@ -230,9 +230,64 @@ const runtime = (seconds: number) => {
  */
 const tintOf = (slug: string) => Math.round(hash01(slug) * 360);
 
+/**
+ * Per-year running time as a row of columns.
+ *
+ * Heights are square-rooted rather than linear. A repository's busiest year is
+ * routinely twenty times its quietest, and on a linear scale that leaves one
+ * column full height and the rest a flat line along the bottom — technically
+ * accurate and unreadable. The root keeps the ordering exact while letting the
+ * quiet years still register as years rather than as nothing.
+ */
+function Pulse({ years }: { years: Array<[number, number]> }) {
+  const peak = Math.max(...years.map(([, secs]) => secs), 1);
+  return (
+    <span class="catalog-pulse" aria-hidden="true">
+      {years.map(([year, secs]) => (
+        <i key={year} style={`height:${(Math.sqrt(secs / peak) * 100).toFixed(1)}%`} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * The years of this entry worth offering as a span, most recent first.
+ *
+ * A year later than this one is not a year of anything, whatever the plan says.
+ * That is the broken clock of `spanFloor` seen from the other end: presentation
+ * time may only move forward, so one commit with a bad timestamp drags every
+ * descendant past it, and Linux spends nine of its twelve hours in "2037" and
+ * "2085". Offering those would put a repository's data-quality problem in front
+ * of somebody as though it were a choice. Nothing is hidden by leaving them
+ * out — the whole history plays every arrival, in order, whatever date each one
+ * claims, and it is the default.
+ */
+function offeredYears(e: CatalogEntry): Array<[number, number]> {
+  const floor = spanFloor(e.durationSeconds ?? 0);
+  return realYears(e).filter(([, secs]) => secs >= floor).reverse();
+}
+
+/**
+ * The years of this entry that are years, oldest first.
+ *
+ * A year later than this one is not a year of anything, whatever the plan says.
+ * Presentation time may only move forward, so one commit with a broken clock
+ * drags every descendant past it: Linux's plan spends nine of its twelve hours
+ * in "2037" and "2085", which are 90% of its columns and two-thirds of its
+ * offered spans if nothing filters them. Both the picture and the choice would
+ * then be showing a repository's data-quality problem as though it were a fact
+ * about the project.
+ *
+ * Nothing is hidden by leaving them out. The whole history plays every arrival,
+ * in order, whatever date each one claims, and it is the default.
+ */
+function realYears(e: CatalogEntry): Array<[number, number]> {
+  const nowYear = new Date().getUTCFullYear();
+  return (e.years ?? []).filter(([y]) => y <= nowYear);
+}
+
 function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
   const e = entry;
-  const selectId = useId();
   // Null unless it is slow enough to be worth naming, which is also the narrowing the JSX below needs.
   const slowFor = e.openSeconds != null && e.openSeconds >= SLOW_SECONDS ? e.openSeconds : null;
   // What the click actually pulls down. Where a plan ships, the dataset is not
@@ -268,40 +323,41 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
   // Merges and contributors stayed behind in the small line below, because
   // five counts in one row is a specification sheet — and once everything is
   // bold, none of it is.
-  const pace = e.nodes != null && e.durationSeconds ? e.nodes / e.durationSeconds : null;
   const figures = [
     e.durationSeconds != null ? { value: runtime(e.durationSeconds), label: 'long' } : null,
     e.commits != null ? { value: fmt(e.commits), label: 'commits' } : null,
-    pace != null ? { value: `${pace.toFixed(1)}/s`, label: 'arrivals' } : null,
+    // Arrivals per second is off the card. It is the number that decides
+    // whether a history is watchable, and it is meaningless to somebody
+    // choosing between projects — "7.7/s" answers a question nobody standing
+    // at a shelf is asking. The length already says what it costs to watch;
+    // the density belongs where it is acted on, not where it is chosen.
+    null,
   ].filter((f): f is { value: string; label: string } => f !== null);
 
-  // Most recent first: the year somebody wants is far more often the last one
-  // than the first, and a select that opens on 1990 asks CPython's visitor to
-  // scroll thirty-six rows to reach the year they meant.
-  //
-  // A year later than this one is not a year of anything, whatever the plan
-  // says. It is the same broken clock as above, seen from the other end: Linux
-  // spends nine of its twelve hours in "2037" and "2085", and offering those as
-  // spans would put the repository's data-quality problem on the card as though
-  // it were a choice. They stay reachable — the whole history plays every
-  // arrival, in order, whatever date each one claims.
-  const nowYear = new Date().getUTCFullYear();
-  const floor = spanFloor(e.durationSeconds ?? 0);
-  const years = (e.years ?? []).filter(([y, secs]) => y <= nowYear && secs >= floor).reverse();
-  const [picked, setPicked] = useState<number | null>(null);
-  const year = picked != null && years.some(([y]) => y === picked) ? picked : (years[0]?.[0] ?? null);
-  const label = e.scope ? `${e.title} · ${e.scope}` : e.title;
-  const open = (span: { from: number; to: number } | null) => {
-    // Counted at the click rather than at the first frame, because the
-    // interesting number is the difference between the two: these are large
-    // downloads, and a card nobody waits out is the one worth knowing about.
+  const pulseYears = realYears(e);
+  const open = () => {
+    // Counted here rather than when a performance finally starts, because the
+    // difference between the two is the interesting number: these are large
+    // downloads and some of them are twelve-hour shows, and a card that is
+    // opened and then backed out of is exactly what is worth knowing about.
     trackCatalogOpen(e.slug, e.commits);
-    void loadCatalogEntry(e.file, span ? `${label} · ${span.from}` : label, span);
+    // One action per card. Which project is this card's question; how much of
+    // it is the next one, and the scope chooser has always been where that is
+    // asked. Nothing is fetched by asking — every answer is the same download.
+    askCatalogScope({
+      file: e.file,
+      label: e.scope ? `${e.title} · ${e.scope}` : e.title,
+      durationSeconds: e.durationSeconds ?? 0,
+      nodes: e.nodes ?? 0,
+      bytes: cost,
+      openSeconds: e.openSeconds,
+      years: offeredYears(e),
+    });
   };
 
   return (
     <article class={`catalog-card${featured ? ' featured' : ''}`}>
-      <button type="button" class="catalog-open" onClick={() => open(null)} data-testid={`catalog-${e.slug.replace('/', '-')}`}>
+      <button type="button" class="catalog-open" onClick={open} data-testid={`catalog-${e.slug.replace('/', '-')}`}>
         <span class="catalog-mark" style={`--tint:${tintOf(e.slug)}`}>
           <span class="catalog-plate">
             {e.logo ? (
@@ -313,6 +369,21 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
               <b aria-hidden="true">{e.slug.slice(0, 1).toUpperCase()}</b>
             )}
           </span>
+          {/* The shape of the project's life, behind its mark.
+              
+              A logo says which project this is and nothing about it — every
+              card would carry the same amount of information whether the
+              repository had ten commits or a million. This is the plan's own
+              per-year running time drawn as a column each, so the panel shows
+              at a glance whether a project started fast and slowed, built
+              steadily for a decade, or has only really been busy since last
+              year. Kubernetes and CPython are both large and look nothing
+              alike here, which is the point.
+              
+              It costs no new data: `years` is already in the index because
+              the year selector needs it. Decorative, and marked so — the
+              figures underneath state the same facts in words. */}
+          {pulseYears.length > 1 && <Pulse years={pulseYears} />}
           {/* What it costs, on the panel and never hidden behind a hover. The
               page above promises no token and no requests, which is true and is
               not the whole price: this one is 199 MB on someone's phone plan.
@@ -383,38 +454,13 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
           )}
         </span>
       </button>
-      {/* Outside the card's own button, because a select inside a button is
-          neither valid nor operable. The whole history keeps the card; a year
-          gets a row of its own underneath it. */}
-      {year != null && (
-        <div class="catalog-span">
-          <label class="catalog-span-label" for={selectId}>
-            Or one year of it
-          </label>
-          <div class="catalog-span-row">
-            {/* The length is in the option itself rather than in a tooltip.
-                Which year is cheap and which is an afternoon is exactly the
-                thing being chosen between, and CPython's 1996 and its 2024 are
-                four minutes apart. */}
-            <select
-              id={selectId}
-              class="catalog-year"
-              value={String(year)}
-              onChange={(ev) => setPicked(Number((ev.currentTarget as HTMLSelectElement).value))}
-              data-testid={`catalog-year-${e.slug.replace('/', '-')}`}
-            >
-              {years.map(([y, secs]) => (
-                <option value={String(y)} key={y}>
-                  {y} · {runtime(secs)}
-                </option>
-              ))}
-            </select>
-            <button type="button" class="catalog-span-go" onClick={() => open({ from: year, to: year })} data-testid={`catalog-span-${e.slug.replace('/', '-')}`}>
-              Watch {year}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* The year choice is not here.
+            
+            It was a dropdown and a second button on every card, which turned a
+            shelf of eleven projects into a shelf of eleven small forms and
+            buried the one action a card exists for. Choosing a project and
+            choosing how much of it are two decisions, and asking both at once
+            asks neither clearly. The second one belongs after the click. */}
     </article>
   );
 }

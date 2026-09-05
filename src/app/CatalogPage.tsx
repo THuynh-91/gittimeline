@@ -1,4 +1,5 @@
 import { SiteBar } from './SiteBar';
+import { SiteFoot } from './SiteFoot';
 import { store } from './store';
 import { Catalog, useCatalogEntries } from './Catalog';
 import { showLanding } from './controller';
@@ -52,11 +53,12 @@ export function CatalogPage() {
           <h1>Selection Ready to Watch</h1>
           <p class="page-lead">
             These histories were fetched ahead of time and ship with the site, so opening one costs no GitHub token and no requests at all. Every card
-            says how long its performance runs and how fast its commits arrive, because those are the things you are choosing between — three minutes of
-            a small tool and twelve hours of Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
-            If a whole history is more than you want, each card also offers a single year of itself: that is the same plan with the clock told where to
-            start and stop, so it costs the same one download and no waiting at all. What a card <em>does</em> cost is written on it too — the size of
-            that download, and where unpacking it afterwards is long enough to notice, how long.
+            says how long its performance runs, because that is the thing you are choosing between — three minutes of a small tool and twelve hours of
+            Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
+            Pick one and it asks how much of it you want before it starts: the whole thing, the last few years, or a single year. Every answer is
+            the same one download — a span is that same plan with the clock told where to begin and where to stop — so choosing less costs nothing and
+            saves nothing but your evening. What a card <em>does</em> cost is written on it: the size of that download, and where unpacking it
+            afterwards is long enough to notice, how long.
           </p>
         </header>
         <Catalog />
@@ -87,6 +89,7 @@ export function CatalogPage() {
           </section>
         )}
       </div>
+      <SiteFoot />
     </div>
   );
 }

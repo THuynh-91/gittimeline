@@ -40,6 +40,9 @@ test.describe('pre-fetched catalog', () => {
       return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
     });
     await shelf.getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+    // The card opens the question; "Everything" is the answer that is the
+    // whole repository, and the one this test is about.
+    await page.getByTestId('scope-full').click();
     await waitForReady(page);
 
     const stats = await page.evaluate(() => window.__gittimeline.stats);
@@ -64,13 +67,24 @@ test.describe('pre-fetched catalog', () => {
       const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; bytes: number }>;
       return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
     });
-    const key = cheapest.replace('/', '-');
-    const chooser = shelf.getByTestId(`catalog-year-${key}`);
-    // An entry whose plan predates spans simply offers none, and there is then
-    // nothing here to test rather than something broken.
-    if (!(await chooser.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
-    const year = await chooser.inputValue();
-    await shelf.getByTestId(`catalog-span-${key}`).click();
+    // A card has one action, and it is a question rather than a start: which
+    // project is what the shelf asks, and how much of it is asked next.
+    await shelf.getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+    const chooser = page.getByTestId('scope-chooser');
+    await expect(chooser).toBeVisible();
+    await expect(page.getByTestId('scope-full'), 'the whole history is the primary offer').toBeVisible();
+
+    const from = chooser.getByTestId('scope-from');
+    // An entry whose plan predates spans covers one year or none, and offers no
+    // range: there is then nothing here to test rather than something broken.
+    if (!(await from.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
+    // Both ends to the same year, which is the narrowest thing a range can be
+    // and the one whose label the badge has to match exactly.
+    const year = (await from.locator('option').first().textContent())!.trim();
+    await from.selectOption(year);
+    await chooser.getByTestId('scope-to').selectOption(year);
+    await expect(chooser.getByTestId('scope-range-runtime')).toContainText(year);
+    await chooser.getByTestId('scope-full').click();
     await waitForReady(page);
 
     // The whole plan is loaded — a span is a window on it, not a smaller

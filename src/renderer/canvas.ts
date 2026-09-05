@@ -55,6 +55,50 @@ const EDGE_BUCKET_WIDTH = 640;
 const MAX_EDGE_BUCKET_SPAN = 48;
 
 /**
+ * Per-frame stopwatch, off by default and free when off.
+ *
+ * A stage with three hundred thousand commits on it is slow for a reason, and
+ * the reason is never the one you would have guessed: twice in one day the
+ * obvious candidate turned out to cost nothing and a loop nobody suspected
+ * turned out to cost everything. So the renderer carries its own scales. Turn
+ * `enabled` on, run some frames, read `ms` and `counts`, and optimise the line
+ * the numbers name rather than the line the intuition does.
+ */
+export const renderProfile = {
+  enabled: false,
+  frames: 0,
+  ms: {
+    total: 0,
+    background: 0,
+    camera: 0,
+    settledEdges: 0,
+    activeEdges: 0,
+    nodes: 0,
+    bodies: 0,
+    effects: 0,
+    tips: 0,
+    glow: 0,
+    labels: 0,
+  },
+  counts: {
+    edgesConsidered: 0,
+    edgesWalked: 0,
+    edgesDrawn: 0,
+    edgesActive: 0,
+    nodesWalked: 0,
+    nodesDrawn: 0,
+    cacheRedraws: 0,
+  },
+  /** The last frame's world window, so a surprising count can be explained. */
+  view: { scale: 0, x0: 0, x1: 0, y0: 0, y1: 0 },
+  reset() {
+    this.frames = 0;
+    for (const k of Object.keys(this.ms) as Array<keyof typeof this.ms>) this.ms[k] = 0;
+    for (const k of Object.keys(this.counts) as Array<keyof typeof this.counts>) this.counts[k] = 0;
+  },
+};
+
+/**
  * Twenty commits converging must look unmistakably bigger than two. Volume is
  * the count of commits unique to the merged side(s), so this grows with the
  * real weight of the work rather than with a normalized score.
@@ -524,8 +568,18 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
+    const prof = renderProfile.enabled ? renderProfile : null;
+    let mark = prof ? performance.now() : 0;
+    const started = mark;
+    const lap = (k: keyof typeof renderProfile.ms) => {
+      if (!prof) return;
+      const n = performance.now();
+      prof.ms[k] += n - mark;
+      mark = n;
+    };
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawBackground(t);
+    lap('background');
     if (!p) {
       this.drawEmptyStage(t);
       return;
@@ -534,6 +588,7 @@ export class StageRenderer {
     this.lastCue = cue;
     this.applyCamera(cue, this.lastT < 0 || Math.abs(t - this.lastT) > 1 ? 0 : dtReal, t);
     this.lastT = t;
+    lap('camera');
     if (p.nodes.length === 0) {
       this.drawEmptyStage(t);
       return;
@@ -551,6 +606,7 @@ export class StageRenderer {
     const halfW = (this.width * inv) / 2 + 80;
     const halfH = (this.height * inv) / 2 + 80;
     const vx0 = v.cx - halfW, vx1 = v.cx + halfW, vy0 = v.cy - halfH, vy1 = v.cy + halfH;
+    if (prof) prof.view = { scale: v.scale, x0: vx0, x1: vx1, y0: vy0, y1: vy1 };
 
     const useGlow = this.settings.quality === 'full' && !this.settings.reducedMotion;
     const glow = this.glowCtx;
@@ -587,9 +643,11 @@ export class StageRenderer {
     const activeEdges: EdgeGeom[] = [];
     const visibleEdges = this.visibleEdgeIndices(vx0, vx1);
     const edgeCount = visibleEdges?.length ?? edges.length;
+    let edgesWalked = 0;
     for (let at = 0; at < edgeCount; at++) {
       const i = visibleEdges ? visibleEdges[at]! : at;
       const e = edges[i]!;
+      edgesWalked++;
       if (e.start > t) {
         if (e.start > t + 3) {
           // edges are sorted by start: everything after is in the future
@@ -604,8 +662,16 @@ export class StageRenderer {
         continue;
       }
       this.drawSettledEdge(ctx, e, t, ivory, slate, dimForFocus, focusIdx);
+      if (prof) prof.counts.edgesDrawn++;
     }
+    if (prof) {
+      prof.counts.edgesConsidered += edgeCount;
+      prof.counts.edgesWalked += edgesWalked;
+      prof.counts.edgesActive += activeEdges.length;
+    }
+    lap('settledEdges');
     for (const e of activeEdges) this.drawActiveEdge(ctx, useGlow ? glow : null, e, t, ivory, slate, focusIdx);
+    lap('activeEdges');
 
     // --- Nodes ---
     const nodes = p.nodes;
@@ -616,19 +682,30 @@ export class StageRenderer {
       if (nodes[this.nodesByX[mid]!]!.x < vx0) nodeLo = mid + 1;
       else nodeHi = mid;
     }
+    let nodesWalked = 0;
+    let nodesDrawn = 0;
     for (let at = nodeLo; at < this.nodesByX.length; at++) {
       const nd = nodes[this.nodesByX[at]!]!;
       if (nd.x > vx1) break;
+      nodesWalked++;
       if (nd.impact > t + 0.001) continue;
       if (nd.y < vy0 || nd.y > vy1) continue;
+      nodesDrawn++;
       this.drawNode(ctx, useGlow ? glow : null, nd, t, ripples, ivory, slate, focusIdx);
     }
+    if (prof) {
+      prof.counts.nodesWalked += nodesWalked;
+      prof.counts.nodesDrawn += nodesDrawn;
+    }
+    lap('nodes');
 
     // --- Bodies ---
     for (const e of activeEdges) this.drawBody(ctx, useGlow ? glow : null, e, t, focusIdx);
+    lap('bodies');
 
     // --- Impact effects ---
     this.drawEffects(ctx, useGlow ? glow : null, t, ivory);
+    lap('effects');
 
     // --- Live tip beacons ---
     //
@@ -650,6 +727,7 @@ export class StageRenderer {
     }
 
     ctx.restore();
+    lap('tips');
 
     if (useGlow) {
       ctx.save();
@@ -672,12 +750,18 @@ export class StageRenderer {
       ctx.restore();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     }
+    lap('glow');
 
     // --- Screen-space labels & selection ---
     this.drawLabels(ctx, t);
     if (this.attenuation < 1) {
       ctx.fillStyle = rgba(PALETTE.ink, 1 - this.attenuation);
       ctx.fillRect(0, 0, this.width, this.height);
+    }
+    lap('labels');
+    if (prof) {
+      prof.frames++;
+      prof.ms.total += performance.now() - started;
     }
   }
 

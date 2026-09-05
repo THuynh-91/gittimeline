@@ -1,5 +1,6 @@
 import { store } from './store';
-import { play, showLanding } from './controller';
+import { showLanding } from './controller';
+import { Wordmark } from './Wordmark';
 
 /**
  * The bar across the top of every page that is not the performance itself.
@@ -17,18 +18,7 @@ import { play, showLanding } from './controller';
  */
 export function SiteBar({ page }: { page: 'landing' | 'catalog' | 'signin' }) {
   const tokenActive = !!store.token.value;
-  const mark = (
-    <>
-      <span class="landing-dot" aria-hidden="true" />
-      {/* Two words, and the name only makes sense as two: a *timeline* of
-          *Git*. Splitting the colour rather than adding a space keeps the
-          wordmark one object while letting each half be read. Ivory is the
-          default branch on the stage and the accent is what this app adds on
-          top of it, so the two halves use the same vocabulary as the picture. */}
-      <span class="mark-git">Git</span>
-      <span class="mark-time">Timeline</span>
-    </>
-  );
+  const mark = <Wordmark />;
 
   return (
     <header class="landing-bar" data-testid="site-bar">
@@ -40,33 +30,44 @@ export function SiteBar({ page }: { page: 'landing' | 'catalog' | 'signin' }) {
         </button>
       )}
       <nav class="landing-nav" aria-label="Site">
-        {/* Ordered by how many people want each one. Browsing something that
-            costs nothing comes first; the account action is last and on the
-            right, where a primary action is looked for. The route you are
-            already on is dropped rather than shown inert — a nav item that
-            does nothing when clicked is worse than one that is absent. */}
-        {page !== 'catalog' && (
-          <button type="button" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
-            Selection
-          </button>
-        )}
+        {/* Every item on every page, always.
+            
+            The route you were already on used to be dropped on the reasoning
+            that a nav item which does nothing is worse than one that is
+            absent. It is not: removing it changes what the bar contains from
+            page to page, so the whole thing shifts and resizes as you move
+            around and no two pages look alike. A bar is furniture, and
+            furniture that rearranges itself is the opposite of uniform.
+            
+            The current page is marked instead — `aria-current` for anyone
+            listening, and a quiet brightening for anyone looking — and
+            clicking it simply keeps you where you are. */}
         <button
           type="button"
-          onClick={() => {
-            store.panel.value = 'help';
-            play();
-          }}
+          aria-current={page === 'catalog' ? 'page' : undefined}
+          onClick={() => (store.mode.value = 'catalog')}
+          data-testid="catalog-link"
+        >
+          Selection
+        </button>
+        <button
+          type="button"
+          onClick={() => (store.panel.value = store.panel.value === 'help' ? 'none' : 'help')}
         >
           How it works
         </button>
         <a href="https://github.com/THuynh-91/gittimeline" target="_blank" rel="noopener noreferrer">
           Source
         </a>
-        {page !== 'signin' && (
-          <button type="button" class="nav-primary" onClick={() => (store.mode.value = 'signin')} data-testid="signin-link">
-            {tokenActive ? 'GitHub connected' : 'Connect GitHub'}
-          </button>
-        )}
+        <button
+          type="button"
+          class="nav-primary"
+          aria-current={page === 'signin' ? 'page' : undefined}
+          onClick={() => (store.mode.value = 'signin')}
+          data-testid="signin-link"
+        >
+          {tokenActive ? 'GitHub connected' : 'Connect GitHub'}
+        </button>
       </nav>
     </header>
   );

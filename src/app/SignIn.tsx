@@ -1,4 +1,6 @@
 import { SiteBar } from './SiteBar';
+import { SiteFoot } from './SiteFoot';
+import { useState } from 'preact/hooks';
 import { store } from './store';
 import { AUTH_BASE, signInWithGitHub } from './auth';
 import { showLanding } from './controller';
@@ -27,6 +29,7 @@ import { Icons } from './icons';
  * is sent to api.github.com and nowhere else, and is gone when the tab closes.
  */
 export function SignIn() {
+  const [showSetup, setShowSetup] = useState(false);
   const connected = !!store.token.value;
   const configured = !!AUTH_BASE;
 
@@ -78,16 +81,57 @@ export function SignIn() {
               Back to the app
             </button>
           </div>
-        ) : configured ? (
+        ) : (
           <div class="signin-actions">
-            <button type="button" class="btn primary big" onClick={signInWithGitHub} data-testid="signin-github">
+            {/* The button is always here, and that is deliberate.
+                
+                It used to render only when a token exchange service was
+                configured, so on an unconfigured build the page explained at
+                length what connecting GitHub would do and then offered no way
+                to do it — which reads as broken rather than as unfinished. It
+                briefly pointed at a Render service instead, which was worse: a
+                twelve-second wake followed by a 503, because no OAuth
+                application had ever been registered against it.
+                
+                So it is a real button that says what is true. Where the
+                exchange exists it signs you in; where it does not, it says so
+                and shows what is missing rather than failing silently. */}
+            <button
+              type="button"
+              class="btn primary big"
+              onClick={() => (configured ? signInWithGitHub() : setShowSetup(!showSetup))}
+              aria-expanded={configured ? undefined : showSetup}
+              data-testid="signin-github"
+            >
               <Icons.github /> Sign in with GitHub
             </button>
+            {!configured && (
+              <p class="signin-note" data-testid="signin-unavailable">
+                Not connected on this deployment yet — <button type="button" class="linkish" onClick={() => setShowSetup(!showSetup)}>what that means</button>
+              </p>
+            )}
           </div>
-        ) : (
-          <p class="signin-unavailable" data-testid="signin-unavailable">
-            Sign-in is not configured on this deployment. Public repositories still work at the anonymous rate, and the ready-made histories cost no requests at all.
-          </p>
+        )}
+
+        {!configured && showSetup && (
+          <section class="grant setup" aria-labelledby="setup-heading" data-testid="signin-setup">
+            <h2 id="setup-heading">Why the button cannot sign you in yet</h2>
+            <p class="grant-lead">
+              GitHub finishes a sign-in by trading a one-time code for a token, and that trade cannot happen in a browser: the endpoint sends no <code>Access-Control-Allow-Origin</code> header, on the request or the preflight, so the response is blocked before this page could read it. GitHub offers no PKCE for public clients either. Exactly one call has to be made somewhere else.
+            </p>
+            <ul>
+              <li>
+                <b>That somewhere is a function, not a server.</b> <code>worker/</code> holds a Cloudflare Worker of about two kilobytes which does that single call and nothing else — no database, no idle process, nothing retained.
+              </li>
+              <li>
+                <b>It is written and tested, not deployed.</b> Twenty-four unit tests, and twenty-one end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
+              </li>
+              <li>
+                <b>Two things need an account nobody but the owner has.</b> A GitHub OAuth application — which has no API, so it cannot be scripted — and a Cloudflare deploy. <code>worker/README.md</code> has the steps.
+              </li>
+            </ul>
+            <p class="grant-revoke">Until then everything else works: public repositories at the anonymous rate, and the ready-made histories at no cost at all.</p>
+          </section>
         )}
 
         {/* What is actually being granted. Every line is a fact about the
@@ -154,6 +198,7 @@ export function SignIn() {
           — Linux, Chromium, and eight more, whole — ship with the site and cost no requests at all.
         </p>
       </div>
+      <SiteFoot />
     </div>
   );
 }

@@ -1,6 +1,122 @@
-import { store } from './store';
-import { chooseScope, cancel } from './controller';
+import { useState } from 'preact/hooks';
+import { store, type CatalogQuestion } from './store';
+import { chooseScope, chooseCatalogSpan, dismissScope, cancel } from './controller';
 import { legibleSecondsFor, predictVisible } from '@/choreography/pace';
+
+/**
+ * How long something runs, in words rather than as a clock.
+ *
+ * `12:43` is a position you are already inside; the question here is "how much
+ * of my evening is this", and the answer to that is words. The hour branch is
+ * not theoretical — with no cap on length, Linux's 332,279 arrivals at a beat
+ * each come to twelve hours.
+ */
+function runtime(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
+}
+
+/**
+ * The same question, asked of a history that is already composed.
+ *
+ * Everything the live path has to predict from two probe requests is measured
+ * here, because the plan exists and shipped with the site: the length is what
+ * it runs, the pace is what actually arrives, and each year's share of the
+ * running time was read off the plan's own clock.
+ *
+ * So this says nothing about requests or fetching, and it never warns anybody
+ * off. Every answer costs the same one download — a span is that same plan with
+ * the clock told where to start and where to stop — and the whole history is
+ * the primary action, because it is the offer.
+ */
+function CatalogScope({ q }: { q: CatalogQuestion }) {
+  const years = q.years.map(([y]) => y).sort((x, y) => x - y);
+  const first = years.length ? years[0]! : null;
+  const last = years.length ? years[years.length - 1]! : null;
+
+  // The viewer picks both ends.
+  //
+  // This offered three fixed answers — the last two years, the last five, and
+  // a row of single years — which is a menu of guesses about what somebody
+  // wants. They know. A start and an end is the same two numbers the clock
+  // needs either way, so letting them be chosen costs nothing and stops the
+  // dialog pretending "2015–2019" is a more natural request than "2011–2017".
+  const [from, setFrom] = useState<number | null>(first);
+  const [to, setTo] = useState<number | null>(last);
+
+  // Summed from the plan's own year table, so the length on the button is the
+  // length that will actually run — recomputed as they choose rather than
+  // precomputed for a handful of ranges.
+  const spanSeconds = (lo: number, hi: number) => q.years.reduce((n, [y, secs]) => (y >= lo && y <= hi ? n + secs : n), 0);
+  const lo = from != null && to != null ? Math.min(from, to) : null;
+  const hi = from != null && to != null ? Math.max(from, to) : null;
+  const chosenSecs = lo != null && hi != null ? spanSeconds(lo, hi) : 0;
+  const whole = lo === first && hi === last;
+  // `2015`, not `2015–2015`. One year is a year, and a range of it to itself
+  // reads as a typo in the one place the dialog is being precise.
+  const chosen = lo == null || hi == null ? '' : lo === hi ? String(lo) : `${lo}–${hi}`;
+
+  const pace = q.durationSeconds > 0 ? q.nodes / q.durationSeconds : 0;
+  const size = q.bytes >= 1e7 ? `${Math.round(q.bytes / 1e6)} MB` : `${(q.bytes / 1e6).toFixed(1)} MB`;
+
+  return (
+    <div class="prelude" role="dialog" aria-labelledby="scope-title" data-testid="scope-chooser">
+      <div class="error-card scope-card">
+        <h2 id="scope-title">{q.label}</h2>
+        <p>
+          The whole history runs {runtime(q.durationSeconds)} and lands {pace.toFixed(1)} commits a second — every one of them gets its own beat, so nothing here is going faster than it can be followed. It is simply that long.{' '}
+          {years.length > 1 && <>Any stretch of it costs the same {size} download, played from a different place to a different place.{' '}</>}
+          {q.openSeconds != null && q.openSeconds >= 15 && <>Either way it is about {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
+        </p>
+
+        {years.length > 1 && lo != null && hi != null && (
+          <div class="scope-range">
+            <label>
+              <span>From</span>
+              <select value={String(from)} onChange={(e) => setFrom(Number((e.target as HTMLSelectElement).value))} data-testid="scope-from">
+                {years.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>To</span>
+              <select value={String(to)} onChange={(e) => setTo(Number((e.target as HTMLSelectElement).value))} data-testid="scope-to">
+                {years.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p class="scope-range-out" data-testid="scope-range-runtime">
+              {whole ? 'the whole history' : chosen} · <b>{runtime(chosenSecs)}</b>
+            </p>
+          </div>
+        )}
+
+        <div class="btn-row">
+          <button
+            type="button"
+            class="btn primary"
+            onClick={() => chooseCatalogSpan(whole || lo == null || hi == null ? null : { from: lo, to: hi })}
+            data-testid="scope-full"
+          >
+            {whole || lo == null ? `Watch everything · ${runtime(q.durationSeconds)}` : `Watch ${chosen} · ${runtime(chosenSecs)}`}
+          </button>
+          <button type="button" class="btn" onClick={dismissScope} data-testid="scope-cancel">
+            Not this one
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * A big repository is a decision, not a default. Fetching a decade of history
@@ -14,6 +130,12 @@ import { legibleSecondsFor, predictVisible } from '@/choreography/pace';
 export function ScopeChooser() {
   const scope = store.scope.value;
   if (!scope) return null;
+  // A catalog entry is the same question about a history that has already been
+  // composed, so it is answered from measurements rather than from a forecast.
+  // It shares this component rather than getting one of its own: two dialogs
+  // asking "how much of this do you want" in two visual languages would be
+  // worse than either.
+  if (scope.reason === 'catalog' && scope.plan) return <CatalogScope q={scope.plan} />;
   const { displayName, estimatedCommits, firstYear, lastYear, reason, mergeRatio } = scope;
   const years: number[] = [];
   if (firstYear && lastYear) for (let y = lastYear; y >= firstYear && years.length < 12; y--) years.push(y);

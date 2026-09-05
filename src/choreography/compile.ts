@@ -43,7 +43,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   onProgress('graph', `${n} commits`);
   const g = buildGraph(commits);
-  const tc = correctTimestamps(g, commits);
+  const tc = correctTimestamps(g, commits, Date.parse(ds.source.fetchedAt));
   const presentation = tc.presentation;
   const spine = selectSpine(g, ds, presentation);
 
@@ -587,6 +587,15 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   const warnings = [...ds.coverage.warnings];
   if (tc.largeCorrections.length) warnings.push(`${tc.largeCorrections.length} commit timestamp${tc.largeCorrections.length === 1 ? '' : 's'} corrected by more than a day to respect parent-before-child order.`);
+  // Said separately from the ordering corrections above, because it is a
+  // different admission: those move a date to keep a child after its parent,
+  // this one throws a date away because it claims a year that has not
+  // happened. A viewer who sees "2085" on the clock deserves to be told which
+  // of the two they are looking at.
+  if (tc.impossibleTimestamps.length)
+    warnings.push(
+      `${tc.impossibleTimestamps.length} commit${tc.impossibleTimestamps.length === 1 ? '' : 's'} claim a date after this history was read — a broken clock on the machine that wrote them. Each is placed just after its parents instead, rather than dragging every later commit forward with it.`,
+    );
   if (tc.missingTimestamps.length) warnings.push(`${tc.missingTimestamps.length} commit${tc.missingTimestamps.length === 1 ? '' : 's'} had no timestamp and were placed causally.`);
   if (spine.provenance === 'derived') warnings.push(`Primary spine policy: ${spine.policy} (default branch tip was not available).`);
 

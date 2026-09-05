@@ -1,3 +1,4 @@
+import { Wordmark } from './Wordmark';
 import { store, type PanelId } from './store';
 import { toggleMute, toggleAutoCamera, pause } from './controller';
 import { Icons } from './icons';
@@ -19,9 +20,33 @@ export function TopBar() {
   const span = (() => {
     const map = perf.timeMap;
     if (!map.length) return null;
-    const from = new Date(map[0]![0]).getUTCFullYear();
-    const to = new Date(map[map.length - 1]![0]).getUTCFullYear();
-    if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+    // Clamped to what a date can honestly be.
+    //
+    // Commit timestamps are whatever the committer's clock said, and on a very
+    // large history some of those clocks are wrong by decades. Linux has
+    // commits dated 2030, 2037 and 2085, so this read "2005–2085" — which is
+    // not a fact about Linux, it is a fact about somebody's laptop in 2006,
+    // repeated by us as though we had checked it.
+    //
+    // The plan's own presentation times are already corrected so a child never
+    // precedes its parent; what is not corrected is the far end, because
+    // nothing downstream needs it to be. Here it does: a badge is a claim.
+    const now = new Date().getUTCFullYear();
+    // Walked rather than spread. `Math.min(...years)` passes every element as
+    // an argument, and a plan's time map has one entry per aggregated span —
+    // Rust's is long enough to overflow the call stack, which threw during
+    // render and dropped the whole page back to the demo. A repository that
+    // fails to open because its date range is being computed is a poor trade
+    // for one line of brevity.
+    let from = Infinity;
+    let to = -Infinity;
+    for (const [ms] of map) {
+      const y = new Date(ms).getUTCFullYear();
+      if (!Number.isFinite(y) || y < 1970 || y > now) continue;
+      if (y < from) from = y;
+      if (y > to) to = y;
+    }
+    if (!Number.isFinite(from)) return null;
     return from === to ? String(from) : `${from}–${to}`;
   })();
   // A span is watching part of a whole history, which is exactly what this
@@ -53,7 +78,7 @@ export function TopBar() {
       <div style="display:flex;align-items:center;gap:18px">
         <button
           type="button"
-          class="wordmark"
+          class="landing-mark as-link"
           aria-label="Back to start"
           onClick={() => {
             pause();
@@ -61,7 +86,7 @@ export function TopBar() {
             store.panel.value = 'none';
           }}
         >
-          <span class="dot" aria-hidden="true" /> GitTimeline
+          <Wordmark />
         </button>
         <div class="repo-id">
           <strong>

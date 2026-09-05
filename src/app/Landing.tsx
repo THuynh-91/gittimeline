@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'preact/hooks';
+import { SiteFoot } from './SiteFoot';
 import { store } from './store';
 import { loadDemo, loadRepo } from './controller';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
 import { SiteBar } from './SiteBar';
 
-const SPONSOR_URL = 'https://github.com/sponsors/THuynh-91';
 
 /**
  * Four repositories a visitor will recognise, chosen to be *different shapes*
@@ -200,19 +200,12 @@ export function Landing() {
         </button>
       </div>
 
-      <footer class="landing-foot">
+      <SiteFoot>
         {/* The history behind the form is generated, and a page that shows a
             picture of a repository owes the reader the fact that this one is
             not a repository. */}
         {store.isDemo.value && <p class="landing-note">Behind this page: a generated history, not a real repository.</p>}
-        {/* Out of the navigation and into the footer. Nothing here is
-            paywalled and nothing is gated, so this asks once, quietly, at the
-            bottom — not from the top bar where it was competing with the
-            routes people actually came for. */}
-        <a class="support-link" href={SPONSOR_URL} target="_blank" rel="noopener noreferrer">
-          <span aria-hidden="true">♥</span> Support this project
-        </a>
-      </footer>
+      </SiteFoot>
     </section>
   );
 }

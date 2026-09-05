@@ -12,6 +12,7 @@ import { CommitRail } from './CommitRail';
 import { Timeline } from './Timeline';
 import { Transport } from './Transport';
 import { Panels } from './Panels';
+import { startHistory } from './history';
 import { FollowButton } from './FollowButton';
 import { ScopeChooser } from './ScopeChooser';
 import { ExploreBar } from './ExploreBar';
@@ -26,7 +27,11 @@ export function App() {
       if (handleKey(e)) e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const stopHistory = startHistory();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      stopHistory();
+    };
   }, []);
 
   // The mode is this app's router — everything lives at one URL — so a change
@@ -110,7 +115,10 @@ export function App() {
           </button>
         </div>
       )}
-      {showPlayer && perf && <Panels />}
+      {/* Help is reachable from the site bar, where there is no performance
+          and `perf` is null, so it cannot be gated on the player like the
+          inspector and settings are. */}
+      {((showPlayer && perf) || store.panel.value === 'help') && <Panels />}
       {toast && (
         <div class="toast" role="status">
           {toast}

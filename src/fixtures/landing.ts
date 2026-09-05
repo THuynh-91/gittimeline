@@ -58,7 +58,11 @@ export function buildLandingDataset(seed: string): Dataset {
   // Start the calendar somewhere plausible and different per seed, so the date
   // readout is not the same year on every visit.
   const year = 2016 + Math.floor(rnd('year') * 8);
-  const s = new Script(`gittimeline-landing-${seed}`, `${year}-0${1 + Math.floor(rnd('month') * 9)}-04T09:00:00Z`, 'main');
+  // This name reaches the interface. It was `gittimeline-landing-<seed>`, so
+  // the header read "gittimeline/gittimeline-landing-1" the moment this history
+  // was promoted to the player — an internal identifier, seed counter and all,
+  // presented as though it were a repository somebody could go and look at.
+  const s = new Script('an example history', `${year}-0${1 + Math.floor(rnd('month') * 9)}-04T09:00:00Z`, 'main');
 
   let n = 0;
   const id = (p: string) => `${p}-${n++}`;

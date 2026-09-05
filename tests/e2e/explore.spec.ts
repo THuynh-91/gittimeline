@@ -107,14 +107,22 @@ test.describe('travelling the finished picture', () => {
     expect(await page.evaluate(() => window.__gittimeline.manualCamera)).toBe(false);
   });
 
-  test('leaving the landing page starts the performance, not joins it', async ({ page }) => {
+  test('asking how it works answers the question without starting anything', async ({ page }) => {
     await page.goto('/');
     // The demo plays quietly behind the form; let it get well underway.
     await page.waitForTimeout(2500);
-    await page.getByRole('link', { name: 'How it works' }).click();
+    await page.getByRole('button', { name: 'How it works' }).click();
     await page.waitForTimeout(200);
-    expect(await page.evaluate(() => window.__gittimeline.mode)).toBe('player');
-    expect(await page.evaluate(() => window.__gittimeline.time)).toBeLessThan(1.5);
+    // This used to call `play()`, because the help panel read `store.perf`
+    // on its first line and so could only exist inside a performance. Asking
+    // how something works is not asking to be dropped into the middle of it,
+    // and from the selection page that answer threw the page away.
+    await expect(page.getByTestId('panel-help')).toBeVisible();
+    expect(await page.evaluate(() => window.__gittimeline.mode)).toBe('landing');
+    await expect(page.getByTestId('url-input')).toBeVisible();
+    // The generated history behind the page is not "this repository", so the
+    // sections that describe a loaded repo stay out of it.
+    await expect(page.getByTestId('panel-help')).not.toContainText('This repository');
   });
 
   test('it disappears again once the performance is playing', async ({ page }) => {

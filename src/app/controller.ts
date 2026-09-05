@@ -1,5 +1,5 @@
 import { batch, effect } from '@preact/signals';
-import { store, updateSettings, toast, announce, type AppError } from './store';
+import { store, updateSettings, toast, announce, type AppError, type CatalogQuestion } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
 import { StageRenderer, type ManualCamera } from '@/renderer/canvas';
@@ -726,6 +726,56 @@ function reportGitHubError(err: unknown) {
 }
 
 /** Continue a load once the viewer has chosen how much history to fetch. */
+/**
+ * Ask which part of a catalog entry to watch, before starting it.
+ *
+ * The shelf used to carry this question on every card — a dropdown and a second
+ * button under each one — which turned eleven projects into eleven small forms
+ * and buried the thing a card is actually for. A card is a project and has one
+ * action; *how much of it* is the next question, and it belongs after the
+ * click, where the scope chooser has always asked it.
+ *
+ * Nothing has been fetched at this point and nothing needs to be. Every answer
+ * downloads the same one plan.
+ */
+export function askCatalogScope(q: CatalogQuestion) {
+  pendingCatalog = q;
+  const years = q.years.map(([y]) => y);
+  store.scope.value = {
+    displayName: q.label,
+    estimatedCommits: null,
+    firstYear: years.length ? Math.min(...years) : null,
+    lastYear: years.length ? Math.max(...years) : null,
+    reason: 'catalog',
+    mergeRatio: null,
+    plan: q,
+  };
+}
+
+/** The entry a catalog question is about, held while the viewer decides. */
+let pendingCatalog: CatalogQuestion | null = null;
+
+/** Answer it: a span of years, or null for the whole history. */
+export function chooseCatalogSpan(span: SpanChoice | null) {
+  const pending = pendingCatalog;
+  store.scope.value = null;
+  pendingCatalog = null;
+  if (!pending) return;
+  void loadCatalogEntry(pending.file, span ? `${pending.label} · ${spanLabel(span)}` : pending.label, span);
+}
+
+/** Put the question away and leave the viewer where they were. */
+export function dismissScope() {
+  store.scope.value = null;
+  pendingCatalog = null;
+  pendingScope = null;
+}
+
+/** `2019`, or `2022–2026`. */
+export function spanLabel(span: SpanChoice): string {
+  return span.from === span.to ? String(span.from) : `${span.from}–${span.to}`;
+}
+
 export function chooseScope(choice: { since: string | null; until: string | null; label: string }) {
   const pending = pendingScope;
   store.scope.value = null;

@@ -95,6 +95,75 @@ describe('DAG invariants (property-based)', () => {
     );
   });
 
+  it('a broken clock is not allowed to rewrite the commits after it', () => {
+    // Five commits in Linux are stamped 2030, 2037, 2077 and 2085 by machines
+    // whose clocks were wrong. Because a child is placed at least a second
+    // after its parents, every one of the 1,475,072 commits descended from
+    // them was dragged past 2085 too, and the performance spent 41,839 of its
+    // 43,200 seconds in years that have not happened.
+    const at = (iso: string) => new Date(iso).toISOString();
+    const chain = ['2015-01-01', '2015-01-02', '2085-06-01', '2015-01-04', '2015-01-05'].map((d, i) => ({
+      sha: String(i).repeat(40),
+      parentShas: i === 0 ? [] : [String(i - 1).repeat(40)],
+      authorIdentityId: 'a',
+      committerIdentityId: null,
+      authoredAtRaw: at(`${d}T00:00:00Z`),
+      committedAtRaw: null,
+      presentationTime: 0,
+      messageSubject: `c${i}`,
+      messageBodyAvailable: false,
+      githubUrl: null,
+      flags: { isMerge: false, isBoundary: false, isTimeCorrected: false, isBot: false },
+    })) as unknown as Parameters<typeof buildGraph>[0];
+
+    const g = buildGraph(chain);
+    const readAt = Date.parse('2026-09-01T00:00:00Z');
+    const tc = correctTimestamps(g, chain, readAt);
+
+    expect(tc.impossibleTimestamps).toHaveLength(1);
+    // Nothing lands in the future, and in particular the two commits *after*
+    // the bad one keep their own real dates rather than inheriting 2085.
+    for (let i = 0; i < chain.length; i++) expect(tc.presentation[i]!).toBeLessThanOrEqual(readAt);
+    expect(new Date(tc.presentation[4]!).getUTCFullYear()).toBe(2015);
+    // Causality still holds — that is the whole point of the pass.
+    for (let i = 0; i < chain.length; i++) for (const p of g.parents[i]!) expect(tc.presentation[i]!).toBeGreaterThan(tc.presentation[p]!);
+
+    // Without a read time there is no defensible ceiling, so the old
+    // behaviour is kept rather than a year being guessed at.
+    const naive = correctTimestamps(g, chain);
+    expect(naive.impossibleTimestamps).toHaveLength(0);
+    expect(new Date(naive.presentation[4]!).getUTCFullYear()).toBe(2085);
+  });
+
+  it('a read time the history contradicts is not allowed to condemn it', () => {
+    const at = (d: string) => new Date(`${d}T00:00:00Z`).toISOString();
+    const chain = ['2015-01-01', '2016-01-01', '2017-01-01', '2018-01-01'].map((d, i) => ({
+      sha: String(i).repeat(40),
+      parentShas: i === 0 ? [] : [String(i - 1).repeat(40)],
+      authorIdentityId: 'a',
+      committerIdentityId: null,
+      authoredAtRaw: at(d),
+      committedAtRaw: null,
+      presentationTime: 0,
+      messageSubject: `c${i}`,
+      messageBodyAvailable: false,
+      githubUrl: null,
+      flags: { isMerge: false, isBoundary: false, isTimeCorrected: false, isBot: false },
+    })) as unknown as Parameters<typeof buildGraph>[0];
+    const g = buildGraph(chain);
+
+    // Read before the repository existed — what the synthetic fixtures claim.
+    const impossibleRead = correctTimestamps(g, chain, Date.parse('1970-01-01T00:00:00Z'));
+    expect(impossibleRead.impossibleTimestamps).toHaveLength(0);
+    expect(new Date(impossibleRead.presentation[3]!).getUTCFullYear()).toBe(2018);
+
+    // Merely stale — a cached artifact outliving its own read date. Believing
+    // it would collapse everything written since into one-second steps.
+    const stale = correctTimestamps(g, chain, Date.parse('2016-06-01T00:00:00Z'));
+    expect(stale.impossibleTimestamps).toHaveLength(0);
+    expect(new Date(stale.presentation[3]!).getUTCFullYear()).toBe(2018);
+  });
+
   it('timestamps are corrected causally and threads cover every commit exactly once', () => {
     fc.assert(
       fc.property(arbRepo, ({ kept, tip }) => {

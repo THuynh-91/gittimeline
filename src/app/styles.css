@@ -108,7 +108,11 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 22px;
+  /* Matches .landing-bar's gutter exactly. They were 22px and 26px, so the
+     wordmark jumped four pixels sideways the moment a performance began — the
+     one element that is in the same corner on every screen was the one element
+     that moved. */
+  padding: 0 26px;
   pointer-events: none;
   z-index: 5;
   transition: opacity 0.4s ease;
@@ -127,24 +131,6 @@ a {
   opacity: 1;
 }
 
-.wordmark {
-  font-weight: 600;
-  letter-spacing: 0.34em;
-  font-size: 12px;
-  color: var(--ivory);
-  text-transform: uppercase;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.wordmark .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--ivory);
-  box-shadow: 0 0 10px rgba(244, 233, 210, 0.7);
-}
 
 .repo-id {
   display: flex;
@@ -1198,8 +1184,26 @@ a {
 }
 
 .scope-years .btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
   font-variant-numeric: tabular-nums;
   padding: 6px 14px;
+}
+
+/* How long that year runs, on the button that starts it. Which year somebody
+   wants and what it costs are the same decision, and CPython's 1996 and its
+   2016 are eight minutes apart. */
+.scope-years .btn i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.scope-note {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 .follow-btn {
@@ -1278,7 +1282,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 14px;
   backdrop-filter: blur(14px);
-  z-index: 7;
+  z-index: 12;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2030,11 +2034,6 @@ kbd {
   border-color: color-mix(in srgb, var(--warn) 38%, var(--line));
 }
 
-.catalog-card.featured .catalog-cost {
-  top: 14px;
-  right: 14px;
-}
-
 /* The affordance goes on the panel, where the eye already is, and only when the
    card is being considered. It says "all" because the row underneath offers a
    year, and a bare "Watch" on the card no longer says which of the two. */
@@ -2125,21 +2124,36 @@ kbd {
    compared across cards, and the labels can be small without the numbers going
    small with them. Everything else the build knows stays in the faint line
    underneath — a card that shouts five numbers is shouting none. */
+/* The figures are a row of columns, and they have to read as columns.
+   
+   They were flex items packed 13px apart, so a short value and a long one —
+   "12 h" beside "1,481,850" — ran together into what looked like a single
+   number, and their labels underneath inherited the same crowding. Each figure
+   now claims a minimum width and the gap is wide enough to be a gap, so the
+   value and its label read as one unit and the units read as separate.
+   
+   `align-items: baseline` matters more than it sounds: without it a column
+   whose value wraps drags its neighbours' baselines out of line, which is the
+   misalignment that shows up first on the widest card. */
 .catalog-figures {
-  margin-top: 11px;
+  margin-top: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 18px;
+  align-items: baseline;
+  gap: 10px 26px;
 }
 
 .catalog-figure {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+  /* Enough that the shortest value ("12 h") still holds a column the eye can
+     follow down to its label, without forcing the longest onto its own line. */
+  min-width: 72px;
 }
 
 .catalog-figure b {
-  font-size: 17px;
+  font-size: 15.5px;
   font-weight: 500;
   line-height: 1.1;
   color: var(--ivory);
@@ -2195,118 +2209,51 @@ kbd {
   max-width: 52ch;
 }
 
-/* A year of the same history, underneath the card that offers all of it.
-
-   Quieter than everything above it on purpose. The whole history is the
-   headline and this is the alternative, so it sits in its own tray below the
-   caption, separated by a rule rather than competing for the same space. */
-.catalog-span {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  gap: 5px;
-  padding: 11px 15px 13px;
-  border-top: 1px solid var(--line);
-  background: rgba(7, 8, 12, 0.4);
-}
-
-.catalog-span-label {
-  font-size: 9.5px;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-
-.catalog-span-row {
-  display: flex;
-  gap: 7px;
-}
-
-.catalog-year {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 7px;
-  font: inherit;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ivory);
-  background: rgba(13, 15, 22, 0.9);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.catalog-year:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.catalog-span-go {
-  flex: none;
-  padding: 5px 12px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ivory);
-  background: rgba(13, 15, 22, 0.9);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
-}
-
-.catalog-span-go:hover,
-.catalog-span-go:focus-visible {
-  color: var(--ink);
-  background: var(--ivory);
-  border-color: var(--ivory);
-}
-
 /* The featured card is a poster, not a bigger version of the others.
 
-   The mark fills it as a field rather than sitting in a letterbox, the plate is
-   large enough to be the thing you see from across the room, and the words sit
-   on the lower half of it. */
-.catalog-card.featured {
-  position: relative;
-  min-height: 400px;
-}
+   Picture beside caption rather than under it, which is where this card began
+   and then left, because a frame of a very large history is a wide horizontal
+   smear and half a page of it is a waste of the widest slot on the shelf. A
+   mark is square. It wants a field to sit in the middle of, and the words want
+   the rest — so the two-column layout that was wrong for a screenshot is
+   exactly right for an identity.
 
+   Nothing overlaps. The mark was briefly a full-bleed backdrop with the type
+   banked into one corner of it, and the body is as tall as its longest
+   warning: on Linux, which is the entry that carries one, the plate landed on
+   top of the title. */
 .catalog-card.featured .catalog-open {
-  position: relative;
-  justify-content: flex-end;
-  min-height: 400px;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 300px;
 }
 
 .catalog-card.featured .catalog-mark {
-  position: absolute;
-  inset: 0;
-  align-items: flex-start;
-  padding-top: 54px;
+  flex: 0 0 34%;
   aspect-ratio: auto;
-  z-index: 0;
 }
 
 .catalog-card.featured .catalog-plate {
-  width: 132px;
-  height: 132px;
-  padding: 16px;
+  width: 148px;
+  height: 148px;
+  padding: 18px;
   border-radius: 26%;
 }
 
-/* The words need a floor to stand on, not a veil over the whole field: the
-   mark stays clear at the top and hands over to ink where the type is. */
+/* Sideways, for a layout that is now side by side: the field hands over to the
+   card's own background where the type starts, rather than fading upwards into
+   a caption that is no longer underneath it. */
 .catalog-card.featured .catalog-mark::after {
   inset: 0;
   height: auto;
-  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.93) 40%, rgba(9, 11, 17, 0.7) 58%, rgba(9, 11, 17, 0.22) 80%, rgba(9, 11, 17, 0) 100%);
+  background: linear-gradient(to right, rgba(11, 13, 19, 0) 62%, rgba(11, 13, 19, 0.5) 84%, rgba(13, 15, 22, 0.9) 100%);
 }
 
 .catalog-card.featured .catalog-body {
-  position: relative;
-  z-index: 1;
-  align-content: end;
-  padding: 26px 30px 24px;
+  flex: 1;
+  min-width: 0;
+  align-content: center;
+  padding: 26px 30px;
   margin: 0;
 }
 
@@ -2348,12 +2295,16 @@ kbd {
   left: 14px;
 }
 
-.catalog-card.featured .catalog-span {
-  padding: 12px 30px 14px;
-}
-
-.catalog-card.featured .catalog-span-row {
-  max-width: 340px;
+/* Under the mark rather than beside it. The pill is positioned inside the mark
+   panel, and on this card that panel is a third of the width — so "top right"
+   put the download size in the middle of the poster, pointing at nothing. At
+   the foot of the field it reads as a caption on the picture, which is what it
+   is. */
+.catalog-card.featured .catalog-cost {
+  top: auto;
+  right: auto;
+  bottom: 14px;
+  left: 14px;
 }
 
 @media (max-width: 620px) {
@@ -2361,18 +2312,26 @@ kbd {
     grid-template-columns: 1fr;
   }
 
-  /* Too narrow for a poster: the featured entry becomes an ordinary card. */
-  .catalog-card.featured,
+  /* Too narrow to set a caption beside a picture: the featured entry becomes
+     an ordinary card, at the ordinary size. */
   .catalog-card.featured .catalog-open {
+    flex-direction: column;
     min-height: 0;
   }
 
   .catalog-card.featured .catalog-mark {
-    position: relative;
-    inset: auto;
-    align-items: center;
-    padding-top: 0;
+    flex: none;
     aspect-ratio: 16 / 9;
+  }
+
+  /* Stacked, the caption sits up inside the foot of the panel, so a pill down
+     there is a pill under the title. Back to the corner every other card
+     keeps it in. */
+  .catalog-card.featured .catalog-cost {
+    top: 10px;
+    right: 10px;
+    bottom: auto;
+    left: auto;
   }
 
   .catalog-card.featured .catalog-plate {
@@ -2404,19 +2363,15 @@ kbd {
   /* Same reason as the plate above it: stacked, this is an ordinary card. */
   .catalog-card.featured .catalog-figures {
     margin-top: 11px;
-    gap: 6px 18px;
+    gap: 6px 13px;
   }
 
   .catalog-card.featured .catalog-figure b {
-    font-size: 17px;
+    font-size: 15.5px;
   }
 
   .catalog-card.featured .catalog-figure span {
     font-size: 9.5px;
-  }
-
-  .catalog-card.featured .catalog-span {
-    padding: 11px 15px 13px;
   }
 }
 
@@ -2963,28 +2918,15 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 16px 26px;
+  /* Same height and same gutter as .topbar, so the bar occupies identical
+     pixels whether or not something is playing. Padding-based height put the
+     mark two pixels lower here than in the player. */
+  height: var(--chrome-top);
+  padding: 0 26px;
   z-index: 4;
 }
 
-.landing-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 11.5px;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: rgba(240, 235, 224, 0.72);
-  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.95);
-}
 
-.landing-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
-}
 
 .landing-nav {
   display: flex;
@@ -3259,57 +3201,6 @@ kbd {
 }
 
 
-/* The two halves of the name.
-   `Git` takes the accent — the same blue used everywhere else for "this is a
-   real thing from the repository" — and `Timeline` stays ivory, the colour of
-   the spine. Read together it is still one word at a glance; read at all, it
-   is two. */
-/* Which half is which, and why round this way.
-   On the stage, ivory is the default branch — the repository's own spine — and
-   the accent is what this app adds on top of it: selection, live tips, focus.
-   So `Git` is ivory because it is the thing that already exists, and
-   `Timeline` is the accent because it is what we do to it. The bright colour
-   landing on the last four letters also finishes the eye on the noun rather
-   than trailing off it. */
-.mark-git {
-  color: var(--ivory);
-}
-
-.mark-time {
-  color: var(--accent);
-}
-
-.title .mark-git,
-.title .mark-time {
-  /* The hero is letterspaced, so the gap after `Git` would otherwise read as a
-     word break. Pull the second half back by one tracking step. */
-  letter-spacing: inherit;
-}
-
-.title .mark-time {
-  margin-left: -0.12em;
-}
-
-.landing-mark .mark-git,
-.landing-mark .mark-time {
-  letter-spacing: inherit;
-}
-
-/* The wordmark is a button on pages that are not the landing page, so it needs
-   a button's defaults stripped rather than a link's added. */
-.landing-mark.as-link {
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  font: inherit;
-}
-
-.landing-mark.as-link:hover .mark-git,
-.landing-mark.as-link:focus-visible .mark-git {
-  color: #fbf7ee;
-}
-
 /* On a scrolling page the bar sits above the content rather than over the
    stage, so the page needs room for it where the landing page did not. */
 .page .landing-bar {
@@ -3330,25 +3221,140 @@ kbd {
    from the colour change. The hero has the same problem at its own tracking.
    Pulling the second half back by one tracking step closes it, so the mark is
    the same single word wherever it appears. */
-/* The gap belongs after the dot and nowhere else.
-   `.landing-mark` is an inline-flex with `gap: 9px`, and a flex gap sits
-   between *every* pair of children — so it separated the dot from `Git` as
-   intended and then `Git` from `Timeline` as well, which is how the bar came
-   to read "GIT TIMELINE" while the hero read "GitTimeline". The tracking was
-   the obvious suspect and the wrong one; the flex gap was nine pixels against
-   its 2.76. The dot carries its own spacing now. */
-.landing-mark {
-  gap: 0;
-}
 
-.landing-mark .landing-dot {
-  margin-right: 9px;
-}
-
-/* And no pull-back here, unlike the hero. Once the flex gap is gone the only
+/* No pull-back here, unlike the hero. Once the flex gap is gone the only
    thing between the halves is the tracking that sits after every letter, which
    is exactly what makes it read as one word rather than two. Cancelling that
    as well set `Git` hard against `Timeline` — tighter than any other pair in
    the mark, which reads as a typesetting error rather than as a join. The hero
    needs the pull-back because its tracking is twelve pixels; the bar's is
    under three. */
+
+/* The activity columns sit along the foot of the mark panel, behind the plate
+   rather than beside it, so the card is one object and not a logo with a chart
+   bolted on. Low contrast on purpose: it is texture that rewards a second look,
+   not a figure anybody is meant to read off. */
+.catalog-pulse {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 46%;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 10px 8px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.catalog-pulse i {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: linear-gradient(to top, rgba(244, 233, 210, 0.5), rgba(244, 233, 210, 0.14));
+}
+
+.catalog-card.featured .catalog-pulse {
+  height: 38%;
+  gap: 3px;
+  padding: 0 26px 18px;
+  opacity: 0.42;
+}
+
+.signin-note {
+  margin: 0;
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.grant.setup {
+  margin-top: 22px;
+}
+
+/* ---------- the wordmark, defined once ----------
+
+   It had accumulated three separate definitions in this file, each partly
+   overriding the last, and the result was a mark that changed size, weight and
+   colour depending on which page you were looking at and which rule happened to
+   win. One block now, and the pages differ only in the size they ask for.
+
+   The name is `GitTimeline`: one word, mixed case, never uppercased. `Git` is
+   ivory because on the stage ivory is the default branch — the thing that
+   already exists — and `Timeline` is the accent because that is what this app
+   adds on top of it. The same two colours mean the same two things in the
+   picture behind the words. */
+
+.landing-mark {
+  display: inline-flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 0 8px rgba(7, 8, 12, 1), 0 0 20px rgba(7, 8, 12, 0.95);
+}
+
+/* A button on every page but the landing one, where the hero says the name
+   again immediately below. Stripped back to text so the two are identical. */
+.landing-mark.as-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  /* Not `font: inherit`. That shorthand resets size, weight, family and
+     line-height in one go — including the ones set on `.landing-mark` three
+     lines above — so the mark rendered 15px/500 on the landing page and
+     14px/400 wherever it was a button, which is the whole of the difference
+     between the pages. Only the family needs saying; a button is the one
+     element that does not inherit it. */
+  font-family: inherit;
+}
+
+.landing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
+  /* The only gap in the mark. It was a flex `gap`, which sits between *every*
+     pair of children and so separated the two halves of the name as well —
+     which is how the bar came to read as two words. */
+  margin-right: 9px;
+  flex: none;
+}
+
+.mark-git {
+  color: var(--ivory);
+}
+
+.mark-time {
+  color: var(--accent);
+}
+
+.landing-mark:hover .mark-git,
+.landing-mark:focus-visible .mark-git {
+  color: #fbf7ee;
+}
+
+/* The hero is the same mark at display size. Its tracking is wide enough that
+   the space after `Git` reads as a word break, so the second half is pulled
+   back by one step — the bar's tracking is too small to need it. */
+.title .mark-time {
+  margin-left: -0.12em;
+}
+
+/* Where you already are, marked rather than removed. */
+.landing-nav [aria-current='page'] {
+  color: #f6f1e6;
+}
+
+.landing-nav button[aria-current='page']:not(.nav-primary)::after {
+  content: '';
+  display: block;
+  height: 1px;
+  margin-top: 3px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}

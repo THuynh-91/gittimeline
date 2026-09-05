@@ -103,14 +103,43 @@ export interface Banner {
 }
 
 /** What we learned about a large repository before committing to fetching it. */
+/**
+ * A catalog entry that has been clicked but not yet started.
+ *
+ * The same question the scope chooser asks of a repository nobody has fetched
+ * yet — how much of this do you want? — asked of one whose plan is already
+ * built. Everything here is measured rather than predicted, because the plan
+ * exists: the length is what it runs, `nodes` is what actually arrives, and
+ * `years` is the plan's own clock cut at each January.
+ */
+export interface CatalogQuestion {
+  file: string;
+  /** What the performance is called once it starts. */
+  label: string;
+  durationSeconds: number;
+  nodes: number;
+  /** What the click pulls down, which is the same for every answer. */
+  bytes: number;
+  /** Seconds from click to first frame, measured at build time; null if never timed. */
+  openSeconds: number | null;
+  /** Calendar years worth offering, each with the seconds it occupies. */
+  years: Array<[number, number]>;
+}
+
 export interface ScopeQuestion {
   displayName: string;
   estimatedCommits: number | null;
   firstYear: number | null;
   lastYear: number | null;
-  /** Why we are asking: too many commits, or too dense to show in full. */
-  reason: 'large' | 'dense';
+  /**
+   * Why we are asking: too many commits, too dense to show in full, or —
+   * `catalog` — because the viewer has picked something off the shelf and the
+   * whole of it is long enough to be worth choosing rather than assuming.
+   */
+  reason: 'large' | 'dense' | 'catalog';
   mergeRatio: number | null;
+  /** Set only when `reason` is `catalog`: the plan this question is about. */
+  plan?: CatalogQuestion | null;
 }
 
 const SETTINGS_KEY = 'gittimeline.settings.v1';
