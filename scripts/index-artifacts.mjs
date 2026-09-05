@@ -359,6 +359,20 @@ for (const spec of SHIPPED) {
     await card.waitFor({ state: 'visible' });
     const t0 = Date.now();
     await card.click();
+    // A card asks before it starts. Clicking one opens the scope chooser —
+    // the whole history, or a range of years — and nothing loads until that
+    // question is answered. This script is the only "visitor" that never
+    // reads the question, so it has to answer it explicitly, and when it did
+    // not it sat through the full open budget on every entry and then
+    // reported that nothing opened. Twelve entries times fifteen minutes of
+    // waiting for a dialog nobody was going to click.
+    //
+    // Always the whole history: the index is a description of the entry, and
+    // the entry is the whole thing. The spans are cut from this same plan at
+    // playback and cost nothing to offer, so there is nothing here to measure
+    // about them.
+    const chooser = page.getByTestId('scope-full');
+    if (await chooser.isVisible({ timeout: 20_000 }).catch(() => false)) await chooser.click();
     // Wait for *this* repository, not merely for something to be loaded: the
     // landing demo is already playing behind the form, so anything that asks
     // whether a performance exists is answered yes before the click lands.
