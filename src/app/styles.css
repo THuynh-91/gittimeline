@@ -887,7 +887,13 @@ a {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 18px 24px 22px;
+  padding: 18px 24px 34px;
+}
+
+/* On a page that scrolls, the footer follows the content rather than the
+   viewport, so it needs room of its own under the last card. */
+.page .landing-foot {
+  padding-top: 34px;
 }
 
 /* Says what the moving picture is. Without it the animation reads as
@@ -950,9 +956,14 @@ a {
 /* Asks once, from the corner. Nothing in GitTimeline is behind it, so it has
    no business competing with what someone came here to do. */
 .support-link {
-  position: fixed;
-  right: 18px;
-  bottom: 16px;
+  /* In the flow, at the end of the page.
+     
+     This was `position: fixed` in the bottom-right corner, which was tolerable
+     while it only existed on the landing page — one screen, nothing to cover.
+     On the selection page it became a pill floating permanently over the
+     gallery, sitting on top of whichever card happened to be under it. A quiet
+     ask at the bottom of the page cannot also be the one element that refuses
+     to scroll away. */
   display: inline-flex;
   align-items: center;
   gap: 6px;
