@@ -151,6 +151,11 @@ histories. Subjects now ship inside the plan, so the dataset refetch is only
 about parent lists and GitHub links. The threshold and its comment should be
 revisited in that light.
 
+6.5 `codex-tasks.md` at the repository root is stale. It was a list of work to
+hand to another agent, written before most of it was done here. Either fold
+what is still true into this file or delete it — two task lists disagreeing
+with each other is worse than one.
+
 ---
 
 ## 7. Test suite
