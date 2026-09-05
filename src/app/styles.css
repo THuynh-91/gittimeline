@@ -3258,3 +3258,33 @@ kbd {
 .page .page-inner {
   padding-top: 18px;
 }
+
+/* One word in the bar as well as in the hero.
+   The bar sets the mark in uppercase with 0.24em of tracking, and tracking is
+   applied *after* every letter — including the last of `Git`, which adds a
+   full space between the two halves on top of the gap the eye already reads
+   from the colour change. The hero has the same problem at its own tracking.
+   Pulling the second half back by one tracking step closes it, so the mark is
+   the same single word wherever it appears. */
+/* The gap belongs after the dot and nowhere else.
+   `.landing-mark` is an inline-flex with `gap: 9px`, and a flex gap sits
+   between *every* pair of children — so it separated the dot from `Git` as
+   intended and then `Git` from `Timeline` as well, which is how the bar came
+   to read "GIT TIMELINE" while the hero read "GitTimeline". The tracking was
+   the obvious suspect and the wrong one; the flex gap was nine pixels against
+   its 2.76. The dot carries its own spacing now. */
+.landing-mark {
+  gap: 0;
+}
+
+.landing-mark .landing-dot {
+  margin-right: 9px;
+}
+
+/* And no pull-back here, unlike the hero. Once the flex gap is gone the only
+   thing between the halves is the tracking that sits after every letter, which
+   is exactly what makes it read as one word rather than two. Cancelling that
+   as well set `Git` hard against `Timeline` — tighter than any other pair in
+   the mark, which reads as a typesetting error rather than as a join. The hero
+   needs the pull-back because its tracking is twelve pixels; the bar's is
+   under three. */

@@ -102,20 +102,24 @@ export interface CatalogEntry {
  * Above this many seconds, the card says how long it will take *before* it is
  * clicked, rather than after.
  *
- * These are not slow downloads — Kubernetes is eighteen megabytes — they are
- * slow *compositions*: 141,000 commits of which 41% are merges have to be
- * threaded, laid out and choreographed in this tab before there is a first
- * frame. A card that looks as instant as ripgrep's and then holds the page for
- * two and a half minutes is the worst thing this list could do, so the cost
- * goes on the face of the card, next to the picture.
+ * A card that looks as instant as ripgrep's and then holds the page is the
+ * worst thing this list could do, so where there is a wait it goes on the face
+ * of the card, next to the picture, and not behind the click.
  *
- * Fifteen sits in a gap in the measurements rather than on top of one. What the
- * shelf actually contains is four entries under three seconds and then nothing
- * at all until CPython in the low twenties, so a threshold anywhere in between
- * separates the same two groups — but one at twenty lands right on CPython,
- * which times between 12 and 21 seconds depending on what else the build
- * machine is doing, and a card that gains and loses its warning between builds
- * is not describing anything real.
+ * It used to be a warning about *composition*, and about most of the shelf:
+ * Kubernetes' 141,000 commits, 41% of them merges, were threaded, laid out and
+ * choreographed in the tab before there was a first frame, and that took two
+ * and a half minutes. Shipping the plans took it out of the tab. The same
+ * entry now opens in five seconds, CPython in one and a half, and the whole
+ * shelf but one is under eleven.
+ *
+ * Fifteen sits in a gap in the measurements rather than on top of one, which
+ * is the only property a threshold like this needs. Under Rust's ten seconds
+ * there is nothing until Linux at eighteen, so anything in between separates
+ * the same two entries from the same ten — and fifteen has room on both sides
+ * for a machine having a slower afternoon than the one that measured this. A
+ * card that gains and loses its warning between builds is not describing
+ * anything real.
  */
 const SLOW_SECONDS = 15;
 

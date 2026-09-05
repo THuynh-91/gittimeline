@@ -171,10 +171,18 @@ const logoFor = async (slug) => {
     writeFileSync(join(outDir, name), bytes);
     logoCache.set(owner, name);
   } catch (err) {
-    // The thumbnail rule again: this costs the card its mark, never the entry.
-    // The card still carries the owner's name in monospace under the title.
-    console.warn(`  ${owner}: no logo — ${err instanceof Error ? err.message : String(err)}`);
-    logoCache.set(owner, null);
+    // An avatar does not change, and this is the one fetch in the whole run
+    // that leaves the machine. Two of eleven owners failed on a transient
+    // `fetch failed` in a pass where the other nine came back fine, and
+    // recording null for them would have taken two marks off the shelf on
+    // account of a few seconds of somebody's Wi-Fi. What is already on disk is
+    // from an earlier pass of this same script and is exactly what would have
+    // been written now.
+    const kept = existsSync(join(outDir, name));
+    console.warn(`  ${owner}: logo not fetched (${err instanceof Error ? err.message : String(err)})${kept ? ' — keeping the one already on disk' : ''}`);
+    // The thumbnail rule otherwise: this costs the card its mark, never the
+    // entry. The card still carries the owner's name in monospace under the title.
+    logoCache.set(owner, kept ? name : null);
   }
   return logoCache.get(owner);
 };
@@ -277,7 +285,7 @@ for (const spec of SHIPPED) {
   const startedAt = Date.now();
   let openSeconds;
   let durationSeconds;
-  let said = null;
+  let said;
   let poster = null;
   let posterBytes = 0;
 

@@ -54,8 +54,9 @@ export function CatalogPage() {
             These histories were fetched ahead of time and ship with the site, so opening one costs no GitHub token and no requests at all. Each picture
             is a real frame of that performance, at the moment the whole history is on screen. Every card says how long its performance runs, because
             that is the thing you are choosing between — three minutes of a small tool and thirty-five of Linux are not the same evening. What a card{' '}
-            <em>does</em> cost is written on it too: the size of the download, and, where the plan is still composed in this tab rather than shipped
-            ready-made, how long that takes once it has arrived.
+            <em>does</em> cost is written on it too: the size of the download. Every one of these was composed ahead of time rather than in your tab, so
+            opening it is a download and no longer an argument with your laptop — and where unpacking one afterwards is still long enough to notice, the
+            card says how long.
           </p>
         </header>
         <Catalog />

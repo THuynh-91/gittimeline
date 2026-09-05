@@ -631,7 +631,13 @@ export class StageRenderer {
     this.drawEffects(ctx, useGlow ? glow : null, t, ivory);
 
     // --- Live tip beacons ---
-    for (const th of this.tipThreads) {
+    //
+    // A pulsing ring on every branch that never merged, which is exactly the
+    // right emphasis on a stage somebody is reading and one more circle
+    // behind a form. It also pulses, so it is the only thing on the landing
+    // page moving in place rather than travelling — which is what makes the
+    // eye keep returning to it.
+    for (const th of this.shopWindow ? [] : this.tipThreads) {
       if (th.end > t) continue;
       const last = nodes[th.nodeIdxs[th.nodeIdxs.length - 1]!];
       if (!last || last.x < vx0 || last.x > vx1) continue;
@@ -688,20 +694,20 @@ export class StageRenderer {
     // the history sitting *on* a surface rather than *in* a space. It is now
     // barely a fifth of that and tinted cold, so the corners stay genuinely
     // black and the only bright things on screen are the commits.
-    const g = ctx.createRadialGradient(w * 0.5, h * 0.44, 0, w * 0.5, h * 0.44, Math.max(w, h) * 0.9);
-    g.addColorStop(0, 'rgba(14,19,36,0.22)');
-    g.addColorStop(0.5, 'rgba(9,11,20,0.10)');
-    g.addColorStop(1, 'rgba(7,8,12,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-
-    // Two faint cold clouds, off-centre and unmoving, so the black is not flat
-    // black. They are the difference between "the lights are off" and "this is
-    // a long way from anywhere" — and being off-axis, they never sit behind the
-    // copy, which is centred.
+    // No centre glow.
+    //
+    // There was a radial gradient at 50%/44% lifting the middle of the stage,
+    // and however faint a radial gradient is, it is a circle: it has a centre,
+    // and a centre on an otherwise even field is a shape the eye finds. The
+    // page had one of these in CSS and one here, and removing only the first
+    // left the second sitting in the same place doing the same thing.
+    //
+    // What is left is two clouds well off the centre line, which give the
+    // black some structure without putting a bullseye behind the copy. They do
+    // not move, so nothing about them draws the eye a second time.
     for (const [cx, cy, rad, tint] of [
-      [0.18, 0.24, 0.55, 'rgba(30,52,86,0.075)'],
-      [0.84, 0.76, 0.62, 'rgba(52,34,74,0.065)'],
+      [0.16, 0.2, 0.62, 'rgba(30,52,86,0.085)'],
+      [0.86, 0.8, 0.68, 'rgba(52,34,74,0.07)'],
     ] as Array<[number, number, number, string]>) {
       const neb = ctx.createRadialGradient(w * cx, h * cy, 0, w * cx, h * cy, Math.max(w, h) * rad);
       neb.addColorStop(0, tint);
@@ -709,6 +715,7 @@ export class StageRenderer {
       ctx.fillStyle = neb;
       ctx.fillRect(0, 0, w, h);
     }
+
     if (this.settings.quality === 'minimal') return;
 
     // Stars. Deterministic, and slow enough that the drift is felt rather than
@@ -1181,6 +1188,18 @@ export class StageRenderer {
   }
 
   private drawEffects(ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D | null, t: number, ivory: string) {
+    // Nothing announces itself behind the form.
+    //
+    // This is the fanfare pass: a ring tightening onto a merge before it lands
+    // and a wave up to ninety-six pixels across afterwards, with a second ring
+    // inside it on the heavy ones. On a stage being watched it is the moment
+    // the whole motion language exists for. On the landing page it is a large
+    // bright circle with visible structure appearing beside the sentence
+    // somebody is reading, and it is what stayed behind after the ripples, the
+    // arrival halos, the node annotations and the tip beacons had all gone —
+    // each removal leaving the same complaint, because each time there was
+    // another ring underneath.
+    if (this.shopWindow) return;
     const noFlash = this.settings.noFlash;
     const reduced = this.settings.reducedMotion;
     let lo = 0;
