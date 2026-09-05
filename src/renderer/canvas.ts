@@ -1470,12 +1470,61 @@ export class StageRenderer {
     }
   }
 
+  /**
+   * The last entry that has already landed, found rather than walked to.
+   *
+   * Several label passes were written as "walk from the beginning and break
+   * when you pass the playhead". That reads as a cheap early exit and is the
+   * opposite: the number of iterations is *how much has already happened*, so
+   * the cost grows with elapsed time and with nothing else. Linux filters
+   * 111,926 merges down to a caption list, and an hour into the performance
+   * that loop was stepping over most of them every frame to draw a handful.
+   *
+   * The lists are in landing order — the old `break` depended on that too — so
+   * the end of the landed range is one binary search away, and the passes walk
+   * *backwards* from it until their labels have faded out.
+   */
+  private lastLanded<T>(arr: readonly T[], keyOf: (v: T) => number, t: number): number {
+    let lo = 0;
+    let hi = arr.length - 1;
+    let found = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (keyOf(arr[mid]!) <= t) {
+        found = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return found;
+  }
+
   private drawLabels(ctx: CanvasRenderingContext2D, t: number) {
     const p = this.perf!;
     const labels = this.settings.labels;
     ctx.font = '500 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     ctx.textBaseline = 'middle';
     const drawn: Array<{ x: number; y: number; w: number }> = [];
+    /**
+     * The slice of the world the stage can currently show, padded.
+     *
+     * Used to throw work away before doing it. The passes below end in
+     * `place()`, which rejects anything off-screen — but only after evaluating
+     * a curve and running a transform to find out where it is. Linux has
+     * 77,929 aggregate captions and an hour into the performance about 6,500
+     * of them have landed, so that is 6,500 `pointAt` calls and 6,500
+     * transforms a frame to draw the handful that are actually on screen.
+     *
+     * The padding is deliberately generous — a fifth of the view on each side.
+     * The camera can be rolled, which makes an axis-aligned world box an
+     * approximation, and the cost of being slightly too generous is a few
+     * comparisons while the cost of being too tight is a caption that silently
+     * stops appearing.
+     */
+    const v = this.view;
+    const halfW = this.width / Math.max(1e-6, v.scale) / 2;
+    const padW = halfW * 0.4;
+    const worldLeft = v.cx - halfW - padW;
+    const worldRight = v.cx + halfW + padW;
     const place = (x: number, y: number, text: string, alpha: number, color: string = PALETTE.text) => {
       // Reject off-screen candidates before asking Canvas to shape their text.
       // A large history can have thousands of aggregate captions behind the
@@ -1549,25 +1598,31 @@ export class StageRenderer {
     }
     // how much converged, on the merges big enough to warrant saying so
     if (labels !== 'minimal') {
-      for (const nd of this.mergeLabelNodes) {
-        if (nd.impact > t) break;
+      // Backwards from the playhead. Age only increases going back, and the
+      // caption is gone by 3.4 s, so the first faded one ends the walk.
+      for (let i = this.lastLanded(this.mergeLabelNodes, (n) => n.impact, t); i >= 0; i--) {
+        const nd = this.mergeLabelNodes[i]!;
         const age = t - nd.impact;
         const alpha = Math.max(0, Math.min(1, 1 - (age - 2.2) / 1.2));
-        if (alpha <= 0) continue;
+        if (alpha <= 0) break;
         const s = this.worldToScreen(nd.x, nd.y);
         place(s.x + 12, s.y + 16, `${nd.mergeVolume} commits converge`, alpha, PALETTE.merge);
       }
     }
     // tags & aggregates
     if (labels !== 'minimal') {
-      for (const nd of this.taggedNodes) {
-        if (nd.impact > t) break;
+      // `all` pins every landed tag at a constant alpha, so there is no fade to
+      // stop at and that mode keeps the full walk it has always had — it is a
+      // deliberate "show me everything". `auto` fades out by 5.5 s and can walk
+      // backwards from the playhead instead.
+      const tagStart = this.lastLanded(this.taggedNodes, (n) => n.impact, t);
+      for (let i = tagStart; i >= 0; i--) {
+        const nd = this.taggedNodes[i]!;
         const age = t - nd.impact;
         const alpha = labels === 'all' ? 0.85 : Math.max(0, Math.min(1, 1 - (age - 4) / 1.5));
-        if (alpha > 0) {
-          const s = this.worldToScreen(nd.x, nd.y);
-          place(s.x + 10, s.y - 14, nd.tagLabels.join(' · '), alpha, PALETTE.ivory);
-        }
+        if (alpha <= 0) break;
+        const s = this.worldToScreen(nd.x, nd.y);
+        place(s.x + 10, s.y - 14, nd.tagLabels.join(' · '), alpha, PALETTE.ivory);
       }
     }
     // "40 commits" over a collapsed run is a commit name like any other, so it
@@ -1577,6 +1632,12 @@ export class StageRenderer {
     if (labels !== 'minimal') {
       for (const e of this.aggregateEdges) {
         if (e.start > t) break;
+        // Two float comparisons instead of a curve evaluation and a transform.
+        // This caption has no fade, so unlike the merges above there is no
+        // point in the list to stop at — but there is no reason to *locate*
+        // one that cannot be on screen either.
+        const eb = e.idx * 4;
+        if (this.edgeBounds[eb + 2]! < worldLeft || this.edgeBounds[eb]! > worldRight) continue;
         const agg = this.aggregateByNode[e.child];
         if (!agg || agg.memberCount < 3) continue;
         const m = pointAt(e.pts, 0.5, this.tmp);
@@ -1586,6 +1647,8 @@ export class StageRenderer {
     }
     for (const e of this.unknownEdges) {
       if (e.start > t) break;
+      const eb = e.idx * 4;
+      if (this.edgeBounds[eb + 2]! < worldLeft || this.edgeBounds[eb]! > worldRight) continue;
       const m = pointAt(e.pts, 0.2, this.tmp);
       const s = this.worldToScreen(m.x, m.y);
       place(s.x - 40, s.y - 14, 'history not loaded', 0.75, PALETTE.fogText);
