@@ -80,6 +80,7 @@ jobs:
           cat > repos.json <<'JSON'
           [
             { "repo": "rust-lang/mdBook",       "stem": "rust-lang-mdBook",       "heap":  4096, "timeout":  20 },
+            { "repo": "public-apis/public-apis", "stem": "public-apis-public-apis", "heap":  4096, "timeout":  20 },
             { "repo": "facebook/react",         "stem": "facebook-react",         "heap":  4096, "timeout":  30 },
             { "repo": "nodejs/node",            "stem": "nodejs-node",            "heap":  4096, "timeout":  45 },
             { "repo": "python/cpython",         "stem": "python-cpython",         "heap":  6144, "timeout":  60 },

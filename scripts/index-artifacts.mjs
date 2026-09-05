@@ -131,6 +131,7 @@ const only = (flag('only', '') || '')
 const SHIPPED = [
   { slug: 'torvalds/linux', title: 'Linux', blurb: 'The largest history there is, and the one worth watching whole.' },
   { slug: 'rust-lang/mdBook', title: 'mdBook', blurb: 'A steady, long-running tool with a small core team.' },
+  { slug: 'public-apis/public-apis', title: 'public-apis', blurb: 'A pull-request treadmill: a decade of them, and half the history is merges.' },
   { slug: 'facebook/react', title: 'React', blurb: 'A decade of a framework much of the web is built on.' },
   { slug: 'nodejs/node', title: 'Node.js', blurb: 'A runtime maintained in the open by a very large group.' },
   { slug: 'python/cpython', title: 'CPython', blurb: 'The reference implementation of Python, back to 1990.' },
