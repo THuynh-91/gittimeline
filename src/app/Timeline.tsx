@@ -159,6 +159,171 @@ function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines:
   return { head: fmtDate(h), lines };
 }
 
+/**
+ * The scrubber, in two layers.
+ *
+ * All of this used to be one function called on every change of `store.time` —
+ * fifteen times a second — and most of what it draws does not depend on the
+ * time at all. A CPU profile of Linux charged 58.5% of the entire main thread
+ * to this one function: 6.9 seconds of a 13.7-second sample inside a native
+ * `fill`. The cause is the landmark loop. Linux has 160,575 landmarks and the
+ * strip is about 1,400 pixels wide, so it was issuing a `beginPath`, a shape
+ * and a `fill` 115 times per pixel to produce a solid smear — and then doing
+ * it all again a fifteenth of a second later because the playhead had moved
+ * four pixels.
+ *
+ * So the fixed part — the track, the eras, the landmarks, the year ticks — is
+ * painted once into an offscreen canvas and blitted, and repainted only when
+ * something it actually depends on changes. And the marks are culled to one
+ * per pixel column per kind, which is all a pixel can show: the hundred and
+ * fifteenth diamond in a column is not more information, it is the same
+ * diamond.
+ */
+interface Backdrop {
+  key: string;
+  canvas: HTMLCanvasElement;
+}
+let backdrop: Backdrop | null = null;
+
+function backdropKey(
+  perf: CompiledPerformance,
+  scale: 'performance' | 'historical',
+  loop: { start: number; end: number } | null,
+  focus: string | null,
+  showCommitMarks: boolean,
+  w: number,
+  h: number,
+  dpr: number,
+): string {
+  return [perf.planHash, scale, loop ? `${loop.start}:${loop.end}` : '-', focus ?? '-', showCommitMarks ? 'm' : '.', w, h, dpr].join('|');
+}
+
+function paintBackdrop(
+  ctx: CanvasRenderingContext2D,
+  perf: CompiledPerformance,
+  w: number,
+  h: number,
+  scale: 'performance' | 'historical',
+  loop: { start: number; end: number } | null,
+  focus: string | null,
+  showCommitMarks: boolean,
+) {
+  const xOf = (time: number) => timeToXFrac(perf, time, scale) * w;
+  const line = Math.round(h * 0.42) + 0.5;
+
+  // Era bands: a whisper of where the regimes change.
+  for (const era of perf.eras) {
+    if (era.label !== 'dormancy') continue;
+    const x0 = xOf(era.performanceStart);
+    const x1 = xOf(era.performanceEnd);
+    ctx.fillStyle = 'rgba(230,225,214,0.05)';
+    ctx.fillRect(x0, line - 4, Math.max(1, x1 - x0), 8);
+  }
+
+  // Unloaded history at the head of the line.
+  if (perf.coverage.completeness !== 'exact') {
+    ctx.strokeStyle = 'rgba(255,176,112,0.75)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(0, line);
+    ctx.lineTo(Math.max(8, w * 0.012), line);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // The track.
+  ctx.strokeStyle = 'rgba(230,225,214,0.16)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, line);
+  ctx.lineTo(w, line);
+  ctx.stroke();
+
+  if (loop) {
+    ctx.fillStyle = 'rgba(127,214,255,0.16)';
+    ctx.fillRect(xOf(loop.start), line - 5, xOf(loop.end) - xOf(loop.start), 10);
+  }
+
+  // Contributor activity, only while someone is focused. One tick per column:
+  // this walks every node in the plan, and that is 332,279 of them on Linux.
+  if (focus) {
+    const ci = perf.contributors.findIndex((c) => c.id === focus);
+    if (ci >= 0) {
+      ctx.fillStyle = perf.contributors[ci]!.color;
+      let lastCol = -1;
+      for (const nd of perf.nodes) {
+        if (nd.contributorIdx !== ci) continue;
+        const x = xOf(nd.impact);
+        const col = Math.round(x);
+        if (col === lastCol) continue;
+        lastCol = col;
+        ctx.fillRect(x - 0.75, line - 7, 1.5, 5);
+      }
+    }
+  }
+
+  // Landmarks worth jumping to — merges, divergences, tags. These are commits,
+  // so hiding the commit names hides these too: a scrubber stippled with marks
+  // is as much a description of individual commits as the ledger is, and
+  // "hide the commits" that leaves them behind has not done what it says.
+  const y = line + 7;
+  if (showCommitMarks) {
+    // One per column per kind. `perf.landmarks` runs in time order, so the
+    // last column used by each kind is all that has to be remembered.
+    const lastCol: Record<string, number> = { merge: -1, divergence: -1, tag: -1, unknown: -1 };
+    for (const l of perf.landmarks) {
+      const x = xOf(l.time);
+      if (x < -4 || x > w + 4) continue;
+      const col = Math.round(x);
+      if (lastCol[l.kind] === col) continue;
+      lastCol[l.kind] = col;
+      ctx.beginPath();
+      if (l.kind === 'merge') {
+        ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,243,220,0.9)';
+        ctx.fill();
+      } else if (l.kind === 'divergence') {
+        ctx.moveTo(x, y - 3);
+        ctx.lineTo(x + 2.6, y + 2);
+        ctx.lineTo(x - 2.6, y + 2);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(127,214,255,0.85)';
+        ctx.fill();
+      } else if (l.kind === 'tag') {
+        ctx.moveTo(x, y - 3.2);
+        ctx.lineTo(x + 2.6, y);
+        ctx.lineTo(x, y + 3.2);
+        ctx.lineTo(x - 2.6, y);
+        ctx.closePath();
+        ctx.fillStyle = PALETTE.ivory;
+        ctx.fill();
+      } else if (l.kind === 'unknown') {
+        ctx.rect(x - 2, y - 2, 4, 4);
+        ctx.strokeStyle = PALETTE.warn;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Year ticks above the line for long histories.
+  ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  let lastLabel = -60;
+  for (const tick of yearTicks(perf)) {
+    const x = xOf(tick.t);
+    if (x < 2 || x > w - 2) continue;
+    ctx.fillStyle = 'rgba(230,225,214,0.14)';
+    ctx.fillRect(x, line - 5, 1, 4);
+    if (x - lastLabel > 46) {
+      ctx.fillStyle = 'rgba(230,225,214,0.34)';
+      ctx.fillText(tick.label, x + 3, line - 7);
+      lastLabel = x;
+    }
+  }
+}
+
 function draw(
   canvas: HTMLCanvasElement,
   perf: CompiledPerformance,
@@ -181,113 +346,37 @@ function draw(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
+  const key = backdropKey(perf, scale, loop, focus, showCommitMarks, w, h, dpr);
+  if (!backdrop || backdrop.key !== key) {
+    const off = backdrop?.canvas ?? document.createElement('canvas');
+    off.width = Math.max(1, Math.round(w * dpr));
+    off.height = Math.max(1, Math.round(h * dpr));
+    const octx = off.getContext('2d');
+    if (octx) {
+      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      octx.clearRect(0, 0, w, h);
+      paintBackdrop(octx, perf, w, h, scale, loop, focus, showCommitMarks);
+      backdrop = { key, canvas: off };
+    }
+  }
+  if (backdrop) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(backdrop.canvas, 0, 0);
+    ctx.restore();
+  }
+
   const xOf = (time: number) => timeToXFrac(perf, time, scale) * w;
   const playX = xOf(t);
   const line = Math.round(h * 0.42) + 0.5;
 
-  // Era bands: a whisper of where the regimes change.
-  for (const era of perf.eras) {
-    const x0 = xOf(era.performanceStart);
-    const x1 = xOf(era.performanceEnd);
-    if (era.label !== 'dormancy') continue;
-    ctx.fillStyle = 'rgba(230,225,214,0.05)';
-    ctx.fillRect(x0, line - 4, Math.max(1, x1 - x0), 8);
-  }
-
-  // Unloaded history at the head of the line.
-  if (perf.coverage.completeness !== 'exact') {
-    ctx.strokeStyle = 'rgba(255,176,112,0.75)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(0, line);
-    ctx.lineTo(Math.max(8, w * 0.012), line);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // The track, and the part already performed.
-  ctx.strokeStyle = 'rgba(230,225,214,0.16)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, line);
-  ctx.lineTo(w, line);
-  ctx.stroke();
+  // The part already performed.
   ctx.strokeStyle = PALETTE.ivory;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(0, line);
   ctx.lineTo(playX, line);
   ctx.stroke();
-
-  if (loop) {
-    ctx.fillStyle = 'rgba(127,214,255,0.16)';
-    ctx.fillRect(xOf(loop.start), line - 5, xOf(loop.end) - xOf(loop.start), 10);
-  }
-
-  // Contributor activity, only while someone is focused.
-  if (focus) {
-    const ci = perf.contributors.findIndex((c) => c.id === focus);
-    if (ci >= 0) {
-      ctx.fillStyle = perf.contributors[ci]!.color;
-      for (const nd of perf.nodes) {
-        if (nd.contributorIdx !== ci) continue;
-        ctx.fillRect(xOf(nd.impact) - 0.75, line - 7, 1.5, 5);
-      }
-    }
-  }
-
-  // Landmarks worth jumping to — merges, divergences, tags. These are commits,
-  // so hiding the commit names hides these too: a scrubber stippled with marks
-  // is as much a description of individual commits as the ledger is, and
-  // "hide the commits" that leaves them behind has not done what it says.
-  const y = line + 7;
-  for (const l of showCommitMarks ? perf.landmarks : []) {
-    const x = xOf(l.time);
-    ctx.beginPath();
-    if (l.kind === 'merge') {
-      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,243,220,0.9)';
-      ctx.fill();
-    } else if (l.kind === 'divergence') {
-      ctx.moveTo(x, y - 3);
-      ctx.lineTo(x + 2.6, y + 2);
-      ctx.lineTo(x - 2.6, y + 2);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(127,214,255,0.85)';
-      ctx.fill();
-    } else if (l.kind === 'tag') {
-      ctx.moveTo(x, y - 3.2);
-      ctx.lineTo(x + 2.6, y);
-      ctx.lineTo(x, y + 3.2);
-      ctx.lineTo(x - 2.6, y);
-      ctx.closePath();
-      ctx.fillStyle = PALETTE.ivory;
-      ctx.fill();
-    } else if (l.kind === 'unknown') {
-      ctx.rect(x - 2, y - 2, 4, 4);
-      ctx.strokeStyle = PALETTE.warn;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-  }
-
-  // Year ticks above the line for long histories.
-  ctx.font = '9px ui-sans-serif, system-ui, sans-serif';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = 'rgba(230,225,214,0.32)';
-  let lastLabel = -60;
-  for (const tick of yearTicks(perf)) {
-    const x = xOf(tick.t);
-    if (x < 2 || x > w - 2) continue;
-    ctx.fillStyle = 'rgba(230,225,214,0.14)';
-    ctx.fillRect(x, line - 5, 1, 4);
-    if (x - lastLabel > 46) {
-      ctx.fillStyle = 'rgba(230,225,214,0.34)';
-      ctx.fillText(tick.label, x + 3, line - 7);
-      lastLabel = x;
-    }
-  }
 
   if (hoverT != null) {
     ctx.strokeStyle = 'rgba(230,225,214,0.3)';
