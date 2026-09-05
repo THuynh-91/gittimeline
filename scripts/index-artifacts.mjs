@@ -117,15 +117,19 @@ const only = (flag('only', '') || '')
  * which entry should be the largest thing on the page, and 1.5 million commits
  * of Linux is not a question ripgrep's two thousand can win.
  *
- * ripgrep lost the featured slot in that change and fell out of the list
- * entirely, which was not the same decision and was not meant. It is the
- * fastest thing here by an order of magnitude — half a second from click to
- * first frame — and a shelf whose cheapest entry is a two-and-a-half minute
- * download has nothing on it for somebody who only wants to see what this is.
+ * ripgrep is off the shelf entirely now, by decision rather than by accident.
+ * The argument for keeping it was that a shelf needs something cheap on it for
+ * somebody who only wants to see what this is — which is right, and mdBook is
+ * that: a 0.5 MB plan, two tenths of a second from click to first frame, and
+ * two minutes forty-three seconds long. The requirement was real; ripgrep was
+ * not the only thing that could meet it.
+ *
+ * This list and the matrix in .github/workflows/datasets.yml have to agree.
+ * They did not for a while: ripgrep was taken off the shelf here but left in
+ * the matrix, so CI would have cloned it, built it and put it back.
  */
 const SHIPPED = [
   { slug: 'torvalds/linux', title: 'Linux', blurb: 'The largest history there is, and the one worth watching whole.' },
-  { slug: 'BurntSushi/ripgrep', title: 'ripgrep', blurb: 'A search tool grown by one author, then a community.' },
   { slug: 'rust-lang/mdBook', title: 'mdBook', blurb: 'A steady, long-running tool with a small core team.' },
   { slug: 'facebook/react', title: 'React', blurb: 'A decade of a framework much of the web is built on.' },
   { slug: 'nodejs/node', title: 'Node.js', blurb: 'A runtime maintained in the open by a very large group.' },

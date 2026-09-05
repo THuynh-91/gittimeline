@@ -79,7 +79,6 @@ jobs:
           # a four-minute clone and an eleven-minute compile at the last moment.
           cat > repos.json <<'JSON'
           [
-            { "repo": "BurntSushi/ripgrep",     "stem": "BurntSushi-ripgrep",     "heap":  4096, "timeout":  20 },
             { "repo": "rust-lang/mdBook",       "stem": "rust-lang-mdBook",       "heap":  4096, "timeout":  20 },
             { "repo": "facebook/react",         "stem": "facebook-react",         "heap":  4096, "timeout":  30 },
             { "repo": "nodejs/node",            "stem": "nodejs-node",            "heap":  4096, "timeout":  45 },
@@ -329,8 +328,7 @@ jobs:
           # build reports a wait no visitor will ever have.
           node scripts/index-artifacts.mjs \
             --base http://localhost:4173 \
-            --open-seconds 900 \
-            --shot-seconds 200
+            --open-seconds 900
 
       - name: Upload the finished catalog
         uses: actions/upload-artifact@v4
