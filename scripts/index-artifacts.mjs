@@ -73,7 +73,7 @@
  * once they ship with the site that sentence is simply false. Opening one costs
  * a download and no API requests at all.
  */
-import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
@@ -166,7 +166,41 @@ const LOGO_PX = 96;
 // rust-lang owns two entries here, and an owner's avatar is fetched once for
 // however many of its repositories are on the shelf.
 const logoCache = new Map();
+
+/**
+ * A mark drawn by hand for this shelf, if there is one.
+ *
+ * The account avatar is the fallback and it is a poor one for a project that
+ * has no organisation behind it: Linux has no GitHub org, so the shelf's
+ * largest card fell back to `github.com/torvalds.png` and put a photograph of
+ * a person's face on it. A penguin is what the project looks like to anyone
+ * who has met it.
+ *
+ * These are checked in as SVGs beside the artifacts and they take precedence,
+ * which is the whole point — this ran once already, fetched the avatars, and
+ * quietly put the photograph back over a drawing that exists three files away.
+ * A curated choice that a rebuild silently discards is not curated.
+ */
+const drawnMarks = readdirSync(outDir).filter((f) => f.startsWith('mark-') && f.endsWith('.svg'));
+const drawnMarkFor = (slug) => {
+  const [owner, repo] = slug.split('/');
+  // Matched case-insensitively against the real directory listing, and the
+  // name that comes back is the one on disk. `existsSync` would do the
+  // matching too — on Windows, where it is case-insensitive — and hand back
+  // the spelling that was asked for rather than the spelling that exists:
+  // `mark-mdBook.svg` for a file called `mark-mdbook.svg`. That resolves
+  // locally and 404s on Pages, which is the worst place for the difference to
+  // first appear.
+  for (const want of [`mark-${repo}.svg`, `mark-${owner}.svg`]) {
+    const hit = drawnMarks.find((f) => f.toLowerCase() === want.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+};
+
 const logoFor = async (slug) => {
+  const drawn = drawnMarkFor(slug);
+  if (drawn) return drawn;
   const owner = slug.split('/')[0];
   if (logoCache.has(owner)) return logoCache.get(owner);
   const name = `logo-${owner}.png`;
