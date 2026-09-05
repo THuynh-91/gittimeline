@@ -66,6 +66,17 @@ async function loadCatalogue(): Promise<Track[]> {
   return catalogueFetch;
 }
 
+/**
+ * The loudest the soundtrack is ever allowed to be, before the perceptual
+ * curve below is applied.
+ *
+ * This is a score under a picture, not a track being auditioned, so the whole
+ * range comes down a little. Most of the fix is the curve below rather than
+ * this: the complaint was that the *quiet* end of the slider was loud, and a
+ * ceiling alone would have made the top useless while leaving that intact.
+ */
+const MUSIC_CEILING = 0.85;
+
 export class AudioEngine {
   private el: HTMLAudioElement | null = null;
   private perf: CompiledPerformance | null = null;
@@ -121,7 +132,21 @@ export class AudioEngine {
   applyLevels() {
     if (!this.el) return;
     const range = this.dynamics === 'quiet' ? 0.55 : this.dynamics === 'dramatic' ? 1 : 0.8;
-    this.el.volume = Math.max(0, Math.min(1, this.levels.muted ? 0 : this.levels.master * range));
+    // Perceived loudness, not amplitude.
+    //
+    // `HTMLMediaElement.volume` is linear amplitude and hearing is roughly
+    // logarithmic, so a slider wired straight to it is useless across most of
+    // its travel: half way is not half as loud, it is about three quarters,
+    // and the quiet end of the control does nothing until it suddenly does.
+    // The complaint was exact — "I'm at a very low number and it's already
+    // super loud".
+    //
+    // Squaring is the usual approximation and it is enough here: a quarter of
+    // the way up is a sixteenth of the amplitude, which is quiet, and the top
+    // of the slider is unchanged. The ceiling comes down as well — this plays
+    // under a picture, and it was mixed as though it were the point.
+    const wanted = this.levels.muted ? 0 : this.levels.master * range * MUSIC_CEILING;
+    this.el.volume = Math.max(0, Math.min(1, wanted * wanted));
     if (this.wants) void this.el.play().catch(() => {});
     else this.el.pause();
   }

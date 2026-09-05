@@ -1,7 +1,10 @@
-# GitTimeline — where it stands, what is left, what could be next
+# GitTimeline — state, work, and direction
 
-Updated 2026-09-05. Every number here was measured, not estimated. 36 commits
-ahead of `origin/main`; nothing has been pushed.
+Updated 2026-09-05. Every number was measured, not estimated.
+
+Sections 4–7 are **briefs, not specifications**. They state the problem, the
+constraint and how you would know it was solved, and deliberately stop short of
+saying how. Where a number is given it is evidence, not a target to hard-code.
 
 ---
 
@@ -9,16 +12,16 @@ ahead of `origin/main`; nothing has been pushed.
 
 | | Status |
 | --- | --- |
-| **Shelf** | 12 pre-built histories: Linux, Chromium, LLVM, Rust, TensorFlow, VS Code, Kubernetes, CPython, Node, React, public-apis, mdBook |
-| **Ingestion** | `git clone --bare --filter=tree:0` — real commit graphs, **zero** GitHub API calls. 4.9 M commits on the shelf |
-| **Precompiled plans** | Every entry ships a `.gtperf.gz`; the browser plays it instead of compiling. Verified by recompiling and comparing — Linux matches 133,557,250 points |
+| **Shelf** | 12 histories: Linux, Chromium, LLVM, Rust, TensorFlow, VS Code, Kubernetes, CPython, Node, React, public-apis, mdBook |
+| **Ingestion** | `git clone --bare --filter=tree:0`. Real commit graphs, **zero** GitHub API calls, 4.9 M commits |
+| **Plans** | Precompiled `.gtperf.gz`; verified by recompiling and comparing — Linux matches 133,557,250 points |
 | **Playback** | 60 fps locked, 2 min → 3 h, on a discrete GPU. 2 dropped frames in 1,188 |
-| **Scope chooser** | Pick any year range; the runtime is priced before you start. Same download either way |
-| **Commit ledger** | Real subjects, carried in the plan — works on histories whose dataset is never fetched |
-| **Sign-in** | Cloudflare Worker, 2.02 KiB gzipped. Zero OAuth scopes. Inert until configured |
-| **Analytics** | Implemented, inert without `VITE_GA_ID`. Honours Do Not Track; an allowlist means a pasted repo never reaches Google |
-| **Fallbacks** | SVG poster mode when Canvas is unavailable; a text transcript of the choreography |
-| **Video export** | `MediaRecorder` capture of the canvas — present, lightly exercised |
+| **Honesty** | Nothing is drawn before it happens; coverage badge states what was loaded |
+| **Scope chooser** | Any year range, priced before you start, same download |
+| **Ledger** | Real commit subjects, carried in the plan |
+| **Sign-in** | Cloudflare Worker, 2 KiB gzipped, zero OAuth scopes, inert until configured |
+| **Analytics** | Implemented, inert without `VITE_GA_ID`, allowlisted so a pasted repo never reaches Google |
+| **Fallbacks** | SVG poster mode, text transcript, `MediaRecorder` capture |
 | **Tests** | 169 unit, 50 e2e chromium (+ Firefox/WebKit on two specs). Green |
 | **Size** | `dist` 401 MB against a 1 GB Pages ceiling |
 
@@ -26,184 +29,241 @@ ahead of `origin/main`; nothing has been pushed.
 
 ## 1. Blocked on you
 
-Nothing else in this file blocks a deploy.
-
 | | Task | Why you |
 | --- | --- | --- |
-| 1.1 | **Push.** 36 commits. | — |
-| 1.2 | **Settings → Pages → Source → GitHub Actions.** | One-time setting |
-| 1.3 | **Run `datasets.yml` once, manually.** | Without it the first deploy ships an **empty shelf** — see section 2 |
-| 1.4 | **Create the OAuth App.** | No API exists; `POST /applications` is a 404. `docs/github-oauth-setup.md` has every field |
+| 1.1 | **Push.** 38 commits. | — |
+| 1.2 | **Settings → Pages → Source → GitHub Actions.** | One-time |
+| 1.3 | **Run `datasets.yml` once, manually.** | Otherwise the first deploy ships an **empty shelf** — section 2 |
+| 1.4 | **Create the OAuth App.** | No API exists. `docs/github-oauth-setup.md` has every field |
 | 1.5 | **Deploy the Worker, then `wrangler secret put`.** | Your Cloudflare account; the secret must not pass through chat |
 | 1.6 | **Set `VITE_AUTH_BASE`** as an Actions *variable*. | Read at build time |
-| 1.7 | **Rotate the GitHub PAT and the Render key.** | Both were pasted into chat earlier |
-| 1.8 | **Decide the author-name rewrite.** 25 commits show as **Akifuma-91**. | Much easier before the first push |
-| 1.9 | *Optional:* set `VITE_GA_ID` to enable analytics. | — |
+| 1.9 | *Optional:* `VITE_GA_ID`. | — |
 
-Order for 1.4 to 1.6: **Worker first.** The OAuth App needs a callback URL that
-does not exist until the Worker is deployed.
+Worker before OAuth App: the App needs a callback URL that does not exist yet.
 
 ---
 
 ## 2. The first deploy publishes an empty shelf unless 1.3 happens first
 
-`deploy.yml` pulls the catalog from the `catalog` artifact of the last
-successful `datasets.yml` run. There has never been one. That step is
-best-effort by design, so the deploy **succeeds** and Selection is **empty**.
-
-The first run is the slow one — it clones Chromium, Linux and LLVM cold.
-Afterwards the clones are cached and it runs weekly (Sunday). That is also how
-it stays current: what you watch is the repository as of the last successful
-run, and every artifact records its own read time.
+`deploy.yml` pulls the catalog from the last successful `datasets.yml` run.
+There has never been one, and the step is best-effort — so the deploy
+**succeeds** and Selection is **empty**. The first run is slow (cold clones of
+Chromium, Linux, LLVM); afterwards it is cached and runs weekly.
 
 ---
 
-## 3. Engineering, in priority order
+## 3. Known defects
 
-### 3.1 Never run on CI — highest risk
-Everything was verified on one Windows machine. No workflow has ever executed on
-a runner. Most exposed: the **~945 MB catalog artifact hand-off** between the two
-workflows, which I have no measurement of. Expect the first run to find
-something — it found the ripgrep mismatch the moment I looked.
+### 3.1 The camera frames behind the front of the work — **open**
+On Linux, four of five sampled moments have drawn content **clipped at the right
+edge of the screen**. Nothing false is being drawn — no node renders before its
+impact, and every edge is bounded by its own progress — but landed threads run
+off the frame because the camera is centred behind them.
 
-### 3.2 Weak machines — the honest gap
-With no usable GPU (software rasterisation) it is **19 to 26 fps**. At two
-minutes in, with only twenty threads alive, it is already 39 ms a frame — so
-that is the baseline cost of compositing the canvas, which detail reduction
-cannot touch.
+It reads as "the lines are ahead of the camera", which is nearly as damaging as
+actually drawing the future: a viewer cannot tell the difference between "you
+are seeing ahead" and "the camera is behind".
 
-The lever is **dynamic resolution scaling**: render at 0.6 to 0.8x and upscale
-when frames are being missed. Standard technique, moderate effort. Worth a
-decision first — the picture becomes softer on weak machines, which is the
-opposite of the "same repository looks the same everywhere" rule I used for the
-detail thresholds.
+Constraint: the frame is capped (`MAX_FRAME_W`/`MAX_FRAME_H`) for a good reason —
+without it, a dense era frames years at once and the performance becomes an
+invisible thread. So this is not "pull back further". It is a question about
+where the frame should sit within what it cannot fully contain.
 
-### 3.3 Remaining render cost — comfort, not correctness
-Neither grows with elapsed time:
+Solved when: at any sampled moment, the newest arrival is inside the frame, and
+the amount of landed-but-unframed material to the right is small and stable.
 
-- `glow`, 1 to 3 ms — a full-canvas `blur(6px)` every frame, applied at
-  destination resolution even though the glow buffer is half-size. Blurring at
-  buffer resolution instead would be four times cheaper.
-- `settledEdges`, 1.5 to 2.5 ms — flat, and now the largest fixed cost.
+### 3.2 Never run on CI — highest risk
+Everything was verified on one machine. Most exposed: the ~945 MB `catalog`
+artifact hand-off between the two workflows, unmeasured.
 
-### 3.4 CI time
-`tests/e2e/large.spec.ts` takes 7.3 minutes — it opens Linux and counts what the
-renderer draws. Worth keeping; worth knowing it dominates the suite.
+### 3.3 Weak machines
+With no usable GPU, 19–26 fps. At two minutes in with twenty threads alive it is
+already 39 ms a frame, so that is baseline canvas compositing, not detail. See
+5.4.
 
-### 3.5 Stale documentation
-- `docs/architecture.md` quotes pre-fix compile times and says Linux and
-  Chromium "never finished". Both compile now.
-- `README.md` benchmark table still lists ripgrep, which is off the shelf.
-- `scripts/build-catalog.mjs` writes `poster`/`posterBytes`; nothing reads them.
-- `HYDRATE_MAX_BYTES` (8 MB) — subjects ship in the plan now, so the refetch is
-  only parent lists and GitHub links. The threshold and its comment should be
-  revisited.
-- `codex-tasks.md` is an older list that contradicts this one.
+### 3.4 Smaller
+- `glow` runs a full-canvas `blur(6px)` per frame at *destination* resolution,
+  although the glow buffer is half-size. Blurring at buffer size would be ~4×
+  cheaper.
+- `tests/e2e/large.spec.ts` takes 7.3 min and dominates CI.
+- Stale docs: `docs/architecture.md` (pre-fix compile times, claims Linux never
+  finished), `README.md` (benchmark table lists ripgrep, which is off the
+  shelf), `scripts/build-catalog.mjs` (writes `poster`/`posterBytes` nothing
+  reads), `HYDRATE_MAX_BYTES` comment (subjects ship in the plan now),
+  `codex-tasks.md` (an older list that contradicts this one).
 
 ---
 
-## 4. Enhancements worth building
+## 4. Brief: the demo feels slow — **it is**
 
-Roughly best value first. Effort is rough.
+Measured on the built-in demo: **57.6 s, 56 commits, 0.97 arrivals per second**.
+Every history on the shelf runs at **7.7**. And for its first eight seconds
+there is exactly **one** moving thing on screen:
 
-### 4.1 "Director's cut" — a 60-second version of any repository · medium
-The plan already knows where the interesting moments are: `MAJOR_MERGE`,
-`PARALLEL_PHRASE`, `ERA_TRANSITION`, `QUIET_GAP`. Pick the six best and cut
-between them. Turns a twelve-hour Linux into something somebody will actually
-watch, and makes the largest entries approachable instead of daunting. Needs no
-new data — it is a playlist over a plan that already exists.
+```
+0s:0  2s:1  4s:1  6s:1  8s:1  10s:3  12s:3  14s:3  16s:3  18s:4  ...
+```
 
-### 4.2 Deep-link to a moment, and a downloadable poster · small
-The share hash already carries `repo`, `t`, `focus` and `seed`, and
-`renderPosterSvg` already draws exact geometry as SVG. Wire "copy a link to this
-moment" and "download this frame" into the UI. Cheap, and it is how a thing like
-this spreads.
+So the first thing anyone sees is the slowest thing this app ever does, at an
+eighth the density of the real product, and the landing page is playing it
+behind the form as the argument for staying.
 
-### 4.3 Incremental dataset updates · medium, large infra win
-The weekly job re-reads every history in full. The clones are already cached, so
-`git log <last-tip>..HEAD` would read only what is new and append to the
-artifact. Turns the weekly run from an hour into minutes, and makes adding
-entries cheap.
+**What it has to do:** convince someone in the first two or three seconds that
+something worth watching is happening, and be representative — a visitor who
+likes the demo and then opens Linux should not find a different app.
 
-### 4.4 Follow a person through the history · small, half of it exists
-`focusContributor` already dims everything else. Add a proper picker: search a
-name, watch only their commits light up, and show a small card — first commit,
-last commit, busiest year. The most personal thing this app could offer.
+**Constraints:** it is a *generated* history and must stay honest about that
+(the landing page already says so). It must remain deterministic — it is a test
+fixture as well as a shop window, and several suites assert against its shape.
+It must stay tiny; it ships in the bundle and must render before anything is
+fetched.
 
-### 4.5 Compare two repositories side by side · large
-Two stages, one clock, normalised to the same commits per second. "React against
-Vue over the same decade" is a genuinely interesting picture and nothing else
-shows it.
+**Deliberately open:** whether the fix is density, pacing, a different scripted
+shape, starting *in medias res* rather than from an empty stage, or a different
+fixture for the landing page than for the tests. Multiple of those may be right.
 
-### 4.6 A WebGL renderer for the stage · large
-The real answer to "hundreds of thousands of nodes on any machine". Sparks
-become one instanced draw call instead of about thirty-five canvas operations
-each; edges become a vertex buffer. Would make 3.2 moot rather than mitigated.
-Big rewrite — keep Canvas2D as the fallback, which already exists.
-
-### 4.7 OffscreenCanvas in a worker · medium
-Move rendering off the main thread so the UI never stutters during a heavy frame
-and a slow frame cannot block input. Complements 4.6, and simpler on its own.
-
-### 4.8 Click a commit, open it on GitHub · small
-`githubUrl` lives in the dataset, which is not fetched for large entries — so
-the one thing a viewer most wants to click is missing exactly where the history
-is most interesting. Same fix as the commit subjects: carry it in the plan. A
-few megabytes on Linux.
-
-### 4.9 Embeddable widget · medium
-An iframe mode with no chrome that autoplays a chosen span, so a project can
-drop its own history into its README or docs site.
-
-### 4.10 Beyond GitHub · medium
-The ingestion is `git clone` — it does not actually need GitHub. GitLab,
-Codeberg, or any URL `git clone` accepts would work with a different link
-builder. The catalog is already provider-tagged.
+**Solved when:** something is moving within a second of the page appearing, the
+arrival rate is within sight of the shelf's, and the fixture-based tests still
+pass or have been deliberately re-baselined.
 
 ---
 
-## 5. Reference
+## 5. Brief: optimisation without sacrificing quality
+
+The principle that has held so far, and is worth keeping: **remove work, not
+fidelity — and when fidelity has to go, spend it where it cannot be seen.**
+
+Everything gained today came from the first half. In order of preference:
+
+1. **Do not iterate what you can find.** Aggregate captions went from 71,571
+   loop iterations a frame to 6,519 by indexing ribbons by world x. Same 26
+   captions drawn.
+2. **Do not draw what is off screen.** Clipping polylines to the view made a
+   thread's cost depend on what is visible rather than on how long it had been
+   alive.
+3. **Do not compute what elapsed time made expensive.** Four label passes walked
+   from the beginning of the performance every frame; binary search fixed all
+   four.
+4. **Then, and only then, reduce detail — by density, not by clock.** Sparks and
+   edges thin out when the stage is crowded, where the detail is not legible
+   anyway. Thresholds are in *objects*, not milliseconds, so the same repository
+   looks the same on a fast machine and a slow one.
+
+### 5.4 The one place that rule may have to bend
+A machine with no GPU is fill-rate bound before any detail is drawn, so nothing
+above helps. **Dynamic resolution** — render at 0.6–0.8× and upscale — is the
+standard answer, and it does break rule 4: the picture is softer on weaker
+hardware.
+
+That is a product decision, not a technical one. If taken, it should be visible
+and reversible rather than silent.
+
+### 5.5 Remaining headroom, unprescribed
+Known costs that do **not** grow with elapsed time: the glow blur (3.4), the
+settled-edge pass, per-edge canvas state changes. Bigger swings — a WebGL stage
+with instanced sparks, or moving rendering to a worker via `OffscreenCanvas` —
+would change the ceiling rather than the constant, and would make 5.4 moot.
+Neither is scoped here on purpose.
+
+---
+
+## 6. Brief: a tremendous UI upgrade
+
+The stage is good. The *frame around it* has grown by accretion — one control at
+a time, each defensible, never designed together.
+
+**The standard to hold it to:** a stranger who lands on this page should be able
+to say what they are looking at within about ten seconds, without opening help,
+and should be able to find their way back to any state they have been in.
+
+**Where the seams are, without saying how to fix them:**
+
+- **First run.** The landing page has a paste field, a demo behind it, and a
+  shelf one click away. Which of those is the offer is not obvious.
+- **The transport.** Play, scrub, speed, camera mode, follow, sound, labels,
+  panels — these accumulated. They are not grouped by how often they are used or
+  by what they affect.
+- **The ledger.** It is a list of commit subjects beside a picture, and the
+  relationship between a row and a mark on the stage is not drawn.
+- **Panels.** Settings, help and the inspector share a drawer and three
+  different information densities.
+- **Reading the stage.** The vocabulary — ivory spine, slate threads, rings,
+  ribbons, dashed grey — is explained in help and nowhere else. A legend that
+  earns its space is an open question.
+- **Type and colour.** One accent, one ivory, and a lot of greys chosen
+  individually. There is no scale.
+- **Motion.** Panels appear, toasts arrive, the camera moves — three different
+  easings and durations.
+- **Mobile.** It works, in the sense that nothing overflows.
+
+**Constraints:** the stage may not be crowded — chrome that competes with the
+picture has failed. Nothing may claim more certainty than the data has. Poster
+mode and the transcript are the accessible path and must keep working.
+
+**Deliberately open:** everything about how. A redesign that deletes controls is
+as valid as one that arranges them better.
+
+---
+
+## 7. Brief: a better discography
+
+Three tracks, one artist, one source: Kevin MacLeod via incompetech, CC-BY 4.0,
+about 32 MB total. `characterOf`/`registerFor` in `src/audio/score.ts` choose
+between them by the shape of the repository — a project that merges constantly
+gets the frantic one, a long quiet one something unhurried.
+
+**What is thin about it:** three tracks across every repository ever written is
+a narrow palette, and one of them will be wrong for something. Twelve hours of
+Linux is a lot of one loop. The selection is made once at load and never
+revisited, although the *history* changes character — an early quiet era and a
+late frantic one get the same music.
+
+**Worth considering, none of it decided:** more registers; a second source or
+artist so the whole shelf does not sound like one album; music that follows the
+performance's own eras rather than being chosen once; crossfades at era
+boundaries; and a credits surface that does the licence justice — attribution is
+currently one line in a help panel.
+
+**Constraints:** everything must stay licence-clean and attributed. The bundle
+must not balloon — audio is already the largest non-catalog asset. Sound must
+remain off on the landing page and during idle, which was asked for explicitly
+and is now asserted in tests.
+
+**Solved when:** a visitor watching three different repositories does not hear
+the same thing three times, and the attribution is somewhere a person would
+actually find it.
+
+---
+
+## 8. Reference
 
 ### When a rebuild is needed
-A plan is compiled ahead of time. Anything touching the **compiler** invalidates
-every plan, about thirty minutes for the shelf. Anything touching only the
-**renderer** is instant.
+Anything touching the **compiler** invalidates every plan (~30 min for the
+shelf). Anything touching only the **renderer** is instant.
 
 | | Rebuild? |
 | --- | --- |
 | Timestamps, lane layout, camera, plan format, event detection | **Yes** |
-| Spark and edge detail, culling, clipping, the scrubber, any UI | **No** |
+| Spark/edge detail, culling, clipping, scrubber, any UI | **No** |
 
-### Fixed this session, with numbers
-- **Linux drew nothing at all.** The camera's spring integrator diverged once
-  the keyframe grid stretched for long performances — Rust went non-finite 3.2
-  seconds in. Sub-stepped now.
-- **Nested lanes were unbounded.** CPython reached lane 2,304; 62% of its edges
-  were being drawn outside the visible band forever.
-- **Two timestamp defects.** Five broken clocks dragged 1,475,072 dates forward.
-  Then one mistyped digit — `a27ac38efd6d`, authored 2019-04-05, committed
-  2005-07-12 — folded 2006 to 2018 into about two minutes. Linux offers **22
+### Fixed this session
+- **Linux drew nothing at all** — the camera's spring integrator diverged once
+  the keyframe grid stretched; Rust went non-finite 3.2 s in.
+- **Nested lanes were unbounded** — CPython reached lane 2,304; 62% of its edges
+  were drawn outside the visible band forever.
+- **Two timestamp defects** — five broken clocks dragged 1,475,072 dates
+  forward; then one mistyped digit (`a27ac38efd6d`, authored 2019-04-05,
+  committed 2005-07-12) folded 2006–2018 into two minutes. Linux offers **22
   years** now; it offered 2.
-- **The ledger had no words in it** on any large history. Subjects ship in the
-  plan.
-- **Frame cost stopped growing with elapsed time.** Peak 22.56 to 8.57 ms; the
-  scrubber went from 2.4 million `fill()` calls per four seconds to 5,880.
-- **60 fps locked**, 2 minutes to 3 hours; dropped frames 337 of 1558 to 2 of
-  1188.
-- **"Up to 108,690 threads moving at once"** was the union of every thread in a
-  single broken twelve-hour event. True peak **458**, mean 244.
+- **The ledger had no words** on large histories. Subjects ship in the plan.
+- **Frame cost stopped growing with elapsed time** — peak 22.56 → 8.57 ms; the
+  scrubber went from 2.4 M `fill()` calls per four seconds to 5,880.
+- **60 fps locked**, 2 min → 3 h; dropped frames 337/1558 → 2/1188.
+- **"Up to 108,690 threads at once"** was the union of every thread in one
+  broken twelve-hour event. True peak **458**, mean 244.
+- **Nothing is drawn before it happens** — a dashed line was drawing a branch's
+  entire future route, and a ring lit a merge 0.6 s before it landed.
+- **The main line carries its name**, instead of being labelled once at a commit
+  that scrolls away.
 - A measurement correction: headless Chromium rasterises on the **CPU**. Every
-  frame-pacing number reported before that was found describes the harness, not
-  the app.
-
-### Answers to questions asked more than once
-**Accurate?** Yes, and checked rather than asserted: `build-performance.mjs`
-recompiles every plan it writes and compares. Real commit graphs, no API calls.
-
-**Self-updating?** Weekly, Sunday.
-
-**Analytics?** Implemented, inert without `VITE_GA_ID`, allowlisted so a pasted
-repository never reaches Google.
-
-**Threads alive at once?** 458 at Linux's peak, 244 mean. The renderer draws
-only the subset on screen, around 350.
+  frame-pacing number found before that describes the harness, not the app.
