@@ -2,6 +2,7 @@ import type { AggregateSpan, CameraCue, ChoreographyEvent, CompiledPerformance, 
 import { sampleCamera } from '@/choreography/camera';
 import { describeAggregate } from '@/analysis/aggregate';
 import { pointAt, headingAt } from '@/layout/paths';
+import { spineY } from '@/layout/layout';
 import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
 import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
@@ -1160,17 +1161,29 @@ export class StageRenderer {
     const color = p.contributors[e.contributorIdx]?.color ?? PALETTE.accent;
     const focused = focusIdx < 0 || e.contributorIdx === focusIdx;
     const dim = focused ? 1 : 0.3;
-    // Intent: faint full path for approaches so convergence is legible before the hit.
-    // A dashed stroke has to be measured along the path as it is rasterised,
-    // which is the most expensive stroke there is. It is worth it to make a
-    // convergence legible before it lands; it is not worth it when two hundred
-    // of them are on screen and each is a faint hairline.
+    // A faint dashed line under the part of this thread that has already been
+    // travelled, so a convergence reads as a convergence rather than as two
+    // unrelated strokes.
+    //
+    // It used to draw the *whole* path — `drawPolyline(ctx, e.pts)` with no
+    // `u`, which is the entire route including the part that has not happened.
+    // On an edge that is by definition still in flight, that is the future
+    // drawn on the stage: you could see where a branch was going to go before
+    // it went there, and where it would land before it landed. It reads as a
+    // faint grey line arriving from nowhere, which is exactly what it is.
+    //
+    // Nothing is drawn before it happens. That rule is the whole reason to
+    // trust the picture, and it is not worth a rendering flourish.
+    //
+    // (A dashed stroke also has to be measured along the path as it
+    // rasterises, which is the most expensive kind there is — so this is
+    // skipped once the stage is crowded and each one is a hairline anyway.)
     if ((e.kind === 'merge' || e.kind === 'secondary' || e.kind === 'divergence') && this.edgeDetail >= 0.5) {
       const tension = e.kind === 'merge' ? 0.18 + 0.22 * u : 0.12;
       ctx.strokeStyle = rgba(spine ? ivory : slate, tension * dim);
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 6]);
-      this.drawPolyline(ctx, e.pts);
+      this.drawPolyline(ctx, e.pts, u);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -1549,24 +1562,20 @@ export class StageRenderer {
     }
     for (let i = lo; i < this.impactEvents.length; i++) {
       const ev = this.impactEvents[i]!;
-      if (ev.performanceImpact > t + 0.6) break;
+      // Not one frame past the playhead. Events are in impact order, so the
+      // first one that has not happened ends the walk.
+      if (ev.performanceImpact > t) break;
       const age = t - ev.performanceImpact;
-      if (age < -0.6 || age > 3) continue;
+      if (age < 0 || age > 3) continue;
       const nd = this.nodeBySha.get(ev.subjectIds[0]!);
       if (!nd) continue;
       const budget = ev.effectBudget;
+      // A ring used to tighten onto the merge node for the six tenths of a
+      // second *before* it landed: a light in the empty space ahead of the
+      // performance, marking a spot because of something that had not happened
+      // there yet. Anticipation is the camera's job, and the camera already
+      // does it — it leads a merge rather than drawing one early.
       if (HEAVY.has(ev.type)) {
-        if (age < 0) {
-          // anticipation: tightening ring converging on the merge node
-          const a = 1 + age / 0.6;
-          const vsA = volumeScale(nd.mergeVolume);
-          ctx.beginPath();
-          ctx.arc(nd.x, nd.y, (26 * (1 - a) + 6) * vsA, 0, Math.PI * 2);
-          ctx.strokeStyle = rgba(ivory, 0.35 * a * budget);
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          continue;
-        }
         const release = Math.max(0.6, ev.performanceEnd - ev.performanceImpact);
         const a = Math.min(1, age / release);
         const vs = volumeScale(nd.mergeVolume);
@@ -1778,13 +1787,56 @@ export class StageRenderer {
       }
     }
     __lap('lblThreads');
-    // main line label at the spine's first node once
+    // The main line, named where it can always be seen.
+    //
+    // This used to be printed once, beside the spine's very first commit, and
+    // then the camera moved on and it was gone for the next twelve hours. The
+    // straight ivory line is the one thing a viewer needs to keep hold of —
+    // everything else is described relative to it — so its name rides along
+    // with it instead of being a fact stated at the beginning and forgotten.
+    //
+    // Pinned to the left edge of the stage rather than to a commit, because
+    // the spine runs the whole width and any point on it is as good as any
+    // other. Drawn directly rather than through `place()`: this one never
+    // yields to another label, and never gets skipped for overlapping.
     const spine = p.threads[0];
     if (spine && spine.label && labels !== 'minimal') {
-      const first = p.nodes[spine.nodeIdxs[0]!];
-      if (first && first.impact <= t) {
-        const s = this.worldToScreen(first.x, first.y);
-        place(s.x - 8 - ctx.measureText(spine.label).width, s.y, spine.label, 0.8, PALETTE.ivory);
+      const sy = this.worldToScreen(this.view.cx, spineY(this.view.cx)).y;
+      const top = this.settings.safe.top;
+      const bottom = this.height - this.settings.safe.bottom;
+      if (sy > top + 6 && sy < bottom - 6) {
+        const text = spine.label.toUpperCase();
+        ctx.save();
+        ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle';
+        const w = ctx.measureText(text).width;
+        // Tracking has to be added by hand; canvas has no letter-spacing.
+        const track = 1.4;
+        const padX = 7;
+        const boxW = w + track * (text.length - 1) + padX * 2;
+        const x = this.settings.safe.left + 10;
+        const y = sy - 15;
+        ctx.fillStyle = rgba(PALETTE.ink, 0.72);
+        ctx.beginPath();
+        ctx.roundRect(x, y - 8, boxW, 16, 8);
+        ctx.fill();
+        ctx.strokeStyle = rgba(PALETTE.ivory, 0.22);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // A short ivory tick joining the label to the line it names, so the
+        // pill is read as belonging to the spine and not floating over it.
+        ctx.strokeStyle = rgba(PALETTE.ivory, 0.45);
+        ctx.beginPath();
+        ctx.moveTo(x + boxW / 2, y + 8);
+        ctx.lineTo(x + boxW / 2, sy - 2);
+        ctx.stroke();
+        ctx.fillStyle = rgba(PALETTE.ivory, 0.92);
+        let cx = x + padX;
+        for (const ch of text) {
+          ctx.fillText(ch, cx, y);
+          cx += ctx.measureText(ch).width + track;
+        }
+        ctx.restore();
       }
     }
     // how much converged, on the merges big enough to warrant saying so
