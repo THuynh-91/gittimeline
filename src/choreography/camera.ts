@@ -30,6 +30,13 @@ export const CAMERA_STEP = 0.05;
  */
 const MAX_FRAME_W = 2600;
 const MAX_FRAME_H = 1500;
+/**
+ * And how far in. The smallest frame any state asks for is 680x360; this sits
+ * below that so it never binds on a legitimate shot, and exists only so the
+ * smoothing can never integrate its way to zero and divide the renderer by it.
+ */
+const MIN_FRAME_W = 320;
+const MIN_FRAME_H = 180;
 const LOOK_AHEAD = 1.15;
 const MERGE_ANTICIPATION = 2.6;
 
@@ -287,16 +294,52 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     // slowly so the frame does not pump on every passing thread.
     const period = reducedMotion ? 2.6 : state === 'impact' ? 0.55 : state === 'convergence' ? 0.9 : inTail ? 2.2 : 1.15;
     const zoomPeriod = reducedMotion ? 3.2 : state === 'impact' ? 0.8 : inTail ? 2.4 : 2;
+    /**
+     * Integrated in sub-steps, because `step` is not a constant any more.
+     *
+     * This is explicit Euler, which is stable only while the step is under
+     * 2/w0 — about a third of the spring's period. That was safe for as long
+     * as the step was pinned at CAMERA_STEP. It stopped being safe when the
+     * grid was allowed to stretch to fit long performances into MAX_CUES:
+     * `step = duration / 60000` grows without limit while the periods stay
+     * fixed, and past roughly a three-hour show the integrator runs away.
+     *
+     * It does not degrade — it explodes. Rust's shipped plan went non-finite
+     * at cue 6, 3.2 seconds in; Kubernetes at cue 12; VS Code, which looked
+     * far too short to be at risk, at cue 3,332. `applyCamera` divides the
+     * viewport by `cue.w`, so an infinite frame is a scale of zero and the
+     * stage is not merely wrong but blank. "Unwatchable" was exact, and it was
+     * introduced by the change that removed the length ceiling — the ceiling
+     * had been hiding it.
+     *
+     * Sub-stepping keeps the effective dt at an eighth of the period whatever
+     * the grid does. At CAMERA_STEP against the shortest period this is one
+     * iteration and the arithmetic is unchanged.
+     */
     const spring = (pos: number, vel: number, target: number, p: number): [number, number] => {
       const w0 = (2 * Math.PI) / p;
-      const acc = w0 * w0 * (target - pos) - 2 * w0 * vel;
-      const v = vel + acc * step;
-      return [pos + v * step, v];
+      const sub = Math.max(1, Math.ceil(step / (p / 8)));
+      const h = step / sub;
+      for (let i = 0; i < sub; i++) {
+        const acc = w0 * w0 * (target - pos) - 2 * w0 * vel;
+        vel += acc * h;
+        pos += vel * h;
+      }
+      return [pos, vel];
     };
     [cx, vx] = spring(cx, vx, tx, period);
     [cy, vy] = spring(cy, vy, ty, period);
     [lw, vw] = spring(lw, vw, Math.log(tw), zoomPeriod);
     [lh, vh] = spring(lh, vh, Math.log(th), zoomPeriod);
+    // The zoom springs on a logarithm, so overshoot is exponentiated: a swing
+    // of 7 in log space is a frame a thousand times the documented maximum,
+    // and the renderer has no clamp of its own — it just divides by whatever
+    // it is handed. Even the plans that never went non-finite carried these:
+    // React's largest frame was 540,000 units against a cap of 2,600. Holding
+    // the integrator's own state inside the bounds stops one overshoot from
+    // feeding the next.
+    lw = Math.min(Math.log(MAX_FRAME_W), Math.max(Math.log(MIN_FRAME_W), lw));
+    lh = Math.min(Math.log(MAX_FRAME_H), Math.max(Math.log(MIN_FRAME_H), lh));
 
     // Never crop a live junction: expand the smoothed frame if a must-include point escaped it.
     if (Number.isFinite(minX) && !inTail) {
@@ -306,6 +349,22 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
       const needH = Math.min(MAX_FRAME_H, Math.max(maxY - cy, cy - minY) * 2 + padY * 0.8);
       if (needW > w) lw = Math.log(needW);
       if (needH > h) lh = Math.log(needH);
+    }
+
+    // Nothing non-finite reaches a cue. With the sub-stepped integrator this
+    // should be unreachable; it is here because the failure mode of the thing
+    // it guards is a blank stage, and a plan is written once and played by
+    // everyone.
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(lw) || !Number.isFinite(lh)) {
+      const prev = cues[cues.length - 1];
+      cx = Number.isFinite(cx) ? cx : (prev?.x ?? 0);
+      cy = Number.isFinite(cy) ? cy : (prev?.y ?? 0);
+      lw = Number.isFinite(lw) ? lw : Math.log(prev?.w ?? MAX_FRAME_W);
+      lh = Number.isFinite(lh) ? lh : Math.log(prev?.h ?? MAX_FRAME_H);
+      vx = 0;
+      vy = 0;
+      vw = 0;
+      vh = 0;
     }
 
     cues.push({
