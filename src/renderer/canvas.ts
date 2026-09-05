@@ -88,6 +88,7 @@ export const renderProfile = {
     nodesWalked: 0,
     nodesDrawn: 0,
     cacheRedraws: 0,
+    rescuedCues: 0,
   },
   /** The last frame's world window, so a surprising count can be explained. */
   view: { scale: 0, x0: 0, x1: 0, y0: 0, y1: 0 },
@@ -142,6 +143,8 @@ export class StageRenderer {
   private dust: Float32Array;
   private lastCue: CameraCue | null = null;
   private sweepX = -Infinity;
+  /** Held framing while the plan's own cues are unusable; null when they are not. */
+  private rescueView: { cx: number; cy: number; w: number; h: number } | null = null;
   private frameCounter = 0;
   private tmp = { x: 0, y: 0 };
   private tmp2 = { x: 0, y: 0 };
@@ -507,7 +510,67 @@ export class StageRenderer {
     return true;
   }
 
-  private applyCamera(cue: CameraCue, dtReal: number, t: number) {
+  /**
+   * Is this cue a rectangle?
+   *
+   * It is not a rhetorical question. The director plans its shots by
+   * integrating a critically damped spring at a step that stretches with the
+   * length of the performance, and past a certain length that integration is
+   * unstable: on a twelve-hour history the fourth keyframe already carries a
+   * non-finite width, and the centre reaches 1e305 shortly after. The renderer
+   * then computes `min(safeW / w, safeH / h)` — infinity — and culls the entire
+   * history against a viewport that is a point at the far end of the number
+   * line. Every measurement of "why is this slow" on such a plan is really a
+   * measurement of a blank screen.
+   *
+   * Believing a cue that is not a rectangle is the one thing worse than not
+   * having one, so the test is deliberately narrow: finite centre, positive
+   * finite extents, and a centre somewhere near the work. Anything a sound
+   * plan produces passes untouched, so this costs four comparisons a frame and
+   * changes nothing about a history whose camera converged.
+   */
+  private usableCue(cue: CameraCue): boolean {
+    if (!Number.isFinite(cue.x) || !Number.isFinite(cue.y)) return false;
+    if (!(cue.w > 0) || !(cue.h > 0) || !Number.isFinite(cue.w) || !Number.isFinite(cue.h)) return false;
+    const p = this.perf;
+    if (!p) return true;
+    const span = Math.max(1, p.bounds.maxX - p.bounds.minX);
+    return cue.x >= p.bounds.minX - span && cue.x <= p.bounds.maxX + span;
+  }
+
+  /**
+   * Where to point when the plan cannot say.
+   *
+   * The closing tableau is the whole picture, which the plan's own bounds
+   * describe exactly. Everywhere else it is the work of the last few seconds —
+   * the same trailing window the shop window uses, for the same reason: it is
+   * scale-free, so it follows the density of the history rather than its
+   * length. Smoothed, because the box steps as commits land, and cut rather
+   * than glided when `dtReal` is zero, which is what a seek looks like.
+   */
+  private rescueCue(cue: CameraCue, t: number, dtReal: number): CameraCue {
+    const p = this.perf!;
+    const b = cue.state === 'tableau' ? null : this.recentBounds(t);
+    const box = b ?? p.bounds;
+    const target = {
+      cx: (box.minX + box.maxX) / 2,
+      cy: (box.minY + box.maxY) / 2,
+      w: Math.max(900, (box.maxX - box.minX) * 1.2 + 260),
+      h: Math.max(480, (box.maxY - box.minY) * 1.3 + 180),
+    };
+    const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 2.4) : 1;
+    const v = this.rescueView ?? target;
+    this.rescueView = {
+      cx: v.cx + (target.cx - v.cx) * k,
+      cy: v.cy + (target.cy - v.cy) * k,
+      w: v.w + (target.w - v.w) * k,
+      h: v.h + (target.h - v.h) * k,
+    };
+    const r = this.rescueView;
+    return { ...cue, x: r.cx, y: r.cy, w: r.w, h: r.h, rotation: 0, punch: 1 };
+  }
+
+  private applyCamera(planned: CameraCue, dtReal: number, t: number) {
     const s = this.settings.safe;
     const safeW = Math.max(80, this.width - s.left - s.right);
     const safeH = Math.max(80, this.height - s.top - s.bottom);
@@ -515,6 +578,10 @@ export class StageRenderer {
       this.view = { scale: this.manual.scale, ox: s.left + safeW / 2, oy: s.top + safeH / 2, rotation: 0, cx: this.manual.x, cy: this.manual.y };
       return;
     }
+    const sound = this.usableCue(planned);
+    if (sound) this.rescueView = null;
+    const cue = sound ? planned : this.rescueCue(planned, t, dtReal);
+    if (renderProfile.enabled && !sound) renderProfile.counts.rescuedCues++;
     const targetPunch = this.settings.reducedMotion ? 1 : cue.punch;
     const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 14) : 1;
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
