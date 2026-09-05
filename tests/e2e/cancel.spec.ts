@@ -15,6 +15,17 @@ test.describe('backing out', () => {
     const shelf = page.getByTestId('catalog');
     if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
 
+    // Hold the plan open so the load is reliably still running when Cancel is
+    // pressed. Racing it stopped working once the renderer got faster: the
+    // button appeared, Playwright began the click, and the performance
+    // finished underneath it — "element was detached from the DOM". The thing
+    // under test is where cancelling *lands*, not whether a tester can out-run
+    // a download, so the download is made to wait instead.
+    await page.route('**/*.gtperf.gz', async (route) => {
+      await new Promise((r) => setTimeout(r, 10_000));
+      await route.continue();
+    });
+
     // The largest entry, because cancelling is only possible while a load is
     // still running and the small ones are open before a click can land.
     const biggest = await page.evaluate(async () => {

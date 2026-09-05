@@ -79,6 +79,11 @@ export const renderProfile = {
     tips: 0,
     glow: 0,
     labels: 0,
+    lblThreads: 0,
+    lblMerges: 0,
+    lblTags: 0,
+    lblAggs: 0,
+    lblRest: 0,
   },
   counts: {
     edgesConsidered: 0,
@@ -143,6 +148,34 @@ export class StageRenderer {
   private dust: Float32Array;
   private lastCue: CameraCue | null = null;
   private sweepX = -Infinity;
+  /**
+   * The slice of the world worth putting on the path, in world x.
+   *
+   * Set once a frame from the camera and read by `drawPolyline`. Off-screen
+   * segments are skipped rather than emitted, which is what stops a thread's
+   * drawing cost being a function of how long it has been alive.
+   */
+  /** Positions of `aggregateEdges` within `perf.edges`, for `edgeBounds`. */
+  private aggregateEdgePos: number[] = [];
+  /**
+   * Aggregate ribbons ordered by where they start in the world, so the ones
+   * on screen can be found instead of filtered for.
+   *
+   * Rejecting each caption cheaply was not enough. Eleven hours into Linux the
+   * loop ran 71,571 times a frame, rejected 71,516 as off-screen and drew 26 —
+   * and *that*, at about 145 ns an iteration, was 10.4 ms, over half the
+   * frame. The cost was never the work per ribbon; it was that there were
+   * 71,571 of them to say no to, and one more every time another second of
+   * history went by.
+   */
+  private aggByMinX: Int32Array = new Int32Array(0);
+  private aggMinX: Float64Array = new Float64Array(0);
+  /** The widest ribbon there is, which bounds how far back a visible one can start. */
+  private aggWidestSpan = 0;
+  /** How much of each spark's comet to draw this frame; see the body loop. */
+  private bodyDetail = 1;
+  private clipX0 = -Infinity;
+  private clipX1 = Infinity;
   /** Held framing while the plan's own cues are unusable; null when they are not. */
   private rescueView: { cx: number; cy: number; w: number; h: number } | null = null;
   private frameCounter = 0;
@@ -240,7 +273,16 @@ export class StageRenderer {
       const exit = this.nodeBySha.get(aggregate.boundaryShas[1]!);
       if (exit) this.aggregateByNode[exit.idx] = aggregate;
     }
-    this.aggregateEdges = p.edges.filter((edge) => edge.kind === 'aggregate');
+    // Kept with their positions in `p.edges`, because that — not `edge.idx` —
+    // is what indexes `edgeBounds`. Assuming the two agree is the kind of thing
+    // that silently reads someone else's rectangle.
+    this.aggregateEdges = [];
+    this.aggregateEdgePos = [];
+    p.edges.forEach((edge, i) => {
+      if (edge.kind !== 'aggregate') return;
+      this.aggregateEdges.push(edge);
+      this.aggregateEdgePos.push(i);
+    });
     this.unknownEdges = p.edges.filter((edge) => edge.kind === 'unknown');
     this.mergeLabelNodes = p.nodes.filter((node) => node.isMerge && node.mergeVolume >= 6);
     this.taggedNodes = p.nodes.filter((node) => node.tagLabels.length > 0);
@@ -274,6 +316,22 @@ export class StageRenderer {
       if (lastBucket - firstBucket > MAX_EDGE_BUCKET_SPAN) this.longEdges.push(i);
       else for (let bucket = firstBucket; bucket <= lastBucket; bucket++) this.edgeBuckets[bucket]!.push(i);
     });
+    // Ribbons by world x, built once. It has to come after the loop that fills
+    // `edgeBounds`, not before it — built too early every span reads zero, the
+    // search finds nothing, and the captions quietly stop appearing.
+    {
+      const order = this.aggregateEdgePos.map((_, k) => k);
+      order.sort((a, b) => this.edgeBounds[this.aggregateEdgePos[a]! * 4]! - this.edgeBounds[this.aggregateEdgePos[b]! * 4]!);
+      this.aggByMinX = Int32Array.from(order);
+      this.aggMinX = Float64Array.from(order, (k) => this.edgeBounds[this.aggregateEdgePos[k]! * 4]!);
+      let widest = 0;
+      for (const k of order) {
+        const eb = this.aggregateEdgePos[k]! * 4;
+        const span = this.edgeBounds[eb + 2]! - this.edgeBounds[eb]!;
+        if (span > widest) widest = span;
+      }
+      this.aggWidestSpan = widest;
+    }
     const order = new Int32Array(p.nodes.length);
     for (let i = 0; i < order.length; i++) order[i] = i;
     order.sort((a, b) => p.nodes[a]!.impact - p.nodes[b]!.impact);
@@ -681,6 +739,12 @@ export class StageRenderer {
     const halfH = (this.height * inv) / 2 + 80;
     const vx0 = v.cx - halfW, vx1 = v.cx + halfW, vy0 = v.cy - halfH, vy1 = v.cy + halfH;
     if (prof) prof.view = { scale: v.scale, x0: vx0, x1: vx1, y0: vy0, y1: vy1 };
+    // Padded by a fifth: the camera can be rolled, so an axis-aligned world box
+    // is an approximation, and a stroke has width. Too generous costs a few
+    // comparisons; too tight clips a line somebody can see.
+    const clipPad = (vx1 - vx0) * 0.2;
+    this.clipX0 = vx0 - clipPad;
+    this.clipX1 = vx1 + clipPad;
 
     const useGlow = this.settings.quality === 'full' && !this.settings.reducedMotion;
     const glow = this.glowCtx;
@@ -774,6 +838,31 @@ export class StageRenderer {
     lap('nodes');
 
     // --- Bodies ---
+    //
+    // How much comet each spark gets, decided once for the frame by how many
+    // of them there are.
+    //
+    // A body is the most expensive thing on the stage: an eleven-point comet
+    // trail, a halo, two glyphs, and — on a ribbon — up to twenty-four tick
+    // marks, each of those a curve evaluation and a fill of its own. That is
+    // fine at forty bodies and ruinous at three hundred and fifty, which is
+    // where Linux peaks six hours in: measured at 13.64 ms of a 22.56 ms
+    // frame, sixty per cent of it, and by far the largest single cost in the
+    // renderer.
+    //
+    // It is also detail nobody can see at that density. Three hundred sparks
+    // share the stage with a few pixels each; an eleven-point tail on a
+    // three-pixel dot is not legible, it is just eleven fills. So the trail
+    // shortens as the stage fills and lengthens again when it empties — which
+    // is the same instinct as drawing less of what is far away, applied to
+    // "far away" meaning "crowded".
+    //
+    // The thresholds are in bodies, not in milliseconds, so the picture is a
+    // function of the history rather than of the machine: the same repository
+    // looks the same on a fast laptop and a slow one, which matters for a
+    // thing whose whole claim is that it shows you the repository.
+    const liveBodies = activeEdges.length;
+    this.bodyDetail = liveBodies <= 60 ? 1 : liveBodies <= 160 ? 0.55 : liveBodies <= 320 ? 0.3 : 0.15;
     for (const e of activeEdges) this.drawBody(ctx, useGlow ? glow : null, e, t, focusIdx);
     lap('bodies');
 
@@ -922,19 +1011,54 @@ export class StageRenderer {
     return floor + (base - floor) * Math.exp(-age / 14);
   }
 
+  /**
+   * A path, with the parts nobody can see left off it.
+   *
+   * This used to emit every point of the polyline every frame. A thread that
+   * stays open for months is thousands of points long, so drawing it cost
+   * whatever its whole life cost — while at any moment a screen-width of it is
+   * visible. That is the shape of "it gets slower the longer you watch" that
+   * survives after the settled and label passes are bounded: the *live* work
+   * grows with how much history each live thread has behind it.
+   *
+   * Segments outside the current world window are skipped and the pen is
+   * lifted, so the next visible segment begins with a `moveTo`. A segment with
+   * one endpoint inside is kept whole, and so is a long one that spans the view
+   * with both endpoints outside — that is what the overlap test below asks,
+   * rather than "is either endpoint visible", which would drop exactly the
+   * segments that cross the screen.
+   *
+   * Cost is now proportional to what is on screen instead of to elapsed time,
+   * which is the property that lets a very long performance stay flat.
+   */
   private drawPolyline(ctx: CanvasRenderingContext2D, pts: Float32Array, u = 1) {
     const count = pts.length >> 1;
     if (count < 2) return;
-    ctx.beginPath();
-    ctx.moveTo(pts[0]!, pts[1]!);
+    const x0 = this.clipX0;
+    const x1 = this.clipX1;
     const f = u * (count - 1);
     const full = Math.min(count - 1, Math.floor(f));
-    for (let i = 1; i <= full; i++) ctx.lineTo(pts[i * 2]!, pts[i * 2 + 1]!);
+    ctx.beginPath();
+    // Where the pen currently sits, as a point index; -1 when it has been
+    // lifted and the next visible segment has to start with a `moveTo`.
+    let penAt = -1;
+    const segment = (ax: number, ay: number, bx: number, by: number, ai: number, bi: number) => {
+      if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1)) {
+        penAt = -1;
+        return;
+      }
+      if (penAt !== ai) ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      penAt = bi;
+    };
+    for (let i = 1; i <= full; i++) {
+      segment(pts[(i - 1) * 2]!, pts[(i - 1) * 2 + 1]!, pts[i * 2]!, pts[i * 2 + 1]!, i - 1, i);
+    }
     if (full < count - 1) {
       const k = f - full;
       const x = pts[full * 2]! + (pts[full * 2 + 2]! - pts[full * 2]!) * k;
       const y = pts[full * 2 + 1]! + (pts[full * 2 + 3]! - pts[full * 2 + 1]!) * k;
-      ctx.lineTo(x, y);
+      segment(pts[full * 2]!, pts[full * 2 + 1]!, x, y, full, -2);
     }
   }
 
@@ -1263,6 +1387,12 @@ export class StageRenderer {
     const isPerformer = e.body === 'performer';
     const size = (isPerformer ? 4.6 : 3) * (e.kind === 'aggregate' ? 1.25 : 1);
     const pos = pointAt(e.pts, u, this.tmp);
+    // A live edge can cross the stage while the spark travelling it is still
+    // far off the side. The edge earned its place by overlapping the view; the
+    // body has to earn its own.
+    const scr = this.worldToScreen(pos.x, pos.y);
+    const margin = 48;
+    if (scr.x < -margin || scr.x > this.width + margin || scr.y < -margin || scr.y > this.height + margin) return;
     const heading = headingAt(e.pts, u);
     const glyph = contributor?.glyph ?? 'orb';
     const bot = contributor?.isBot;
@@ -1282,7 +1412,8 @@ export class StageRenderer {
     }
 
     // comet trail: earlier positions along the exact path
-    const trailN = this.settings.quality === 'full' ? (isPerformer ? 11 : 6) : 5;
+    const trailFull = this.settings.quality === 'full' ? (isPerformer ? 11 : 6) : 5;
+    const trailN = Math.max(1, Math.round(trailFull * this.bodyDetail));
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let k = trailN; k >= 1; k--) {
@@ -1331,7 +1462,7 @@ export class StageRenderer {
     // aggregate ribbons carry an internal rhythm: ticks flowing behind the performer
     if (e.kind === 'aggregate') {
       const count = this.aggregateByNode[e.child]?.memberCount ?? 8;
-      const ticks = Math.min(24, count);
+      const ticks = Math.max(2, Math.round(Math.min(24, count) * this.bodyDetail));
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       for (let k = 0; k < ticks; k++) {
@@ -1520,6 +1651,8 @@ export class StageRenderer {
      * comparisons while the cost of being too tight is a caption that silently
      * stops appearing.
      */
+    let __m = performance.now();
+    const __lap = (k: keyof typeof renderProfile.ms) => { if (!renderProfile.enabled) return; const n = performance.now(); renderProfile.ms[k] += n - __m; __m = n; };
     const v = this.view;
     const halfW = this.width / Math.max(1e-6, v.scale) / 2;
     const padW = halfW * 0.4;
@@ -1574,6 +1707,15 @@ export class StageRenderer {
           } else hi = mid - 1;
         }
         const latest = p.nodes[th.nodeIdxs[found]!]!;
+        // A label for a thread whose newest commit is off the side of the
+        // stage cannot be placed — `place()` rejects it on screen position a
+        // moment later. Rejecting it here is the difference between a
+        // candidate list bounded by what is visible and one bounded by how
+        // much of the history has gone by: every named branch that has ever
+        // landed was being measured, allocated and *sorted* every frame, to
+        // choose ten. Eleven hours into Linux that pass was 10.3 ms, more than
+        // half the frame, while fewer threads were moving than at six hours.
+        if (latest.x < this.clipX0 || latest.x > this.clipX1) continue;
         const mergedAt = th.mergeNodeIdx != null ? p.nodes[th.mergeNodeIdx]!.impact : Infinity;
         const merged = mergedAt <= t;
         const alpha = merged ? Math.max(0, 0.55 - (t - mergedAt) / 6) : th.ending === 'tip' ? 0.85 : 0.7;
@@ -1587,6 +1729,7 @@ export class StageRenderer {
         place(scr.x + 12, scr.y + c.th.side * 13, c.label, c.alpha, this.tints[c.th.idx] ?? PALETTE.slate);
       }
     }
+    __lap('lblThreads');
     // main line label at the spine's first node once
     const spine = p.threads[0];
     if (spine && spine.label && labels !== 'minimal') {
@@ -1609,6 +1752,7 @@ export class StageRenderer {
         place(s.x + 12, s.y + 16, `${nd.mergeVolume} commits converge`, alpha, PALETTE.merge);
       }
     }
+    __lap('lblMerges');
     // tags & aggregates
     if (labels !== 'minimal') {
       // `all` pins every landed tag at a constant alpha, so there is no fade to
@@ -1625,19 +1769,56 @@ export class StageRenderer {
         place(s.x + 10, s.y - 14, nd.tagLabels.join(' · '), alpha, PALETTE.ivory);
       }
     }
+    __lap('lblTags');
     // "40 commits" over a collapsed run is a commit name like any other, so it
     // goes when the rest do. It was outside the gate, which is why turning the
     // names off left the stage still captioned — and why the landing page was
     // printing "6 commits" through the sentence asking for a URL.
     if (labels !== 'minimal') {
-      for (const e of this.aggregateEdges) {
-        if (e.start > t) break;
-        // Two float comparisons instead of a curve evaluation and a transform.
-        // This caption has no fade, so unlike the merges above there is no
-        // point in the list to stop at — but there is no reason to *locate*
-        // one that cannot be on screen either.
-        const eb = e.idx * 4;
-        if (this.edgeBounds[eb + 2]! < worldLeft || this.edgeBounds[eb]! > worldRight) continue;
+      // "40 commits" belongs to a *visible ribbon*. Below the width where the
+      // ribbon is its own object on screen, the caption has nothing to label:
+      // a hundred of them land on the same few pixels, and `place()` throws
+      // all but the first away on the overlap test — after building each
+      // string and measuring its text.
+      //
+      // That is what made this the most expensive thing in the renderer.
+      // Eleven hours into Linux the camera has pulled right out, so the world
+      // window covers nearly the whole history and the bounds test above
+      // rejects almost nothing: 71,000 captions were being composed and
+      // measured every frame to draw a handful. Measured at 10.35 ms of a
+      // 10.58 ms label pass, over half the frame.
+      //
+      // A ribbon narrower than this is drawn — it is still history — but it is
+      // not captioned, which is what "too small to read" already looked like.
+      const MIN_RIBBON_PX = 36;
+      const minRibbonWorld = MIN_RIBBON_PX / Math.max(1e-6, v.scale);
+      // Binary search to the first ribbon that could reach the left edge of
+      // the stage, then walk forward until they start past the right edge.
+      // A ribbon overlapping the view must begin no earlier than
+      // `worldLeft - aggWidestSpan`, which is what makes this exact rather
+      // than a heuristic.
+      let lo2 = 0;
+      let hi2 = this.aggMinX.length - 1;
+      let from = this.aggMinX.length;
+      const reach = worldLeft - this.aggWidestSpan;
+      while (lo2 <= hi2) {
+        const mid = (lo2 + hi2) >> 1;
+        if (this.aggMinX[mid]! >= reach) {
+          from = mid;
+          hi2 = mid - 1;
+        } else lo2 = mid + 1;
+      }
+      for (let oi = from; oi < this.aggByMinX.length; oi++) {
+        if (this.aggMinX[oi]! > worldRight) break;
+        const ai = this.aggByMinX[oi]!;
+        const e = this.aggregateEdges[ai]!;
+        if (e.start > t) continue;
+        const eb = this.aggregateEdgePos[ai]! * 4;
+        const lo = this.edgeBounds[eb]!;
+        const hi = this.edgeBounds[eb + 2]!;
+        // Too narrow on screen to be captioning anything the eye can pick out.
+        if (hi - lo < minRibbonWorld) continue;
+        if (hi < worldLeft) continue;
         const agg = this.aggregateByNode[e.child];
         if (!agg || agg.memberCount < 3) continue;
         const m = pointAt(e.pts, 0.5, this.tmp);
@@ -1645,6 +1826,7 @@ export class StageRenderer {
         place(s.x - 30, s.y - 14, describeAggregate(agg), 0.75, PALETTE.textDim);
       }
     }
+    __lap('lblAggs');
     for (const e of this.unknownEdges) {
       if (e.start > t) break;
       const eb = e.idx * 4;
@@ -1660,6 +1842,7 @@ export class StageRenderer {
       const s = this.worldToScreen(last.x, last.y);
       place(s.x + 12, s.y, th.label, 0.7, PALETTE.accent);
     }
+    __lap('lblRest');
   }
 
   toBlob(type = 'image/png'): Promise<Blob | null> {
