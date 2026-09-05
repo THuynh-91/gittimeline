@@ -243,6 +243,21 @@ const drop = (reason) => {
  * goes, the worst an interruption costs is the entry it happened on.
  */
 const writeIndex = () => {
+  // An empty index is never an answer, only a symptom.
+  //
+  // `--base` defaults to a dev server that may not be running, and every entry
+  // then fails to open with the same TypeError. That happened: a stale run
+  // found nothing at :5173, dropped all twelve and wrote `{"entries": []}` over
+  // a good index, so the shelf was simply gone — and nothing in the output said
+  // so any louder than a list of drops nobody was reading. Refusing is the only
+  // safe thing here, because the file it would overwrite is the product of an
+  // hour of work this run cannot redo.
+  if (!entries.length) {
+    console.error(`
+Refusing to write an empty ${indexPath}: nothing opened. Is a server running at ${base}?`);
+    process.exitCode = 1;
+    return;
+  }
   // In SHIPPED order rather than the order they happened to finish in, which is
   // what `--only` and every interrupted run would otherwise leave behind.
   const ordered = [...entries].sort((a, b) => SHIPPED.findIndex((s) => s.slug === a.slug) - SHIPPED.findIndex((s) => s.slug === b.slug));
