@@ -37,6 +37,8 @@ saying how. Where a number is given it is evidence, not a target to hard-code.
 | 1.4 | **Create the OAuth App.** | No API exists. `docs/github-oauth-setup.md` has every field |
 | 1.5 | **Deploy the Worker, then `wrangler secret put`.** | Your Cloudflare account; the secret must not pass through chat |
 | 1.6 | **Set `VITE_AUTH_BASE`** as an Actions *variable*. | Read at build time |
+| 1.7 | **Rotate the GitHub PAT and the Render API key.** | Both were pasted into chat during this project and should be treated as burned |
+| 1.8 | **Decide the author-name rewrite** — 25 commits render as Akifuma-91. | Far easier before the first push than after |
 | 1.9 | *Optional:* `VITE_GA_ID`. | — |
 
 Worker before OAuth App: the App needs a callback URL that does not exist yet.
