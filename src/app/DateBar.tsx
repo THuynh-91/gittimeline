@@ -19,8 +19,12 @@ export function DateBar() {
   // read "September 2026" while you were looking at 2017.
   const travel = store.travelAt.value;
   const hist = travel != null ? (dateAtFraction(travel) ?? player.historicalAt(t)) : player.historicalAt(t);
-  const era = perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
-  const ev = store.caption.value;
+  // The era and the event caption describe the clock. While the viewer is
+  // travelling the finished picture the clock is parked at the end, so those
+  // two lines would sit under a 2017 heading insisting it is the present day.
+  const travelling = travel != null;
+  const era = travelling ? undefined : perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
+  const ev = travelling ? null : store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
@@ -40,6 +44,7 @@ export function DateBar() {
       </div>
       <div class="date-meta">
         <span class="caption-line" data-testid="caption">
+          {travelling && <b>Travelling the finished history</b>}
           {era && <b>{era.label}</b>}
           {era && ev ? ' · ' : ''}
           {ev ? ev.caption : ''}

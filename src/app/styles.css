@@ -236,7 +236,11 @@ a {
   left: 0;
   right: 0;
   bottom: 0;
-  height: var(--band);
+  /* Sized by what is in it, with the old fixed height as a floor. A fixed
+     height plus `justify-content: flex-end` meant any extra row — the travel
+     slider, say — spilled *upwards* out of the box and landed on top of
+     whatever was floating above it. */
+  min-height: var(--band);
   background: linear-gradient(to top, rgba(7, 8, 12, 0.97) 58%, rgba(7, 8, 12, 0));
   z-index: 6;
   display: flex;
@@ -1817,22 +1821,16 @@ kbd {
 /* Taking things off the stage. Deliberately faint until looked for, and
    deliberately never hidden by the thing they hide. */
 .view-toggles {
-  position: absolute;
-  left: 26px;
-  /* Above the transport band, which is 150px tall and fills the bottom edge —
-     sitting inside it made these unclickable, which is a poor showing for the
-     one control that is meant to survive everything else being hidden. */
-  bottom: calc(var(--band) + 10px);
-  z-index: 7;
+  /* The first row of the band, so it cannot collide with the date however tall
+     the band grows, and cannot end up underneath the transport either — both
+     of which happened while it was absolutely positioned against `--band`. */
+  align-self: flex-start;
+  margin-bottom: 2px;
   display: flex;
+  align-items: center;
   gap: 6px;
   opacity: 0.28;
   transition: opacity 0.2s ease;
-}
-
-.view-toggles.bare {
-  /* The bare band still carries the date and the slider, so leave room. */
-  bottom: 96px;
 }
 
 .view-toggles:hover,

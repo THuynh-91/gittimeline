@@ -52,13 +52,18 @@ export function App() {
       {showPlayer && perf && !chromeHidden && <TopBar />}
       {showPlayer && perf && !chromeHidden && view.showRail && <CommitRail />}
       {showPlayer && perf && <FollowButton />}
-      {showPlayer && perf && !chromeHidden && <ViewToggles />}
       {showPlayer && perf && !chromeHidden && (
         // Hiding the controls takes away the player furniture, not your place
         // in the history. The date says where you are and the travel slider is
         // how you move once the performance is over — losing either of those
         // is not a cleaner view, it is a lost one.
+        //
+        // The toggles live inside the band rather than floating above it. As a
+        // free-standing element they were positioned against the band's height
+        // and collided with the date the moment the band's contents grew past
+        // it, which is exactly what adding the travel slider did.
         <div class={`band${view.showControls ? '' : ' bare'}`} role="region" aria-label="Date, timeline and transport">
+          <ViewToggles />
           <DateBar />
           <ExploreBar />
           {view.showControls && <Timeline />}

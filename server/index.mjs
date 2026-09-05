@@ -125,7 +125,7 @@ const server = createServer(async (req, res) => {
     const code = url.searchParams.get('code');
     if (!code) return send(res, 400, 'GitHub did not return an authorization code.');
 
-    let token = null;
+    let token;
     try {
       const r = await fetch('https://github.com/login/oauth/access_token', {
         method: 'POST',

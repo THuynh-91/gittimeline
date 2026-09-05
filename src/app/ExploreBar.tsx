@@ -39,7 +39,13 @@ export function ExploreBar() {
       const st = exploreState();
       if (!st) return;
       setPos((p) => (Math.abs(p - st.at) > 0.001 ? st.at : p));
-      if (store.travelAt.peek() !== st.at) store.travelAt.value = st.at;
+      // While the whole picture is on screen the camera is not *at* any
+      // particular month, and saying it is reads as a mistake: a repository
+      // that ran to 2026 announced "January 2019" at the final frame, because
+      // that is where the middle of the history happens to fall. Hand the date
+      // back to the playhead until the viewer zooms in on somewhere.
+      const at = st.visible >= 0.995 ? null : st.at;
+      if (store.travelAt.peek() !== at) store.travelAt.value = at;
       setVisible((v) => (Math.abs(v - st.visible) > 0.005 ? st.visible : v));
     };
     raf = requestAnimationFrame(tick);

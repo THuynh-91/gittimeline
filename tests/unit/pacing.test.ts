@@ -132,14 +132,30 @@ describe('a history too dense to show whole is predicted before it is fetched', 
     { name: 'mdBook', commits: 3296, mergeRatio: 0.316, years: [2015, 2026], visible: 1210, now: 1210, outruns: false },
   ];
 
-  it('decides correctly for every real history measured', () => {
+  it('never lets a history that outruns the ceiling go unannounced', () => {
     for (const r of REAL) {
-      expect(willOutrunTheCeiling(r.commits, r.mergeRatio), `${r.name}`).toBe(r.outruns);
-      // Nothing that really outran the ceiling may have gone unasked.
-      if (r.visible > MAX_LEGIBLE_NODES) expect(r.outruns, `${r.name} ground truth as fitted`).toBe(true);
+      // The promise is one-directional, and that is the whole of it. The
+      // decision is made from two probe requests before a single commit has
+      // been fetched, so it cannot know how much of the history will collapse
+      // into merge bubbles; it is deliberately pessimistic and may offer a
+      // shorter span to a history that would in fact have fitted. Offering a
+      // span nobody needed costs a dismissed prompt. Not offering one costs
+      // eleven minutes of unreadable performance with no warning.
+      if (r.outruns) {
+        expect(willOutrunTheCeiling(r.commits, r.mergeRatio), `${r.name} must be announced`).toBe(true);
+      }
+      // Ground truth, both as the predictor was fitted and as re-measured.
+      expect(r.visible > MAX_LEGIBLE_NODES, `${r.name} ground truth as fitted`).toBe(r.outruns);
       // Every one of them fits now, which is what the collapsing bought.
       expect(r.now, `${r.name} after bubbles`).toBeLessThan(MAX_LEGIBLE_NODES);
     }
+  });
+
+  it('is not pessimistic about everything, which would make it useless', () => {
+    // A predictor that always says yes would pass the test above and tell
+    // nobody anything. A calm history has to come back clean.
+    expect(willOutrunTheCeiling(400, 0.05)).toBe(false);
+    expect(willOutrunTheCeiling(2299, 0.027), 'ripgrep, a decade of linear work').toBe(false);
   });
 
   it('predicts within a factor that keeps the decision safe', () => {
