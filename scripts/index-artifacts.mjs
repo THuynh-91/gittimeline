@@ -94,9 +94,16 @@ const only = (flag('only', '') || '')
  * be uncompilable in a browser is a download. What is left is a choice about
  * which single frame should be the largest thing on the page, and 1.5 million
  * commits of Linux is not a question ripgrep's two thousand can win.
+ *
+ * ripgrep lost the featured slot in that change and fell out of the list
+ * entirely, which was not the same decision and was not meant. It is the
+ * fastest thing here by an order of magnitude — half a second from click to
+ * first frame — and a shelf whose cheapest entry is a two-and-a-half minute
+ * download has nothing on it for somebody who only wants to see what this is.
  */
 const SHIPPED = [
   { slug: 'torvalds/linux', title: 'Linux', blurb: 'The largest history there is, and the one worth watching whole.' },
+  { slug: 'BurntSushi/ripgrep', title: 'ripgrep', blurb: 'A search tool grown by one author, then a community.' },
   { slug: 'rust-lang/mdBook', title: 'mdBook', blurb: 'A steady, long-running tool with a small core team.' },
   { slug: 'facebook/react', title: 'React', blurb: 'A decade of a framework much of the web is built on.' },
   { slug: 'nodejs/node', title: 'Node.js', blurb: 'A runtime maintained in the open by a very large group.' },
@@ -264,23 +271,28 @@ for (const spec of SHIPPED) {
   // happens to be on disk. The plan builder runs alongside this one, so a file
   // can appear between the check and the click; and a plan that is present can
   // still be declined for being a version behind, or for describing a length
-  // this viewer did not ask for. A 200 for the `.gtperf.gz` is the app itself
-  // answering, which is the only answer worth printing.
+  // this viewer did not ask for.
   //
   // The bytes are counted at the same time and for a related reason: what a
   // click pulls down stopped being the size of the artifact. A shipped plan is
-  // its own download, larger than the dataset it was composed from, and under
-  // thirty megabytes the dataset is then fetched a second time to fill in the
-  // inspector. This is printed rather than indexed — `loadPrecompiledPlan` sets
-  // out why `index.json` deliberately knows nothing about plans — but a build
-  // that cannot say what a card costs has no business claiming it is cheap.
+  // its own download — for four of these it is *larger* than the dataset it
+  // was composed from — and under eight megabytes the dataset is then fetched
+  // a second time in the background to fill in the inspector.
   const planFile = file.replace(/\.gittimeline\.gz$/, '.gtperf.gz');
-  let precompiled = false;
+  let planServed = false;
+  let planRefused = false;
   let transferred = 0;
   page.on('response', (res) => {
     if (!res.url().includes('/catalog/') || res.status() !== 200) return;
-    if (res.url().endsWith(planFile)) precompiled = true;
+    if (res.url().endsWith(planFile)) planServed = true;
     transferred += Number(res.headers()['content-length'] ?? 0);
+  });
+  // `loadPrecompiledPlan` says this out loud exactly once, when a plan is
+  // present and this build cannot read it. That is the failure worth catching:
+  // a stale `.gtperf.gz` is served, downloaded in full, thrown away, and the
+  // visitor then pays the compile they were supposed to have been spared.
+  page.on('console', (msg) => {
+    if (msg.text().includes('Precompiled performance could not be used')) planRefused = true;
   });
 
   // This one entry, served as though it were the whole shelf. It is what makes

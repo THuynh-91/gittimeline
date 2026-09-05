@@ -651,16 +651,36 @@ a {
      bright enough to be read as page copy, so the sentence under the wordmark
      arrived with "fix/i18n-410" written through it.
 
-     What is left is two nested ellipses measured in pixels rather than
-     percentages, so the well is the size of the column of copy it exists for
-     at every window width instead of shrinking with the viewport. The inner
-     one carries the words; the outer one is only a haze, so the well has no
-     edge anywhere and never reads as a box cut into the picture. Everything
-     outside it is the performance at exactly the brightness the renderer drew
-     it — which is also where the white space is. */
+     What is left is a well measured in pixels rather than percentages, so it
+     matches the column of copy it exists for at every window width instead of
+     shrinking with the viewport.
+
+     The shape of the falloff is the whole of it. This was two nested ellipses,
+     the inner one holding 0.95 flat out to 44% of its radius before it began
+     to fade — and a plateau with a fade after it is a disc, because the eye
+     finds the edge where the change *starts*, not where it ends. It read as a
+     dark circle laid over the picture.
+
+     So there is no plateau: nine stops falling continuously from the centre,
+     spread across an ellipse twice as wide, with a broader haze under it. No
+     two adjacent stops differ by more than about 0.14, which is under what
+     shows as a band on a dark field. The copy sits in the same amount of dark
+     it did; the dark simply has nowhere it visibly begins. */
   background:
-    radial-gradient(ellipse 420px 235px at 50% 47%, rgba(7, 8, 12, 0.95) 0%, rgba(7, 8, 12, 0.92) 44%, rgba(7, 8, 12, 0.78) 66%, rgba(7, 8, 12, 0.4) 84%, rgba(7, 8, 12, 0) 100%),
-    radial-gradient(ellipse 760px 430px at 50% 47%, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0.22) 62%, rgba(7, 8, 12, 0) 100%),
+    radial-gradient(
+      ellipse 900px 520px at 50% 47%,
+      rgba(7, 8, 12, 0.9) 0%,
+      rgba(7, 8, 12, 0.86) 12%,
+      rgba(7, 8, 12, 0.79) 24%,
+      rgba(7, 8, 12, 0.68) 36%,
+      rgba(7, 8, 12, 0.55) 48%,
+      rgba(7, 8, 12, 0.4) 60%,
+      rgba(7, 8, 12, 0.26) 72%,
+      rgba(7, 8, 12, 0.14) 84%,
+      rgba(7, 8, 12, 0.05) 93%,
+      rgba(7, 8, 12, 0) 100%
+    ),
+    radial-gradient(ellipse 1500px 900px at 50% 47%, rgba(7, 8, 12, 0.34) 0%, rgba(7, 8, 12, 0.2) 40%, rgba(7, 8, 12, 0.08) 72%, rgba(7, 8, 12, 0) 100%),
     linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 18%, rgba(7, 8, 12, 0) 70%, rgba(7, 8, 12, 0.82) 100%);
 }
 
@@ -1699,8 +1719,19 @@ kbd {
      the height, so here it is a tall oval instead of a wide one. */
   .landing {
     background:
-      radial-gradient(ellipse 290px 255px at 50% 43%, rgba(7, 8, 12, 0.95) 0%, rgba(7, 8, 12, 0.92) 44%, rgba(7, 8, 12, 0.78) 72%, rgba(7, 8, 12, 0.35) 88%, rgba(7, 8, 12, 0) 100%),
-      radial-gradient(ellipse 460px 400px at 50% 43%, rgba(7, 8, 12, 0.44) 0%, rgba(7, 8, 12, 0.2) 62%, rgba(7, 8, 12, 0) 100%),
+      radial-gradient(
+        ellipse 620px 560px at 50% 43%,
+        rgba(7, 8, 12, 0.9) 0%,
+        rgba(7, 8, 12, 0.85) 14%,
+        rgba(7, 8, 12, 0.77) 28%,
+        rgba(7, 8, 12, 0.65) 42%,
+        rgba(7, 8, 12, 0.5) 56%,
+        rgba(7, 8, 12, 0.33) 70%,
+        rgba(7, 8, 12, 0.17) 84%,
+        rgba(7, 8, 12, 0.06) 93%,
+        rgba(7, 8, 12, 0) 100%
+      ),
+      radial-gradient(ellipse 1000px 850px at 50% 43%, rgba(7, 8, 12, 0.3) 0%, rgba(7, 8, 12, 0.16) 50%, rgba(7, 8, 12, 0) 100%),
       linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 14%, rgba(7, 8, 12, 0) 66%, rgba(7, 8, 12, 0.82) 100%);
   }
 

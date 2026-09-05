@@ -16,15 +16,24 @@ import { store } from './store';
 /**
  * Where the token exchange happens.
  *
- * `VITE_AUTH_BASE` overrides it — a fork with its own service, or a local one
- * during development. The default is the deployed instance, because leaving it
- * empty meant the sign-in button did not render at all: the page explained
- * what connecting GitHub would do and then offered no way to do it, which
- * reads as broken rather than as unconfigured.
+ * Empty until a deployment sets `VITE_AUTH_BASE`, and empty is the honest
+ * default. It briefly pointed at a Render service on the reasoning that a
+ * button which does nothing is worse than one that works — but that service
+ * took twelve seconds to wake from sleep and then answered 503, because no
+ * OAuth application had ever been registered against it. A button that sends
+ * somebody to a 503 after twelve seconds is worse than both.
+ *
+ * The replacement is `worker/` — a Cloudflare Worker of two kilobytes that
+ * does the one thing a browser cannot: exchange the authorization code for a
+ * token. GitHub's token endpoints send no CORS headers, on the request or the
+ * preflight, and GitHub offers no PKCE for public clients, so that single call
+ * has to happen somewhere other than the page. It does not need a server for
+ * it, which is what `task-additional.md` said and what Render was not.
+ *
+ * `worker/README.md` has the deployment steps. Until they are done the sign-in
+ * page says so plainly rather than offering a door with nothing behind it.
  */
-const DEFAULT_AUTH_BASE = 'https://gittimeline-auth.onrender.com';
-
-export const AUTH_BASE: string = (import.meta.env.VITE_AUTH_BASE ?? DEFAULT_AUTH_BASE).replace(/\/$/, '');
+export const AUTH_BASE: string = (import.meta.env.VITE_AUTH_BASE ?? '').replace(/\/$/, '');
 
 export function signInWithGitHub() {
   if (!AUTH_BASE) return;
