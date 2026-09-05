@@ -42,7 +42,28 @@ let run: Run | null = null;
 let runCounter = 0;
 let lastRepo: RepoRef | null = null;
 let lastInputForRetry: string | null = null;
-let returnToLanding = false;
+/**
+ * The page a performance was started from, so cancelling it can go back there.
+ *
+ * This was a boolean — `returnToLanding` — and cancel read it as
+ * `if (!store.perf.value || returnToLanding)`. Opening something from the
+ * selection page set neither: the flag was only assigned by `loadRepo`, and
+ * `store.perf` was already non-null because the landing page keeps a demo
+ * compiled behind the hero. So cancelling a large catalog entry left the mode
+ * on 'player' with the old performance still loaded, and the viewer was
+ * dropped into "an example history" they had never asked for instead of back
+ * on the shelf they were browsing.
+ *
+ * A route rather than a flag, captured at the moment the stage is taken.
+ */
+let startedFrom: 'landing' | 'catalog' | 'signin' = 'landing';
+
+/** Take the stage, remembering the page being left so cancel can return to it. */
+function enterPlayer() {
+  const from = store.mode.value;
+  if (from !== 'player') startedFrom = from;
+  store.mode.value = 'player';
+}
 let partialDataset: Dataset | null = null;
 let recompileTimer: number | null = null;
 let recorder: MediaRecorder | null = null;
@@ -392,9 +413,11 @@ export function cancel() {
     store.progress.value = null;
     store.compileStage.value = null;
     store.error.value = null;
-    if (!store.perf.value || returnToLanding) store.mode.value = 'landing';
+    // Nothing was loaded, or the viewer backed out of a load that replaced
+    // what was on stage: either way the page they came from is the only
+    // honest destination.
+    store.mode.value = startedFrom;
   });
-  returnToLanding = false;
   syncRendererSettings();
 }
 
@@ -698,7 +721,7 @@ export async function loadFixture(id: string, autoplay = true) {
   primeAudio();
   const r = newRun();
   lastRepo = null;
-  store.mode.value = 'player';
+  enterPlayer();
   await compileAndLoad(r, fx.build(), { autoplay, outcome: 'synthetic', isDemo: false });
 }
 
@@ -794,10 +817,9 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
   const repo = parsed.repo;
   lastRepo = repo;
   lastInputForRetry = input;
-  returnToLanding = store.mode.value === 'landing';
   primeAudio();
   batch(() => {
-    store.mode.value = 'player';
+    enterPlayer();
     store.phase.value = 'FETCHING_METADATA';
     store.error.value = null;
     store.banner.value = null;
@@ -868,7 +890,7 @@ async function runIngest(repo: RepoRef, opts: { autoplay: boolean; tip: string |
   const r = newRun();
   partialDataset = null;
   batch(() => {
-    store.mode.value = 'player';
+    enterPlayer();
     store.phase.value = 'FETCHING_TOPOLOGY';
     store.error.value = null;
     store.progress.value = { phase: 'metadata', message: 'Reading repository…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
@@ -960,7 +982,7 @@ export function retry() {
 export async function loadCatalogEntry(file: string, label: string, span: SpanChoice | null = null) {
   const r = newRun();
   batch(() => {
-    store.mode.value = 'player';
+    enterPlayer();
     store.error.value = null;
     store.banner.value = null;
     store.phase.value = 'FETCHING_TOPOLOGY';
@@ -1110,7 +1132,7 @@ async function hydrateInspectorDataset(r: Run, ref: PerfDatasetRef | null) {
 
 export async function loadArtifactFile(file: File) {
   const r = newRun();
-  store.mode.value = 'player';
+  enterPlayer();
   store.phase.value = 'BUILDING_DAG';
   store.error.value = null;
   try {
@@ -1167,7 +1189,7 @@ export function play() {
   // Leaving the landing page starts the performance, it does not join one
   // already in progress: the demo has been playing quietly behind the form.
   const fromLanding = store.mode.value === 'landing';
-  if (fromLanding) store.mode.value = 'player';
+  if (fromLanding) enterPlayer();
   // The end of a span is an end, so pressing play there starts it again rather
   // than resuming into the part the viewer did not ask for.
   const atEnd = player.t >= (spanWindow ? spanWindow.end : player.duration) - 1e-3;

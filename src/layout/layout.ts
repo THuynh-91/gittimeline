@@ -183,7 +183,15 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
     let minLane: number;
     if (baseLay && baseLay.side !== 0) {
       side = baseLay.side;
-      minLane = baseLay.lane + 1;
+      // A branch off a branch sits one lane further out — but only while there
+      // is a further lane to sit in. Unclamped, this is a running total: every
+      // level of nesting added one, so a project that branches off branches
+      // walked straight past MAX_LANES and kept going. CPython reached lane
+      // 2,304, which is 124,419 units from a spine the camera will never pull
+      // further than 750 from, and the threads simply left the screen
+      // vertically and never came back. Nesting saturates at the outermost
+      // lane instead.
+      minLane = Math.min(baseLay.lane + 1, MAX_LANES - 1);
     } else {
       const up = activeOnSide(-1, lay.xStart);
       const down = activeOnSide(1, lay.xStart);
@@ -196,7 +204,15 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
     if (lane >= MAX_LANES) {
       // Everything is busy: take a deterministic outer lane and accept that a
       // very dense era looks dense.
-      lane = minLane + (Math.floor(hash01(`${seed}:lane:${t.id}`) * (MAX_LANES - minLane)) % Math.max(1, MAX_LANES - minLane));
+      //
+      // `span` is computed once and used for both the scale and the modulus.
+      // Written as `... % Math.max(1, MAX_LANES - minLane)` it silently did
+      // nothing whenever minLane had already reached MAX_LANES: the modulus
+      // collapsed to 1, every integer is 0 mod 1, and the line evaluated to
+      // `lane = minLane`. The one case the clamp existed for was the one case
+      // it did not clamp.
+      const span = Math.max(1, MAX_LANES - minLane);
+      lane = minLane + (Math.floor(hash01(`${seed}:lane:${t.id}`) * span) % span);
     }
     lay.side = side;
     lay.lane = lane;

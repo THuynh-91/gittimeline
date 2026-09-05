@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import { compilePerformance } from '@/choreography/compile';
+import { LANE_GAP, MAX_LANES } from '@/layout/layout';
 import { buildGraph } from '@/dag/graph';
 import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
 
@@ -12,6 +13,22 @@ export function compile(ds: Dataset, seed = 'test', preset: PlaybackPreset = PRE
 /** Truth invariants every compiled performance must satisfy. */
 export function assertInvariants(ds: Dataset, p: CompiledPerformance) {
   const g = buildGraph(ds.commits);
+
+  // Nothing is drawn outside the band the camera can reach.
+  //
+  // A thread branching off another sat one lane further out, and that offset
+  // was a running total with no ceiling, so nesting walked straight past
+  // MAX_LANES: CPython reached lane 2,304 — 124,419 units from a spine the
+  // camera never pulls further than 750 from. Threads left the top and bottom
+  // of the screen and never came back, and no test noticed because every
+  // fixture is too shallow to nest that far.
+  const reach = MAX_LANES * LANE_GAP + LANE_GAP;
+  for (const n of p.nodes) expect(Math.abs(n.y), `node ${n.sha.slice(0, 7)} is ${Math.round(n.y)} from the spine`).toBeLessThanOrEqual(reach);
+  for (const e of p.edges) {
+    for (let i = 1; i < e.pts.length; i += 2) {
+      expect(Math.abs(e.pts[i]!), `edge ${e.idx} reaches ${Math.round(e.pts[i]!)} from the spine`).toBeLessThanOrEqual(reach);
+    }
+  }
   const nodeBySha = new Map(p.nodes.map((n) => [n.sha, n]));
   const known = new Set(ds.commits.map((c) => c.sha));
 
