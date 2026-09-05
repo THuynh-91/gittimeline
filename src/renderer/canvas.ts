@@ -153,11 +153,17 @@ export class StageRenderer {
     this.ctx = ctx;
     this.glow = document.createElement('canvas');
     this.glowCtx = this.glow.getContext('2d')!;
-    this.dust = new Float32Array(90 * 3);
+    // Three times as many, because a starfield is mostly faint. Ninety points
+    // at one uniform brightness read as dust on a lens; the depth comes from
+    // most of them being barely there and a handful being sharp.
+    this.dust = new Float32Array(280 * 3);
     for (let i = 0; i < 90; i++) {
       this.dust[i * 3] = hash01(`dust:x:${i}`);
       this.dust[i * 3 + 1] = hash01(`dust:y:${i}`);
-      this.dust[i * 3 + 2] = 0.4 + hash01(`dust:s:${i}`) * 1.4;
+      // Cubed, so the distribution is heavily weighted to the small end: a few
+      // hundred pinpricks, a dozen with any real size to them.
+      const r = hash01(`dust:s:${i}`);
+      this.dust[i * 3 + 2] = 0.35 + r * r * r * 2.2;
     }
     this.resize();
   }
@@ -675,20 +681,38 @@ export class StageRenderer {
     const h = this.height;
     ctx.fillStyle = PALETTE.ink;
     ctx.fillRect(0, 0, w, h);
-    const g = ctx.createRadialGradient(w * 0.5, h * 0.42, 0, w * 0.5, h * 0.42, Math.max(w, h) * 0.75);
-    g.addColorStop(0, 'rgba(26,30,44,0.55)');
+    // Deep field rather than lit room.
+    //
+    // The centre glow was `rgba(26,30,44,0.55)` — a soft grey wash over the
+    // middle of the screen, which lifted the whole stage toward slate and left
+    // the history sitting *on* a surface rather than *in* a space. It is now
+    // barely a fifth of that and tinted cold, so the corners stay genuinely
+    // black and the only bright things on screen are the commits.
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.44, 0, w * 0.5, h * 0.44, Math.max(w, h) * 0.85);
+    g.addColorStop(0, 'rgba(16,20,34,0.30)');
+    g.addColorStop(0.55, 'rgba(10,12,20,0.14)');
     g.addColorStop(1, 'rgba(7,8,12,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     if (this.settings.quality === 'minimal') return;
-    // Dust: deterministic slow drift, faster during quiet gaps is handled by the caption; keep it calm.
+
+    // Stars. Deterministic, and slow enough that the drift is felt rather than
+    // watched — anything faster reads as snow falling past the history.
     const drift = this.settings.reducedMotion ? 0 : t * 0.004;
-    ctx.fillStyle = 'rgba(200,210,230,0.16)';
-    for (let i = 0; i < 90; i++) {
-      const x = ((this.dust[i * 3]! + drift * this.dust[i * 3 + 2]!) % 1) * w;
-      const y = ((this.dust[i * 3 + 1]! + drift * 0.35) % 1) * h;
+    for (let i = 0; i < 280; i++) {
       const s = this.dust[i * 3 + 2]!;
+      const x = ((this.dust[i * 3]! + drift * s * 0.4) % 1) * w;
+      const y = ((this.dust[i * 3 + 1]! + drift * 0.22) % 1) * h;
+      // Brightness follows size, so the small ones recede instead of forming an
+      // even veil at one distance. The largest get a faint halo; a handful of
+      // near stars is what makes the rest read as far away.
+      const near = (s - 0.35) / 2.2;
+      ctx.fillStyle = `rgba(206,216,236,${(0.06 + near * 0.5).toFixed(3)})`;
       ctx.fillRect(x, y, s, s);
+      if (s > 1.9) {
+        ctx.fillStyle = 'rgba(206,216,236,0.05)';
+        ctx.fillRect(x - s * 0.6, y - s * 0.6, s * 2.2, s * 2.2);
+      }
     }
   }
 

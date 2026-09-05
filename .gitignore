@@ -16,3 +16,12 @@ public/catalog/
 
 # Soundtrack: fetched at build time, like the catalog.
 public/music/
+
+# Scratch harnesses and measurement output. These are written next to the
+# source so `playwright` resolves from node_modules, and they are not the
+# project — a build directory and a dozen one-off probes once went into a
+# commit because nothing here said not to.
+.measure-dist/
+gt-*.mjs
+gt-*.log
+gt-measure-results.json

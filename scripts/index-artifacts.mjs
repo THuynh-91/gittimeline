@@ -181,6 +181,21 @@ const entries = [];
 const skipped = [];
 
 /**
+ * Record a dropped entry, and say so at the moment it is dropped.
+ *
+ * Collecting these for the summary at the end was its own small lie: a run that
+ * has been going for half an hour prints nothing at all when the entry it is on
+ * fails, so an entry that died in ninety seconds and one that is still working
+ * look identical from outside. Rust dropped out of a full pass exactly this
+ * way, and the reason was not readable until the run that followed it had also
+ * finished.
+ */
+const drop = (reason) => {
+  skipped.push(reason);
+  console.warn(`  DROPPED ${reason}`);
+};
+
+/**
  * Write `index.json` after every entry rather than once at the end.
  *
  * A full pass is the better part of an hour and spends almost all of it on the
@@ -201,7 +216,7 @@ for (const spec of SHIPPED) {
   if (only.length && !only.some((o) => spec.slug.toLowerCase().includes(o))) {
     const kept = previous.get(spec.slug);
     if (kept) entries.push(kept);
-    else skipped.push(`${spec.slug}: not selected by --only and not in the previous index`);
+    else drop(`${spec.slug}: not selected by --only and not in the previous index`);
     continue;
   }
 
@@ -225,7 +240,7 @@ for (const spec of SHIPPED) {
     }
   }
   if (typeof meta?.commits !== 'number') {
-    skipped.push(`${spec.slug}: no .meta.json — rebuild it with build-clone-dataset.mjs`);
+    drop(`${spec.slug}: no .meta.json — rebuild it with build-clone-dataset.mjs`);
     continue;
   }
 
@@ -236,6 +251,10 @@ for (const spec of SHIPPED) {
   const bytes = statSync(path).size;
   const page = await browser.newPage({ viewport: { width: 1200, height: 420 } });
   page.setDefaultTimeout(30000);
+  // Taken before the page is even loaded, so that a drop can report how long it
+  // really lasted. An entry that dies in ninety seconds and one that exhausts a
+  // thirty-minute budget are different failures and want different fixes.
+  const startedAt = Date.now();
   let openSeconds;
   let durationSeconds;
   let poster = null;
@@ -247,10 +266,21 @@ for (const spec of SHIPPED) {
   // still be declined for being a version behind, or for describing a length
   // this viewer did not ask for. A 200 for the `.gtperf.gz` is the app itself
   // answering, which is the only answer worth printing.
+  //
+  // The bytes are counted at the same time and for a related reason: what a
+  // click pulls down stopped being the size of the artifact. A shipped plan is
+  // its own download, larger than the dataset it was composed from, and under
+  // thirty megabytes the dataset is then fetched a second time to fill in the
+  // inspector. This is printed rather than indexed — `loadPrecompiledPlan` sets
+  // out why `index.json` deliberately knows nothing about plans — but a build
+  // that cannot say what a card costs has no business claiming it is cheap.
   const planFile = file.replace(/\.gittimeline\.gz$/, '.gtperf.gz');
   let precompiled = false;
+  let transferred = 0;
   page.on('response', (res) => {
-    if (res.status() === 200 && res.url().endsWith(planFile)) precompiled = true;
+    if (!res.url().includes('/catalog/') || res.status() !== 200) return;
+    if (res.url().endsWith(planFile)) precompiled = true;
+    transferred += Number(res.headers()['content-length'] ?? 0);
   });
 
   // This one entry, served as though it were the whole shelf. It is what makes
@@ -286,7 +316,7 @@ for (const spec of SHIPPED) {
     // entry that failed — which is exactly the coupling this script exists to
     // avoid everywhere else.
     await page.close().catch(() => {});
-    skipped.push(`${spec.slug}: DID NOT OPEN in ${openBudget / 1000}s — ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+    drop(`${spec.slug}: DID NOT OPEN after ${((Date.now() - startedAt) / 1000).toFixed(0)}s of a ${openBudget / 1000}s budget — ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
     continue;
   }
 
@@ -381,6 +411,7 @@ for (const spec of SHIPPED) {
   console.log(
     `${spec.slug.padEnd(26)} ${String(entry.commits).padStart(9)} commits  ${(entry.bytes / 1e6).toFixed(1).padStart(6)} MB  ` +
       `${`${openSeconds}s`.padStart(7)} to open ${precompiled ? 'from a shipped plan' : 'by compiling here '}  ` +
+      `${`${(transferred / 1e6).toFixed(1)} MB`.padStart(8)} pulled down  ` +
       `${`${durationSeconds ?? '?'}s`.padStart(6)} long  ${poster ? `${(posterBytes / 1024).toFixed(0)} KB jpg` : 'no thumbnail'}`,
   );
 }

@@ -26,11 +26,11 @@ export function ViewToggles() {
         type="button"
         class={`vbtn${s.showRail ? ' on' : ''}`}
         aria-pressed={s.showRail}
-        title="Show or hide the running list of commit messages at the top"
+        title="Show or hide the running list of commits at the top"
         onClick={() => updateSettings({ showRail: !s.showRail })}
         data-testid="toggle-rail"
       >
-        Messages
+        Commits
       </button>
       <button
         type="button"

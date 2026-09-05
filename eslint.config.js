@@ -6,8 +6,11 @@ export default tseslint.config(
   // Build output, never source. `dist-*` covers the scratch output directories
   // a build gets pointed at when `dist/` is busy being served; without it a
   // single `vite build --outDir dist-agent` puts several hundred errors from
-  // minified bundles into `eslint .`.
-  { ignores: ['dist/**', 'dist-*/**', 'node_modules/**', 'playwright-report/**', 'test-results/**'] },
+  // minified bundles into `eslint .`. `.*-dist` covers the same thing named
+  // with a leading dot to keep it out of the way — `.measure-dist`, which
+  // `scripts/_measure-server.mjs` serves the production bundle from, slipped
+  // past `dist-*` for exactly that reason and put 735 of them back.
+  { ignores: ['dist/**', 'dist-*/**', '.*-dist/**', 'node_modules/**', 'playwright-report/**', 'test-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
