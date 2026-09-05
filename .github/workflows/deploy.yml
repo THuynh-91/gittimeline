@@ -141,7 +141,7 @@ jobs:
             echo "::warning::dist is $((BYTES / 1000000)) MB, against a documented Pages ceiling of 1 GB. Chromium and Linux are 610 MB of that between their histories and their plans. The next entry added to the shelf will not fit."
           fi
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
