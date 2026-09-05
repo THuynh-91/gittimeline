@@ -26,6 +26,14 @@
  * number the card leads with, because "how long am I committing to watch" is
  * the question a visitor is actually asking of a shelf of these.
  *
+ * `plan` and `planBytes` come from the same open, and they are the answer to a
+ * question the index used to get wrong by a wide margin: what does clicking
+ * this cost? It used to answer with the size of the dataset, which stopped
+ * being true the day plans began shipping precompiled. A plan is its own
+ * download and is not reliably smaller than what it was composed from —
+ * Kubernetes' 18 MB of history is a 30 MB plan — so a card quoting the dataset
+ * was under-quoting most of the shelf and over-quoting the rest.
+ *
  * Opening is a gate. An artifact that cannot be opened inside `--open-seconds`
  * is not a history anybody can watch, and listing it produces the worst thing
  * this catalog can do: a card that looks like all the others and then holds the
@@ -70,7 +78,12 @@ const outDir = resolve(flag('out', 'public/catalog'));
 // so a visitor decides that for themselves before clicking. What has to be kept
 // out is the entry that opens for nobody.
 const openBudget = Number(flag('open-seconds', '1800')) * 1000;
-const shotBudget = Number(flag('shot-seconds', '120')) * 1000;
+// Not a budget for the picture — reading it is instant — but for the two
+// frames drawn before it. Software rasterising is roughly linear in nodes, so
+// Rust's quarter of a million cost about thirty-two seconds and Linux's third
+// of a million rather more; four minutes leaves room for a machine slower than
+// this one without letting a genuinely wedged tab sit here all afternoon.
+const shotBudget = Number(flag('shot-seconds', '240')) * 1000;
 const only = (flag('only', '') || '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -264,6 +277,7 @@ for (const spec of SHIPPED) {
   const startedAt = Date.now();
   let openSeconds;
   let durationSeconds;
+  let said = null;
   let poster = null;
   let posterBytes = 0;
 
@@ -322,6 +336,17 @@ for (const spec of SHIPPED) {
     // A performance of no length is not a performance, and writing a zero here
     // would put "0 s" on the card as though it were a measurement.
     durationSeconds = typeof secs === 'number' && secs > 0 ? Math.round(secs) : null;
+    // Which way in the app took, in the app's own words. A 200 for the
+    // `.gtperf.gz` proves it was fetched and nothing more — the plan is
+    // declined loudly when its engine or schema is a version behind, and
+    // silently when the viewer has asked for a different length — so a build
+    // that concluded "shipped plan" from the download alone would go on saying
+    // so long after every visitor had started paying for the compile again.
+    // These two sentences are the only place the app distinguishes them.
+    said = await page
+      .waitForFunction(() => document.querySelector('.toast')?.textContent || null, undefined, { timeout: 5000, polling: 100 })
+      .then((h) => h.jsonValue())
+      .catch(() => null);
   } catch (err) {
     // `page.close()` on a tab whose renderer has already died rejects, and an
     // unhandled rejection here would end the whole run on behalf of the one
@@ -346,44 +371,57 @@ for (const spec of SHIPPED) {
       g.seek(widest ? widest.start + (widest.end - widest.start) * 0.6 : g.duration * 0.72);
       g.play();
     });
-    await page.waitForTimeout(1100);
-    // Then stopped, so the frame that gets read is a settled one.
-    await page.evaluate(() => window.__gittimeline.pause());
-    await page.waitForTimeout(350);
 
-    // Read out of the canvas rather than photographed through the browser.
-    //
-    // `page.screenshot` and `locator.screenshot` both go through the
-    // compositor, and the stage is a `desynchronized: true` 2D canvas — a
-    // low-latency surface the compositor does not own in the ordinary way.
-    // Below about forty thousand nodes that capture returns fine; above it, it
-    // does not return at all. Kubernetes, at 125,973 nodes, sat through a
-    // two-minute screenshot timeout and produced nothing, which is where six of
-    // these thumbnails were being lost.
-    //
-    // `toDataURL` reads the backing store straight out of the canvas with no
-    // compositor involved, so it costs the same on Chromium's 1.8 million
-    // commits as it does on ripgrep's two thousand.
-    //
+    /**
+     * Let two frames land at the new time, and then stop the render loop dead.
+     *
+     * Stopping it is what makes the capture possible at all, and the reason is
+     * not the canvas — it is the main thread. `frame()` re-arms itself and
+     * calls `renderer.render` every tick whether the performance is playing or
+     * paused, and a headless browser has no GPU, so one frame of Rust's
+     * 248,298 nodes takes about sixteen seconds of software rasterising. The
+     * loop therefore never yields for long enough to be asked anything:
+     * `page.evaluate(() => 1 + 1)` times out here. `pause()` does not help,
+     * because pausing stops time advancing and not the drawing.
+     *
+     * This was read for a long time as a *capture* problem — the stage is a
+     * `desynchronized: true` canvas, `page.screenshot` goes through the
+     * compositor, and the story that the compositor never returns above about
+     * forty thousand nodes fitted the evidence. It was the wrong culprit, and
+     * expensively so: `toDataURL` below returns in under a tenth of a second
+     * on the largest entry here, once there is a thread free to run it.
+     *
+     * Cancelling by id, up from one, is blunt and is meant to be: the loop's
+     * handle lives in a module-scoped variable this page cannot reach, and the
+     * tab is closed a moment later.
+     */
+    const settled = page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const next = requestAnimationFrame(() => {});
+              for (let i = 1; i <= next; i++) cancelAnimationFrame(i);
+              resolve(null);
+            }),
+          );
+        }),
+    );
+    // The loser of a race still rejects, and an unhandled rejection here would
+    // take down a run that has already survived the entry it happened on.
+    settled.catch(() => {});
+    await Promise.race([
+      settled,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`stage did not settle within ${shotBudget / 1000}s`)), shotBudget).unref()),
+    ]);
+
     // JPEG, not PNG: the stage is a dark photographic gradient with fine
     // strokes over it, which PNG stores at ~220 KB a frame and JPEG at a
     // fraction of that with no visible difference at card size.
-    const dataUrl = await Promise.race([
-      page.evaluate(
-        () =>
-          new Promise((resolve) => {
-            // Two frames, so what is read is a frame the renderer has finished
-            // rather than one it is halfway through.
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => {
-                const c = document.querySelector('[data-testid="stage-canvas"]');
-                resolve(c instanceof HTMLCanvasElement ? c.toDataURL('image/jpeg', 0.82) : null);
-              }),
-            );
-          }),
-      ),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`canvas read exceeded ${shotBudget / 1000}s`)), shotBudget)),
-    ]);
+    const dataUrl = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="stage-canvas"]');
+      return c instanceof HTMLCanvasElement ? c.toDataURL('image/jpeg', 0.82) : null;
+    });
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/jpeg;base64,')) throw new Error('stage canvas produced no image');
     const shot = Buffer.from(dataUrl.slice('data:image/jpeg;base64,'.length), 'base64');
     // A canvas that has been cleared but not drawn still encodes, to about a
@@ -399,12 +437,36 @@ for (const spec of SHIPPED) {
     await page.close().catch(() => {});
   }
 
+  // All three have to agree before this build will call an entry precompiled:
+  // the file was served, the app did not complain about it, and the app said
+  // it had one. Anything less and the card would promise a download that the
+  // click does not actually take.
+  const precompiled = planServed && !planRefused && /composed ahead of time/.test(said ?? '');
+  if (planServed && !precompiled) {
+    console.warn(`  ${spec.slug}: a plan was downloaded and NOT used — every visitor pays the compile. Rebuild it with build-performance.mjs.`);
+  }
+
   const entry = {
     slug: spec.slug,
     title: spec.title,
     blurb: spec.blurb,
     scope: null,
     file,
+    /**
+     * The precompiled plan this click actually arrived through, and what it
+     * weighs. Recorded so the card can say what opening it costs: the download
+     * stopped being the dataset the day plans shipped, and for five of these
+     * the plan is the larger of the two. Null where the entry still compiles
+     * in the tab, which is the case the card has to warn about.
+     *
+     * Written for *description* only. `loadPrecompiledPlan` derives the
+     * filename from the dataset rather than reading it from here, and must go
+     * on doing so — that is what keeps indexing and precompiling from having
+     * to happen in a particular order. An index written before a plan exists
+     * is then stale about what a click costs, never about whether it works.
+     */
+    plan: precompiled ? planFile : null,
+    planBytes: precompiled ? statSync(join(outDir, planFile)).size : null,
     poster,
     posterBytes,
     logo,
@@ -422,7 +484,7 @@ for (const spec of SHIPPED) {
   writeIndex();
   console.log(
     `${spec.slug.padEnd(26)} ${String(entry.commits).padStart(9)} commits  ${(entry.bytes / 1e6).toFixed(1).padStart(6)} MB  ` +
-      `${`${openSeconds}s`.padStart(7)} to open ${precompiled ? 'from a shipped plan' : 'by compiling here '}  ` +
+      `${`${openSeconds}s`.padStart(7)} to open ${precompiled ? `from a ${(entry.planBytes / 1e6).toFixed(1)} MB plan` : 'by compiling here '}  ` +
       `${`${(transferred / 1e6).toFixed(1)} MB`.padStart(8)} pulled down  ` +
       `${`${durationSeconds ?? '?'}s`.padStart(6)} long  ${poster ? `${(posterBytes / 1024).toFixed(0)} KB jpg` : 'no thumbnail'}`,
   );

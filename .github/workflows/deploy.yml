@@ -9,6 +9,8 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # To read the catalog artifact that "Build pre-fetched histories" left behind.
+  actions: read
 
 concurrency:
   group: pages
@@ -18,7 +20,9 @@ jobs:
   build:
     name: Verify and build the static site
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Two full builds, a browser smoke test, and several hundred megabytes of
+    # catalog to pull down and copy into dist.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,33 +51,79 @@ jobs:
         continue-on-error: true
         run: node scripts/build-music.mjs public/music
 
-      - name: Build the pre-fetched catalog
+      - name: Collect the pre-fetched catalog
         # GitHub gives an anonymous visitor about 60 requests an hour, and a
-        # large repository needs hundreds. Shipping a token would not fix that:
-        # the browser has to send it as an Authorization header, so anyone can
-        # read it out of the network tab. Instead the fetching happens here,
-        # once, with the token Actions issues to this job and which never
-        # leaves it, and the *result* is published as a static file.
+        # large repository needs thousands. The answer is not to ship a token —
+        # a browser has to send it as an Authorization header, so anyone can
+        # read it straight out of the network tab — but to do the work once,
+        # ahead of time, and publish the *result* as a static file.
         #
-        # Best effort on purpose. A rate limit or a renamed repository must not
-        # fail a deploy: the shelf simply does not appear in that build.
+        # That work happens in `datasets.yml`, not here. It clones each showcase
+        # repository with `--filter=tree:0` and compiles its performance, which
+        # takes hours and needs a runner per repository; a deploy cannot wait for
+        # that and must not repeat it. So this reaches for what the most recent
+        # successful run of that workflow left behind and publishes it.
+        #
+        # Best effort on purpose. A repository with no catalog built yet, or an
+        # artifact that has aged out, must not fail a deploy: the shelf simply
+        # does not appear in that build, and `tests/e2e/catalog.spec.ts` skips
+        # itself rather than failing when there is no shelf to click.
         continue-on-error: true
-        run: |
-          npx vite preview --port 4173 &
-          for i in $(seq 1 60); do curl -sf http://localhost:4173/ >/dev/null && break; sleep 1; done
-          node scripts/build-catalog.mjs public/catalog
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow datasets.yml \
+                  --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -z "$RUN" ]; then
+            echo "::warning::No successful run of datasets.yml yet — this build ships without a catalog."
+            exit 0
+          fi
+          echo "taking the catalog from datasets.yml run $RUN"
+          mkdir -p public/catalog
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name catalog --dir public/catalog
+          ls -la public/catalog/
+          du -sh public/catalog
 
       - name: Build with the Pages base path
         # Project sites live under /<repository>/; a user or organization site
         # (<owner>.github.io) lives at /.
+        env:
+          # Through the environment rather than interpolated into the script:
+          # a `${{ }}` inside a shell block is textual substitution, which is
+          # the shape every Actions script-injection advisory has.
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
-          if [[ "${{ github.event.repository.name }}" == *.github.io ]]; then export VITE_BASE="/"; else export VITE_BASE="/${{ github.event.repository.name }}/"; fi
+          if [[ "$REPO_NAME" == *.github.io ]]; then VITE_BASE="/"; else VITE_BASE="/$REPO_NAME/"; fi
+          export VITE_BASE
           echo "Building with VITE_BASE=$VITE_BASE"
           npm run build
       - name: SPA-friendly 404 (static hosting has no server routing)
         run: cp dist/index.html dist/404.html
+
+      - name: Check the site against the Pages size limit
+        # A published GitHub Pages site may be no larger than 1 GB, and the
+        # catalog is nearly all of what this one weighs: measured on a full
+        # shelf, the twelve histories and their twelve compiled plans come to
+        # 982 MB and dist to 1,014 MB. That is close enough to the ceiling that
+        # the next repository added to the shelf goes over it.
+        #
+        # Past the limit the deploy fails at the very end with nothing useful to
+        # say, so the number and the breakdown behind it are printed here. The
+        # hard stop is set at a gibibyte because GitHub documents the limit as
+        # "1 GB" without saying which one, and refusing to deploy a site that
+        # would in fact have published is the worse of the two mistakes.
+        run: |
+          BYTES=$(du -sb dist | cut -f1)
+          echo "dist is $((BYTES / 1000000)) MB"
+          du -h dist/catalog/* 2>/dev/null | sort -h | tail -25 || true
+          if [ "$BYTES" -gt 1073741824 ]; then
+            echo "::error::dist is $((BYTES / 1000000)) MB and GitHub Pages will not publish a site over 1 GB. Drop the largest entries from SHIPPED in scripts/index-artifacts.mjs and from the matrix in datasets.yml, or host the catalog somewhere with room for it."
+            exit 1
+          fi
+          if [ "$BYTES" -gt 900000000 ]; then
+            echo "::warning::dist is $((BYTES / 1000000)) MB, against a documented Pages ceiling of 1 GB. Chromium and Linux are 610 MB of that between their histories and their plans. The next entry added to the shelf will not fit."
+          fi
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

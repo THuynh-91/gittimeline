@@ -666,22 +666,18 @@ a {
      two adjacent stops differ by more than about 0.14, which is under what
      shows as a band on a dark field. The copy sits in the same amount of dark
      it did; the dark simply has nowhere it visibly begins. */
-  background:
-    radial-gradient(
-      ellipse 900px 520px at 50% 47%,
-      rgba(7, 8, 12, 0.9) 0%,
-      rgba(7, 8, 12, 0.86) 12%,
-      rgba(7, 8, 12, 0.79) 24%,
-      rgba(7, 8, 12, 0.68) 36%,
-      rgba(7, 8, 12, 0.55) 48%,
-      rgba(7, 8, 12, 0.4) 60%,
-      rgba(7, 8, 12, 0.26) 72%,
-      rgba(7, 8, 12, 0.14) 84%,
-      rgba(7, 8, 12, 0.05) 93%,
-      rgba(7, 8, 12, 0) 100%
-    ),
-    radial-gradient(ellipse 1500px 900px at 50% 47%, rgba(7, 8, 12, 0.34) 0%, rgba(7, 8, 12, 0.2) 40%, rgba(7, 8, 12, 0.08) 72%, rgba(7, 8, 12, 0) 100%),
-    linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 18%, rgba(7, 8, 12, 0) 70%, rgba(7, 8, 12, 0.82) 100%);
+  /* No well at all.
+     There were three attempts at a pool of dark under the copy — two nested
+     ellipses, then nine smooth stops, then a wider spread — and every one of
+     them was visible as a circle in the middle of the page. That is what a
+     radial gradient is: however soft the falloff, it has a centre, and a
+     centre on an otherwise even field is a shape.
+     The copy does not need it. Each line already carries its own ink halo, a
+     shadow travelling with the glyphs that darkens a thread only where a word
+     actually sits — which is both more effective and invisible, because it has
+     no boundary of its own. What is left here is a scrim at the top and bottom
+     edges, and a linear gradient has no middle to look at. */
+  background: linear-gradient(to bottom, rgba(7, 8, 12, 0.62) 0%, rgba(7, 8, 12, 0.12) 16%, rgba(7, 8, 12, 0) 34%, rgba(7, 8, 12, 0) 62%, rgba(7, 8, 12, 0.28) 82%, rgba(7, 8, 12, 0.86) 100%);
 }
 
 .landing-hero {
@@ -1719,19 +1715,6 @@ kbd {
      the height, so here it is a tall oval instead of a wide one. */
   .landing {
     background:
-      radial-gradient(
-        ellipse 620px 560px at 50% 43%,
-        rgba(7, 8, 12, 0.9) 0%,
-        rgba(7, 8, 12, 0.85) 14%,
-        rgba(7, 8, 12, 0.77) 28%,
-        rgba(7, 8, 12, 0.65) 42%,
-        rgba(7, 8, 12, 0.5) 56%,
-        rgba(7, 8, 12, 0.33) 70%,
-        rgba(7, 8, 12, 0.17) 84%,
-        rgba(7, 8, 12, 0.06) 93%,
-        rgba(7, 8, 12, 0) 100%
-      ),
-      radial-gradient(ellipse 1000px 850px at 50% 43%, rgba(7, 8, 12, 0.3) 0%, rgba(7, 8, 12, 0.16) 50%, rgba(7, 8, 12, 0) 100%),
       linear-gradient(to bottom, rgba(7, 8, 12, 0.5) 0%, rgba(7, 8, 12, 0) 14%, rgba(7, 8, 12, 0) 66%, rgba(7, 8, 12, 0.82) 100%);
   }
 
@@ -2225,57 +2208,89 @@ kbd {
    otherwise dark frame — left four hundred pixels of empty card above the
    title. Side by side, the empty part of the picture is the space the words
    sit in. */
+/* The featured card is a poster, not a bigger version of the others.
+   
+   It was a picture on the left and a caption on the right, and that gives the
+   frame half the widest card on the page — which is generous to the wrong
+   thing. A frame of a very large history is a wide, mostly horizontal smear:
+   honest, and not what makes anybody want to watch it. What does is the
+   number. 1,481,850 is a striking fact; a picture of 1,481,850 things is a
+   texture.
+   
+   So the picture becomes a full-bleed backdrop and the words sit on top of it.
+   It also solves the case that prompted this — an entry with no thumbnail is
+   now a dark poster rather than a large panel of hatching demanding to know
+   why it is empty. */
 .catalog-card.featured {
-  flex-direction: row;
-  align-items: stretch;
+  flex-direction: column;
+  position: relative;
+  min-height: 300px;
+  justify-content: flex-end;
+  overflow: hidden;
 }
 
 .catalog-card.featured .catalog-shot {
-  flex: 0 0 58%;
+  position: absolute;
+  inset: 0;
+  flex: none;
   aspect-ratio: auto;
-  min-height: 232px;
+  min-height: 0;
+  z-index: 0;
 }
 
-/* Fading down the picture would cut it in half here; the caption is to the
-   right, so the picture fades that way instead. */
+.catalog-card.featured .catalog-shot img {
+  opacity: 0.5;
+}
+
+.catalog-card.featured:hover .catalog-shot img {
+  opacity: 0.62;
+}
+
+/* The words need a floor to stand on, not a veil over the whole frame: the
+   picture stays legible at the top and hands over to ink where the type is. */
 .catalog-card.featured .catalog-shot::after {
-  inset: 0 0 0 auto;
-  width: 34%;
+  inset: 0;
+  width: auto;
   height: auto;
-  background: linear-gradient(to right, rgba(11, 13, 19, 0), rgba(11, 13, 19, 0.9) 78%);
+  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.9) 26%, rgba(9, 11, 17, 0.55) 52%, rgba(9, 11, 17, 0.2) 76%, rgba(9, 11, 17, 0.06) 100%);
 }
 
 .catalog-card.featured .catalog-body {
-  flex: 1;
-  align-content: center;
-  padding: 22px 26px;
-  margin-top: 0;
-  margin-left: -12%;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  align-content: end;
+  padding: 26px 30px 24px;
+  margin: 0;
 }
 
 .catalog-card.featured .catalog-title {
-  font-size: 22px;
+  font-size: 30px;
   font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .catalog-card.featured .catalog-slug {
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .catalog-card.featured .catalog-blurb {
-  font-size: 14px;
-  max-width: 56ch;
+  font-size: 14.5px;
+  max-width: 52ch;
 }
 
-/* The featured card has the room, and the length of the thing it is offering is
-   the largest claim on the page after the frame itself. */
+/* The scale is the poster. On the featured card the commit count is the
+   largest thing after the title, because it is the reason this entry is the
+   one being featured. */
 .catalog-card.featured .catalog-figures {
-  margin-top: 16px;
-  gap: 6px 30px;
+  margin-top: 18px;
+  gap: 6px 34px;
+  align-items: baseline;
 }
 
 .catalog-card.featured .catalog-figure b {
-  font-size: 25px;
+  font-size: 34px;
+  letter-spacing: -0.02em;
 }
 
 .catalog-card.featured .catalog-figure span {
@@ -3214,4 +3229,32 @@ kbd {
 .landing-mark .mark-git,
 .landing-mark .mark-time {
   letter-spacing: inherit;
+}
+
+/* The wordmark is a button on pages that are not the landing page, so it needs
+   a button's defaults stripped rather than a link's added. */
+.landing-mark.as-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.landing-mark.as-link:hover .mark-git,
+.landing-mark.as-link:focus-visible .mark-git {
+  color: #fbf7ee;
+}
+
+/* On a scrolling page the bar sits above the content rather than over the
+   stage, so the page needs room for it where the landing page did not. */
+.page .landing-bar {
+  position: sticky;
+  top: 0;
+  background: linear-gradient(to bottom, rgba(7, 8, 12, 0.96) 60%, rgba(7, 8, 12, 0));
+  backdrop-filter: blur(2px);
+}
+
+.page .page-inner {
+  padding-top: 18px;
 }

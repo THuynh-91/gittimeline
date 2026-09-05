@@ -799,7 +799,7 @@ export async function loadCatalogEntry(file: string, label: string) {
   try {
     const ready = await loadPrecompiledPlan(r, file);
     if (run?.id !== r.id) return;
-    if (ready) {
+    if (ready?.matches) {
       lastRepo = null;
       loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false });
       toast(`${label} — fetched and composed ahead of time`);
@@ -807,7 +807,23 @@ export async function loadCatalogEntry(file: string, label: string) {
       return;
     }
     const res = await fetch(`${import.meta.env.BASE_URL}catalog/${file}`, { signal: r.abort.signal });
-    if (!res.ok) throw new Error(`catalog entry unavailable (${res.status})`);
+    if (!res.ok) {
+      // The dataset is gone and the plan is the wrong one. Play it anyway and
+      // say so: the histories large enough to have had their dataset pruned
+      // are exactly the ones somebody most wants to see, and refusing them
+      // over a length preference helps nobody.
+      if (ready) {
+        lastRepo = null;
+        loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false });
+        store.banner.value = {
+          kind: 'partial',
+          message: `${label} ships at one length, so this is not the length you chose. Everything on stage is exact.`,
+        };
+        void hydrateInspectorDataset(r, ready.dataset);
+        return;
+      }
+      throw new Error(`catalog entry unavailable (${res.status})`);
+    }
     const { dataset } = await parseArtifact(await res.blob());
     if (run?.id !== r.id) return;
     lastRepo = null;
@@ -844,7 +860,7 @@ export async function loadCatalogEntry(file: string, label: string) {
  * either order and be wrong in one of them. A file that is either there or not
  * there cannot get out of step with itself.
  */
-async function loadPrecompiledPlan(r: Run, file: string): Promise<{ perf: CompiledPerformance; dataset: PerfDatasetRef | null } | null> {
+async function loadPrecompiledPlan(r: Run, file: string): Promise<{ perf: CompiledPerformance; dataset: PerfDatasetRef | null; matches: boolean } | null> {
   if (typeof DecompressionStream === 'undefined') return null;
   let res: Response;
   try {
@@ -862,8 +878,16 @@ async function loadPrecompiledPlan(r: Run, file: string): Promise<{ perf: Compil
     // length, pinned a duration, or whose system asks for reduced motion is
     // asking for a different one, and playing this one and calling it theirs
     // would be a quiet lie about what they are watching.
-    if (!performanceMatchesRequest(perf, store.settings.value.seed, presetFromSettings())) return null;
-    return { perf, dataset: ref };
+    //
+    // So the mismatch is reported rather than swallowed, and the caller
+    // decides: compile the requested plan from the dataset if there is one, or
+    // — when the dataset was pruned because nothing was ever going to fetch it
+    // — offer this plan and say plainly that it is not the length asked for.
+    // Refusing outright would be the third option and the worst of them: a
+    // catalog entry that opens for most people and 404s for anyone with
+    // reduced motion turned on.
+    const matches = performanceMatchesRequest(perf, store.settings.value.seed, presetFromSettings());
+    return { perf, dataset: ref, matches };
   } catch (err) {
     if (r.abort.signal.aborted) return null;
     console.warn('Precompiled performance could not be used; compiling from the dataset instead.', err);

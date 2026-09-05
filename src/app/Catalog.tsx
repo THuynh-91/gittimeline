@@ -54,6 +54,28 @@ export interface CatalogEntry {
    * else, which is what it did before logos existed.
    */
   logo: string | null;
+  /**
+   * The precompiled plan the click arrives through, and what it weighs.
+   *
+   * Null means this entry is still composed in the tab, which is the case the
+   * card has to warn about — everything else here opens in about the time the
+   * download takes. Recorded by the build from the open it timed anyway, and
+   * only after the app said it had used one: a plan that ships and is then
+   * declined for being a version behind is not a plan the card may quote.
+   *
+   * Nothing loads from this. `loadPrecompiledPlan` works the filename out from
+   * the dataset, so what is here describes the click rather than performing it.
+   */
+  plan: string | null;
+  planBytes: number | null;
+  /**
+   * The dataset — the history itself, before anything was composed from it.
+   *
+   * This is no longer what a click costs, and has not been since plans began
+   * shipping; `planBytes` is. It stays because it is the one size that is a
+   * fact about the repository rather than about a particular build's pacing,
+   * and the shelf orders and compares by it.
+   */
   bytes: number;
   /** Null where the build wrote no sidecar; the card then says nothing rather than guessing. */
   commits: number | null;
@@ -131,6 +153,12 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
   const e = entry;
   // Null unless it is slow enough to be worth naming, which is also the narrowing the JSX below needs.
   const slowFor = e.openSeconds != null && e.openSeconds >= SLOW_SECONDS ? e.openSeconds : null;
+  // What the click actually pulls down. Where a plan ships, the dataset is not
+  // fetched at all before the first frame — the plan replaces it — and the two
+  // are not close enough to stand in for one another: Kubernetes' history is
+  // 18 MB and its plan is 30, Linux's is 199 MB and its plan is 132. Quoting
+  // the dataset was under-promising half this shelf and over-promising the rest.
+  const cost = e.planBytes ?? e.bytes;
   // A count the build never established is left out rather than printed as a
   // zero or a dash. Reading `null.toLocaleString()` here is what emptied this
   // whole page once: one entry from an older build with no sidecar threw
@@ -188,7 +216,7 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
             duration — how long the thing runs — and two bare numbers of minutes
             on one card that mean opposite things is worse than either alone. */}
         <span class={`catalog-cost${slowFor != null ? ' slow' : ''}`}>
-          {size(e.bytes)}
+          {size(cost)}
           {slowFor != null && ` · ~${waitShort(slowFor)} wait`}
         </span>
         {/* The affordance is on the picture, where the eye already is. */}
@@ -231,10 +259,24 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
             ))}
           </span>
         )}
+        {/* Two different waits wearing the same number of seconds. Without a
+            plan the tab is composing the history and the warning it used to
+            print is exact. With one, nothing is being composed at all — the
+            plan arrives finished and the wait is unpacking it, which is a
+            sentence about size rather than about merge density, and telling
+            somebody their tab is busy compiling when it is not is the kind of
+            small lie that makes the honest numbers beside it harder to trust. */}
         {slowFor != null && (
           <span class="catalog-warn">
-            Composed in this tab, not downloaded ready-made — about {wait(slowFor)} to the first frame. Progress is shown throughout, and it can be
-            cancelled.
+            {e.plan ? (
+              <>
+                Shipped ready-made rather than composed here — but {size(cost)} of plan still takes about {wait(slowFor)} to unpack into a first frame
+                once it has arrived.
+              </>
+            ) : (
+              <>Composed in this tab, not downloaded ready-made — about {wait(slowFor)} to the first frame.</>
+            )}{' '}
+            Progress is shown throughout, and it can be cancelled.
           </span>
         )}
       </span>
@@ -267,6 +309,8 @@ function toEntry(raw: unknown): CatalogEntry | null {
     file: r.file,
     poster: typeof r.poster === 'string' ? r.poster : null,
     logo: typeof r.logo === 'string' ? r.logo : null,
+    plan: typeof r.plan === 'string' ? r.plan : null,
+    planBytes: num(r.planBytes),
     bytes: num(r.bytes) ?? 0,
     commits: num(r.commits),
     merges: num(r.merges),

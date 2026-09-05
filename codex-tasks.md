@@ -23,7 +23,66 @@ backend, deployed to GitHub Pages.
 
 ---
 
-## 1. GitHub Action that builds the preloaded catalog
+## ~~1. GitHub Action that builds the preloaded catalog~~ — DONE
+
+`.github/workflows/datasets.yml` was rewritten and `deploy.yml` was changed to
+publish what it produces. The draft was never run and had six things wrong with
+it, each of which would have cost a run:
+
+- **The cached clone was never brought up to date.** `build-clone-dataset.mjs`
+  reuses a bare repository it finds and does not fetch into it, and the draft
+  had no fetch step despite a comment promising one — so every week after the
+  first would have rebuilt the same history. Worse, the obvious fix does not
+  work: `git clone --bare` sets `remote.origin.url` but no
+  `remote.origin.fetch`, so a plain `git fetch origin` in one of these updates
+  nothing at all. Verified against React by rewinding `main` 200 commits: the
+  plain fetch left it rewound; `fetch --filter=tree:0 --prune
+  '+refs/heads/*:refs/heads/*'` brought it back in one second.
+- **The cache key contained `github.run_id`**, so it named a run that had not
+  happened and could only ever miss. It now restores by prefix and saves under
+  the tip it ended at, which also means a week with no new commits writes no
+  new entry — twelve clones are about 2.5 GB against a 10 GB per-repository cap.
+- **The plan step was missing entirely.** `build-performance.mjs` did not exist
+  when the draft was written, so the catalog would have shipped histories with
+  no `.gtperf.gz` beside them and every visitor would have paid the compile:
+  142 s for Kubernetes, 639 s for Rust, never for Linux.
+- **The artifacts did not carry the plans.** The upload listed only
+  `*.gittimeline.gz` and `*.meta.json`.
+- **`npx wait-on`** is not a dependency of this project and would have been
+  fetched from the registry on every run; it is a `curl` poll now.
+- **`git log`'s raw output lands in the work directory** — 4.7 MB for React,
+  about half a gigabyte for Chromium — and the draft cached it. It is deleted
+  before the save now.
+
+Also: the matrix was missing `BurntSushi/ripgrep` and `rust-lang/mdBook`, both
+of which are in `SHIPPED`, so both would have been reported "not built yet"
+every week; `--max-old-space-size` is now per repository (4096 to 12288, the
+last being about the ceiling on a 16 GB runner) rather than one number for all;
+and the per-repository timeouts run from 20 minutes to 350 rather than a flat
+90, which Chromium would not have finished inside.
+
+`deploy.yml` no longer drives `build-catalog.mjs` through a browser with an
+Actions token. It takes the catalog artifact from the last successful
+`datasets.yml` run instead, best effort, so a deploy without one is quiet rather
+than broken. The two used to write the same `index.json` from different shelves.
+
+**Proven locally, end to end, for `facebook/react`** with the same commands and
+flags the workflow uses: cloned in 8 s (19 MB bare), 21,678 commits read in
+1.4 s, normalized to 2.6 MB gzipped; the plan compiled in 1.3 s to 1.8 MB and
+round-tripped identically; `vite build`, `vite preview` and
+`index-artifacts.mjs` then wrote an `index.json` with a real thumbnail, and the
+browser reported the entry opening **from a shipped plan in 0.4 s**. All three
+workflows pass `actionlint` with `shellcheck` over every `run:` block.
+
+**One thing needs a decision, and it is not a CI problem.** A full shelf is
+982 MB and `dist` measures **1,014 MB**. GitHub Pages will not publish a site
+over 1 GB. Chromium and Linux are 610 MB of that between their histories and
+their plans. `deploy.yml` now measures `dist`, prints the breakdown, warns past
+900 MB and refuses past a gibibyte — but something has to come off the shelf, or
+the catalog has to live somewhere other than Pages.
+
+<details>
+<summary>Original task</summary>
 
 **Why it matters:** `task-additional.md` asks for famous repositories to be
 pre-mapped so visitors can watch them instantly without spending API requests.
@@ -63,6 +122,8 @@ transferred), reads the graph with `git log`, normalizes through the app's own
 **Note:** the builder currently clones with `--no-tags`, so `0 tags land on
 commits we have` for every repo and no releases appear in the performance.
 Fixing that is task 2.
+
+</details>
 
 ---
 

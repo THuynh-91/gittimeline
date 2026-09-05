@@ -8,12 +8,20 @@ name: Build pre-fetched histories
 # None of this uses the API. Each job clones with `--filter=tree:0`, which asks
 # for commit objects and nothing else — no source code is transferred, and the
 # git protocol has no REST rate limit to spend. Linux clones in about four
-# minutes and `git log` reads all 1,481,850 commits out of it in fourteen
+# minutes and `git log` reads all 1,481,850 commits out of it in twenty-one
 # seconds.
 #
 # One repository per job rather than one job for everything: the runner has
-# roughly 14 GB of disk and Chromium's clone alone is 900 MB, so sharing a
-# runner between the two largest would be tight for no benefit.
+# roughly 14 GB of disk after the free-space step and Chromium's clone alone is
+# 900 MB, so sharing a runner between the two largest would be tight for no
+# benefit. It also means a repository that fails costs its own history and
+# nobody else's.
+#
+# Each job produces two files. The dataset (`.gittimeline.gz`) is the history;
+# the plan (`.gtperf.gz`) is the choreography compiled from it. The second one
+# exists because compiling is the wait — Kubernetes takes 142 s in a browser,
+# Rust 639 s, and Linux and Chromium never finished at all — and the compile is
+# deterministic, so there is no reason for it to happen in a visitor's tab.
 
 on:
   schedule:
@@ -30,27 +38,85 @@ on:
 permissions:
   contents: read
 
+# Two of these overlapping would have them fighting over the same cache entries
+# and publishing two different catalogs. Queue rather than cancel: a run that is
+# four hours into Chromium should be allowed to finish.
+concurrency:
+  group: datasets
+  cancel-in-progress: false
+
 jobs:
-  build:
+  plan:
+    # The matrix is chosen here rather than written inline so that `only` skips
+    # the other eleven jobs outright instead of starting each of them and having
+    # every step decline to run. `matrix` is not available in a job-level `if`,
+    # so a conditional matrix is the only way to express that.
+    name: Choose the repositories
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          # Empty on a schedule: the `inputs` context has no members unless the
+          # run was dispatched.
+          ONLY: ${{ inputs.only }}
+        run: |
+          # This list is the shelf. It has to agree with SHIPPED in
+          # scripts/index-artifacts.mjs — anything here that is missing there is
+          # built and then never listed, and anything there that is missing here
+          # is listed as "not built yet" every week.
+          #
+          # `heap` is `--max-old-space-size` in megabytes. A GitHub-hosted Linux
+          # runner has 16 GB of RAM, so 12288 is about the ceiling once V8's
+          # off-heap buffers and the OS are paid for; the smaller repositories
+          # are given less so that an accidental runaway fails fast rather than
+          # swapping the runner to death.
+          #
+          # `timeout` is in minutes and is deliberately generous. A job that
+          # overruns costs only itself, whereas a job capped too low throws away
+          # a four-minute clone and an eleven-minute compile at the last moment.
+          cat > repos.json <<'JSON'
+          [
+            { "repo": "BurntSushi/ripgrep",     "stem": "BurntSushi-ripgrep",     "heap":  4096, "timeout":  20 },
+            { "repo": "rust-lang/mdBook",       "stem": "rust-lang-mdBook",       "heap":  4096, "timeout":  20 },
+            { "repo": "facebook/react",         "stem": "facebook-react",         "heap":  4096, "timeout":  30 },
+            { "repo": "nodejs/node",            "stem": "nodejs-node",            "heap":  4096, "timeout":  45 },
+            { "repo": "python/cpython",         "stem": "python-cpython",         "heap":  6144, "timeout":  60 },
+            { "repo": "kubernetes/kubernetes",  "stem": "kubernetes-kubernetes",  "heap":  8192, "timeout":  90 },
+            { "repo": "microsoft/vscode",       "stem": "microsoft-vscode",       "heap":  8192, "timeout":  90 },
+            { "repo": "tensorflow/tensorflow",  "stem": "tensorflow-tensorflow",  "heap":  8192, "timeout":  90 },
+            { "repo": "rust-lang/rust",         "stem": "rust-lang-rust",         "heap":  8192, "timeout": 150 },
+            { "repo": "llvm/llvm-project",      "stem": "llvm-llvm-project",      "heap": 12288, "timeout": 240 },
+            { "repo": "torvalds/linux",         "stem": "torvalds-linux",         "heap": 12288, "timeout": 300 },
+            { "repo": "chromium/chromium",      "stem": "chromium-chromium",      "heap": 12288, "timeout": 350 }
+          ]
+          JSON
+          if [ -n "$ONLY" ]; then
+            jq --arg only "$ONLY" '[.[] | select(.repo == $only)]' repos.json > picked.json
+            if [ "$(jq 'length' picked.json)" = '0' ]; then
+              echo "::error::'$ONLY' is not one of the showcase repositories. Pick one of:"
+              jq -r '.[] | "  " + .repo' repos.json
+              exit 1
+            fi
+          else
+            cp repos.json picked.json
+          fi
+          echo "matrix=$(jq -c '{ include: . }' picked.json)" >> "$GITHUB_OUTPUT"
+          jq -r '.[] | "  \(.repo) — \(.heap) MB heap, \(.timeout) min"' picked.json
+
+  build:
+    name: ${{ matrix.repo }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       # Keep going: one repository failing to clone should cost that history,
-      # not the other nine.
+      # not the other eleven.
       fail-fast: false
-      max-parallel: 3
-      matrix:
-        repo:
-          - facebook/react
-          - nodejs/node
-          - python/cpython
-          - kubernetes/kubernetes
-          - microsoft/vscode
-          - tensorflow/tensorflow
-          - rust-lang/rust
-          - llvm/llvm-project
-          - torvalds/linux
-          - chromium/chromium
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,59 +128,166 @@ jobs:
       - run: npm ci
 
       - name: Free disk space
-        # The default runner image carries several gigabytes of Android SDK and
-        # .NET that nothing here uses, and Chromium's clone needs the room.
+        # The default runner image carries several gigabytes of Android SDK,
+        # .NET and Swift that nothing here uses, and Chromium's clone needs the
+        # room. The hosted tool cache is deliberately left alone: `setup-node`
+        # above put the Node this job runs on in it.
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
           df -h /
 
       - name: Restore the bare clone
         id: clone-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .clones
-          # Keyed by day so a hit is reused within a week and a fresh clone is
-          # taken eventually; the fetch below brings it up to date either way.
-          key: clone-${{ matrix.repo }}-${{ github.run_id }}
+          # Restored by prefix, saved (below) under the tip it ended up at. The
+          # exact key here will essentially never hit, and that is the point: a
+          # run whose fetch moves the tip writes a new entry, and a run that
+          # finds nothing new writes nothing at all. A key containing
+          # `github.run_id` would have been unique to a run that had not
+          # happened yet, so it could only ever miss.
+          key: clone-v1-${{ matrix.stem }}-
           restore-keys: |
-            clone-${{ matrix.repo }}-
+            clone-v1-${{ matrix.stem }}-
+
+      - name: Bring the cached clone up to date
+        # `build-clone-dataset.mjs` reuses an existing bare repository and does
+        # not fetch into it — deliberately, because it is also run by hand
+        # against a clone somebody already has. So a cached clone that nothing
+        # updated would replay the same history every week forever.
+        #
+        # The refspec is not optional. `git clone --bare` sets `remote.origin.url`
+        # but no `remote.origin.fetch`, so a plain `git fetch origin` in one of
+        # these updates nothing: verified locally against React, where the tip
+        # stayed where it was until the refspec was spelled out.
+        #
+        # `--filter=tree:0` has to be repeated too. Without it git tries to
+        # repack against objects a partial clone does not have and dies with
+        # "BUG: should_include_obj should only be called on existing objects".
+        run: |
+          BARE=".clones/${{ matrix.stem }}.git"
+          if [ ! -d "$BARE" ]; then
+            echo "no cached clone; the builder will make one"
+            exit 0
+          fi
+          if ! git --git-dir "$BARE" rev-parse --verify --quiet HEAD >/dev/null; then
+            echo "the cached clone has no usable HEAD; discarding it"
+            rm -rf "$BARE"
+            exit 0
+          fi
+          echo "cached tip: $(git --git-dir "$BARE" rev-parse --short HEAD)"
+          if ! git --git-dir "$BARE" fetch --filter=tree:0 --no-tags --prune \
+                 --no-write-fetch-head origin '+refs/heads/*:refs/heads/*'; then
+            echo "fetch failed; discarding the cache and cloning fresh"
+            rm -rf "$BARE"
+            exit 0
+          fi
+          echo "fetched tip: $(git --git-dir "$BARE" rev-parse --short HEAD)"
 
       - name: Build the history
-        if: ${{ github.event.inputs.only == '' || github.event.inputs.only == matrix.repo }}
         run: |
-          node --max-old-space-size=6144 scripts/build-clone-dataset.mjs "${{ matrix.repo }}" \
+          node --max-old-space-size=${{ matrix.heap }} scripts/build-clone-dataset.mjs \
+            "${{ matrix.repo }}" \
             --out public/catalog \
             --work .clones
+
+      - name: Compile the performance
+        # The plan is built here, beside the dataset it was composed from, so
+        # that the two always ship as a pair. A `.gtperf.gz` records the engine
+        # version it was compiled by and is refused on load if that has moved,
+        # which means the catalog quietly falls back to compiling in the browser
+        # until this has run again — so it runs every time the dataset does.
+        #
+        # Allowed to fail without taking the dataset with it. Compiling is the
+        # part most likely to exhaust the heap, and a history that ships without
+        # a plan is not broken, only slow: the browser compiles it instead, and
+        # if it cannot manage that inside `--open-seconds` the indexer drops the
+        # entry from the shelf and says so. Failing the whole job here would
+        # throw away a four-minute clone as well.
+        continue-on-error: true
+        run: |
+          node --max-old-space-size=${{ matrix.heap }} scripts/build-performance.mjs \
+            "${{ matrix.repo }}" \
+            --catalog public/catalog
 
       - name: Report
         if: always()
         run: |
           ls -la public/catalog/ || true
-          du -sh .clones || true
+          du -sh .clones/* 2>/dev/null || true
+          df -h /
+
+      - name: Drop the intermediate log before caching
+        if: always()
+        # `build-clone-dataset.mjs` writes `git log`'s raw output next to the
+        # bare repository in the work directory — 4.7 MB for React and roughly
+        # half a gigabyte for Chromium. It is regenerated in seconds and would
+        # otherwise be carried in the cache for a week.
+        run: rm -f .clones/*.raw
+
+      - name: Remember the tip we ended up at
+        id: tip
+        if: always()
+        run: |
+          BARE=".clones/${{ matrix.stem }}.git"
+          SHA=$(git --git-dir "$BARE" rev-parse HEAD 2>/dev/null || true)
+          if [ -n "$SHA" ]; then
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+            echo "will cache $BARE at $SHA"
+          else
+            echo "no usable clone to cache"
+          fi
+
+      - name: Save the bare clone
+        # Keyed by the tip rather than by the run, so the weekly run that finds
+        # nothing new re-uses last week's entry instead of writing a second copy
+        # of it. That matters: a repository's cache is capped at 10 GB and these
+        # twelve clones are already about 2.5 GB of it.
+        if: ${{ always() && steps.tip.outputs.sha != '' && steps.clone-cache.outputs.cache-matched-key != format('clone-v1-{0}-{1}', matrix.stem, steps.tip.outputs.sha) }}
+        uses: actions/cache/save@v4
+        with:
+          path: .clones
+          key: clone-v1-${{ matrix.stem }}-${{ steps.tip.outputs.sha }}
 
       - name: Upload the artifact
-        if: ${{ github.event.inputs.only == '' || github.event.inputs.only == matrix.repo }}
         uses: actions/upload-artifact@v4
         with:
-          # Named per repository so the collect job below can pull them all
-          # into one directory without them colliding.
-          name: history-${{ strategy.job-index }}
+          # Named per repository so the collect job below can pull them all into
+          # one directory without them colliding.
+          name: history-${{ matrix.stem }}
           path: |
             public/catalog/*.gittimeline.gz
+            public/catalog/*.gtperf.gz
             public/catalog/*.meta.json
+            public/catalog/*.perf.json
           retention-days: 7
           if-no-files-found: error
+          # Already gzipped. Asking the upload to deflate 233 MB of Chromium a
+          # second time costs minutes and saves nothing.
+          compression-level: 0
 
   collect:
+    name: Index and publish the catalog
     # The index is written once, from all the artifacts together, because it is
     # a description of the whole shelf. It also captures a card frame for each
     # history by opening it in a real browser — that can fail on the largest
-    # ones and is allowed to: the entry falls back to a drawn placeholder
-    # rather than dropping out of the catalog.
+    # ones and is allowed to: the entry falls back to a drawn placeholder rather
+    # than dropping out of the catalog.
     needs: build
-    if: always()
+    # `!cancelled()` rather than `always()`: a run somebody stopped should not
+    # go on to publish half a shelf. A repository that failed on its own simply
+    # has no artifact, and the indexer reports it as "not built yet".
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The long pole by a wide margin. Every entry is opened in a browser and
+    # photographed, and the two largest are a million nodes each. Twelve entries
+    # against the 900-second open gate below is 180 minutes in the worst case
+    # where every plan is missing and every history has to be compiled in the
+    # tab; this leaves room for that plus the build and the thumbnails.
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -124,6 +297,14 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
 
+      - name: Free disk space
+        # A full shelf is 982 MB of histories and plans, and `vite build` copies
+        # every byte of it into `dist/` a second time.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/share/swift || true
+          df -h /
+
       - uses: actions/download-artifact@v4
         with:
           pattern: history-*
@@ -132,14 +313,33 @@ jobs:
 
       - name: Serve the site and write the index
         run: |
+          ls -la public/catalog/
           npm run build
-          npx vite preview --port 4173 --strictPort &
-          npx wait-on http://localhost:4173 --timeout 60000 || sleep 10
-          node scripts/index-artifacts.mjs --base http://localhost:4173 --shot-seconds 200
+          npm run preview &
+          # A poll rather than a sleep, and rather than `npx wait-on`, which is
+          # not a dependency of this project and would be fetched from the
+          # registry on every run.
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:4173/ >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://localhost:4173/ >/dev/null || { echo "::error::the preview server never came up"; exit 1; }
+          # `--base` must be a production preview, not a dev server: the number
+          # this writes onto every card is a real measurement, and an unbundled
+          # build reports a wait no visitor will ever have.
+          node scripts/index-artifacts.mjs \
+            --base http://localhost:4173 \
+            --open-seconds 900 \
+            --shot-seconds 200
 
       - name: Upload the finished catalog
         uses: actions/upload-artifact@v4
         with:
+          # `deploy.yml` downloads this by name and publishes it with the site.
+          # Ninety days so that a deploy still finds a catalog during a month
+          # where the weekly build has been failing.
           name: catalog
           path: public/catalog
-          retention-days: 30
+          retention-days: 90
+          if-no-files-found: error
+          compression-level: 0

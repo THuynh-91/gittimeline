@@ -1,15 +1,10 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { store } from './store';
-import { loadDemo, loadRepo, play } from './controller';
+import { loadDemo, loadRepo } from './controller';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
+import { SiteBar } from './SiteBar';
 
-/**
- * Where the project lives. Neither is discoverable from the code, so both sit
- * here as named constants: when the repository gets its final home this is one
- * edit rather than a search through markup.
- */
-const PROJECT_URL = 'https://github.com/THuynh-91/gittimeline';
 const SPONSOR_URL = 'https://github.com/sponsors/THuynh-91';
 
 /**
@@ -122,7 +117,6 @@ export function Landing() {
   const err = store.inputError.value;
   const recent = store.recent.value;
   const typed = !!store.input.value.trim();
-  const tokenActive = !!store.token.value;
 
   // One list, never two. Repositories you have already watched are a better
   // suggestion than four picked by us, so when they exist they take the line
@@ -134,44 +128,7 @@ export function Landing() {
 
   return (
     <section class="landing" aria-labelledby="landing-title">
-      {/* A top bar, because a form floating in the middle of a dark field with
-          nothing else on the page does not read as a site — it reads as a
-          screensaver with an input on it. The wordmark anchors the top left,
-          and every route that is not "which repository?" lives on the right,
-          where navigation is looked for. Those routes used to be strung along
-          the bottom of the reading path, between the field and the end of the
-          page, competing with the one thing a visitor came to do. */}
-      <header class="landing-bar">
-        <span class="landing-mark">
-          <span class="landing-dot" aria-hidden="true" />
-          {/* Two words, and the name only makes sense as two: a *timeline* of
-              *Git*. Set as one run of letters it reads as a single coined word
-              and the idea in it is lost. Splitting the colour rather than
-              adding a space keeps the wordmark one object while letting each
-              half be read. */}
-          <span class="mark-git">Git</span>
-          <span class="mark-time">Timeline</span>
-        </span>
-        <nav class="landing-nav" aria-label="Site">
-          {/* Ordered by how many people want each one. Browsing something that
-              costs nothing comes first; the account action is last and on the
-              right, where a primary action is looked for. Support used to sit
-              at the end of this row and was the brightest thing in it, which
-              is the wrong first impression for a page that is free. */}
-          <button type="button" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-link">
-            Selection
-          </button>
-          <button type="button" onClick={() => { store.panel.value = 'help'; play(); }}>
-            How it works
-          </button>
-          <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer">
-            Source
-          </a>
-          <button type="button" class="nav-primary" onClick={() => (store.mode.value = 'signin')} data-testid="signin-link">
-            {tokenActive ? 'GitHub connected' : 'Connect GitHub'}
-          </button>
-        </nav>
-      </header>
+      <SiteBar page="landing" />
 
       <div class="landing-hero">
         <h1 id="landing-title" class="title">

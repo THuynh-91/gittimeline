@@ -1,3 +1,4 @@
+import { SiteBar } from './SiteBar';
 import { store } from './store';
 import { Catalog, useCatalogEntries } from './Catalog';
 import { showLanding } from './controller';
@@ -42,6 +43,7 @@ export function CatalogPage() {
   const missing = FAMOUS.filter((f) => !shelf?.some((e) => e.slug.toLowerCase() === f.slug.toLowerCase()));
   return (
     <div class="page" data-testid="catalog-page">
+      <SiteBar page="catalog" />
       <div class="page-inner">
         <button type="button" class="page-back" onClick={showLanding} data-testid="catalog-back">
           ← Back

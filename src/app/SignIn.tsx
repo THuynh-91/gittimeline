@@ -1,3 +1,4 @@
+import { SiteBar } from './SiteBar';
 import { store } from './store';
 import { AUTH_BASE, signInWithGitHub } from './auth';
 import { showLanding } from './controller';
@@ -31,6 +32,7 @@ export function SignIn() {
 
   return (
     <div class="page signin-page" data-testid="signin-page">
+      <SiteBar page="signin" />
       <div class="page-inner narrow">
         <button type="button" class="page-back" onClick={showLanding} data-testid="signin-back">
           ← Back
