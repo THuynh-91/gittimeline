@@ -616,7 +616,14 @@ export class StageRenderer {
     const mark = this.edgeGeneration;
     const candidates = this.edgeCandidates;
     candidates.length = 0;
+    // Edges too long to bucket usefully, filtered by the same bounds test the
+    // draw loop would apply a moment later. Taking them all was cheap to write
+    // and expensive to run: Linux has about 109,000 of them, so every frame
+    // built a 109,000-entry array and then *sorted* it, to draw thirteen
+    // edges. Rejecting them here changes nothing about what is drawn.
     for (const edge of this.longEdges) {
+      const b = edge * 4;
+      if (this.edgeBounds[b + 2]! < x0 || this.edgeBounds[b]! > x1) continue;
       this.edgeSeen[edge] = mark;
       candidates.push(edge);
     }
@@ -1493,12 +1500,31 @@ export class StageRenderer {
       for (const th of this.labelThreads) {
         const first = p.nodes[th.nodeIdxs[0]!];
         if (!first || first.impact > t) continue;
-        let latest = first;
-        for (const id of th.nodeIdxs) {
-          const nd = p.nodes[id]!;
-          if (nd.impact <= t) latest = nd;
-          else break;
+        // The last node of this thread that has landed, found rather than
+        // walked to.
+        //
+        // This was a scan from the start of the thread that stopped when it
+        // passed the playhead — so its length was however much of the thread
+        // had already happened, and it ran once per labelled thread per frame.
+        // The cost therefore grew with elapsed time and nothing else, which is
+        // exactly what "it gets laggy a couple of hours in" is: measured on
+        // Linux, the label pass went from 0.32 ms a frame at the start to
+        // 3.3 ms at one hour and 5.91 ms at two, by which point it was the
+        // most expensive thing the renderer did.
+        //
+        // `nodeIdxs` is in impact order — the old loop's `break` depended on
+        // that too — so the same answer is one binary search away.
+        let lo = 0;
+        let hi = th.nodeIdxs.length - 1;
+        let found = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (p.nodes[th.nodeIdxs[mid]!]!.impact <= t) {
+            found = mid;
+            lo = mid + 1;
+          } else hi = mid - 1;
         }
+        const latest = p.nodes[th.nodeIdxs[found]!]!;
         const mergedAt = th.mergeNodeIdx != null ? p.nodes[th.mergeNodeIdx]!.impact : Infinity;
         const merged = mergedAt <= t;
         const alpha = merged ? Math.max(0, 0.55 - (t - mergedAt) / 6) : th.ending === 'tip' ? 0.85 : 0.7;

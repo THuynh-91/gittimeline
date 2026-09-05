@@ -159,7 +159,11 @@ import type { Pt } from '@/layout/paths';
  * hostility.
  */
 
-export const PERF_SCHEMA_VERSION = 2;
+// 3: nodes carry their commit subject, so the ledger has words in it without
+// fetching the dataset back. A version 2 plan would read perfectly well and
+// show "(no message)" on every row, which is the failure this is fixing, so it
+// is refused rather than tolerated.
+export const PERF_SCHEMA_VERSION = 3;
 export const PERF_MAGIC = 'gittimeline-perf';
 /** Suffix the build writes and the loader looks for, next to the dataset. */
 export const PERF_EXTENSION = '.gtperf.gz';
@@ -167,11 +171,17 @@ export const PERF_EXTENSION = '.gtperf.gz';
 /**
  * How the dataset this plan came from can still be reached.
  *
- * The plan is enough to *watch* a history, but not to inspect one: commit
- * subjects, parent lists and GitHub links live in the dataset and nothing in a
- * compiled performance carries them. So the file records where its dataset is
- * and how big it is, and the loader decides — after the first frame is already
- * on screen — whether fetching it in the background is worth the bytes.
+ * The plan is enough to *watch* a history and to read the ledger beside it,
+ * but not to inspect one: parent lists and GitHub links live in the dataset
+ * and nothing in a compiled performance carries them. So the file records
+ * where its dataset is and how big it is, and the loader decides — after the
+ * first frame is already on screen — whether fetching it in the background is
+ * worth the bytes.
+ *
+ * Commit subjects used to be on that list and are not any more. They were the
+ * one omission that showed: the ledger is on screen for the whole performance,
+ * and every history too large to fetch its dataset back — which is every large
+ * one — ran for hours with "(no message)" on every row.
  */
 export interface PerfDatasetRef {
   file: string;

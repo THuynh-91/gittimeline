@@ -890,10 +890,11 @@ a {
   padding: 18px 24px 34px;
 }
 
-/* On a page that scrolls, the footer follows the content rather than the
-   viewport, so it needs room of its own under the last card. */
+/* The support pill is fixed in the bottom-right corner, so every scrolling
+   page owes its last row enough clearance to never end up underneath it. */
 .page .landing-foot {
   padding-top: 34px;
+  padding-bottom: 56px;
 }
 
 /* Says what the moving picture is. Without it the animation reads as
@@ -956,14 +957,16 @@ a {
 /* Asks once, from the corner. Nothing in GitTimeline is behind it, so it has
    no business competing with what someone came here to do. */
 .support-link {
-  /* In the flow, at the end of the page.
+  /* Pinned to the bottom-right corner, where it was asked for.
      
-     This was `position: fixed` in the bottom-right corner, which was tolerable
-     while it only existed on the landing page — one screen, nothing to cover.
-     On the selection page it became a pill floating permanently over the
-     gallery, sitting on top of whichever card happened to be under it. A quiet
-     ask at the bottom of the page cannot also be the one element that refuses
-     to scroll away. */
+     It floated over the gallery when it was last fixed, which is why it went
+     into the flow — but the answer to "it covers a card" is to give the page
+     room underneath it, not to hide the ask below the fold of a shelf nobody
+     scrolls to the end of. `.page-inner` carries the padding that keeps the
+     last row clear of it. */
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -85,7 +85,10 @@ function Inspector() {
           )}
         </dd>
         <dt>Subject</dt>
-        <dd>{commit?.messageSubject || '(no message)'}</dd>
+        {/* The node's own subject first: on a history whose dataset is too
+            large to fetch back, `commit` is null and this was the second empty
+            field in a panel opened to read one commit. */}
+        <dd>{commit?.messageSubject || nd.subject || '(no message)'}</dd>
         <dt>Author</dt>
         <dd>
           <button type="button" class="pill" onClick={() => focusContributor(store.contributorFocus.value === contributor?.id ? null : contributor?.id ?? null)} aria-pressed={store.contributorFocus.value === contributor?.id}>

@@ -297,6 +297,22 @@ export interface NodeGeom {
   refLabels: string[];
   aggregateIdx: number | null;
   provenance: Provenance;
+  /**
+   * The commit's subject line, carried on the node itself.
+   *
+   * It used to live only in the dataset, on the reasoning that a plan is for
+   * watching and a dataset is for inspecting. That reasoning had a hole in it:
+   * the commit ledger runs down the side of the performance the whole time it
+   * is playing, and it needs subjects — so for every history whose dataset is
+   * too large to fetch back, which is every large one and they are the ones
+   * worth watching, the ledger showed "(no message)" beside a short SHA for
+   * hours. The one part of the screen made of words had no words in it.
+   *
+   * The cost is small because it is per *node*, not per commit: Linux's
+   * 1,481,850 commits collapse to 332,279 nodes, so this is about 18 MB of
+   * text before compression on a plan that is already 141 MB.
+   */
+  subject: string;
 }
 
 export type EdgeKind = 'thread' | 'divergence' | 'merge' | 'secondary' | 'aggregate' | 'unknown';

@@ -344,6 +344,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
       refLabels: refsOf.get(cid) ?? [],
       aggregateIdx: aggByEntry.get(cid) ?? null,
       provenance: c.provenance,
+      subject: c.messageSubject,
     };
   });
   const commitOfNode = Int32Array.from(visible);

@@ -165,11 +165,26 @@ function advanceFeed(
 
 // Subject lookup is memoized per dataset: the rail re-renders many times a second.
 let subjectCache: { hash: string; map: Map<string, string> } | null = null;
+
+/**
+ * What this row says.
+ *
+ * The plan carries the subject on the node, which is the only reason the
+ * ledger has words in it on a large history: the dataset those subjects used
+ * to come from is too big to fetch back for anything above eight megabytes,
+ * and those are exactly the histories somebody sits and watches. Every row
+ * read "(no message)" for hours.
+ *
+ * The dataset is still consulted when it is there, because it is the more
+ * complete record and a plan built before the subject existed has none.
+ */
 function messageFor(perf: CompiledPerformance, nodeIdx: number): string {
+  const node = perf.nodes[nodeIdx]!;
+  if (node.subject) return node.subject;
   const ds = store.dataset.value;
   if (!ds) return '';
   if (!subjectCache || subjectCache.hash !== ds.contentHash) {
     subjectCache = { hash: ds.contentHash, map: new Map(ds.commits.map((c) => [c.sha, c.messageSubject])) };
   }
-  return subjectCache.map.get(perf.nodes[nodeIdx]!.sha) || '(no message)';
+  return subjectCache.map.get(node.sha) || '(no message)';
 }
