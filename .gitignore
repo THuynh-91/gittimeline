@@ -25,3 +25,5 @@ public/music/
 gt-*.mjs
 gt-*.log
 gt-measure-results.json
+gt-*.ts
+scripts/_measure-server.mjs

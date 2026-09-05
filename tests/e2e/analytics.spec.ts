@@ -59,8 +59,25 @@ test.describe('analytics privacy', () => {
     // are correct; only one of them is correct for the build in hand, and an
     // assertion that passes either way would not be an assertion.
     const configured = await page.evaluate(() => (window.dataLayer ?? []).some((e) => Array.isArray(e) && e[0] === 'config'));
-    if (configured) expect(bound.length, 'a configured build measures something').toBeGreaterThan(0);
-    else expect(bound, 'an unconfigured build measures nothing').toEqual([]);
+    if (!configured) {
+      expect(bound, 'an unconfigured build measures nothing').toEqual([]);
+      return;
+    }
+
+    // Configured, so the absence of the slug above has to be the redaction
+    // working rather than nothing having happened. The repository was measured;
+    // it was measured as a shape.
+    expect(bound.length, 'a configured build loads the tag').toBeGreaterThan(0);
+    const started = await page.evaluate(() =>
+      (window.dataLayer ?? [])
+        .filter((e): e is [string, string, Record<string, string>] => Array.isArray(e) && e[0] === 'event' && e[1] === 'performance_start')
+        .map((e) => e[2]),
+    );
+    expect(started.length).toBeGreaterThan(0);
+    for (const params of started) {
+      expect(params.repository).toBe('a public repository');
+      expect(params.commit_bucket).toBeTruthy();
+    }
   });
 
   test('with no measurement id the module is inert', async ({ page }) => {
