@@ -181,12 +181,20 @@ const SLOW_SECONDS = 15;
  * The fraction is what stops a very long plan offering those anyway — Linux
  * runs twelve hours, and three seconds of it is not a year.
  *
- * What puts near-empty years on the list is almost never the repository being
- * quiet. It is one commit with a broken timestamp: presentation time may only
- * move forward, so a single bad clock drags every descendant with it, and what
- * is left behind is a scatter of years holding two seconds each. Linux is the
- * extreme case and it is not subtle — 1,475,072 of its 1,481,850 timestamps are
- * corrected by more than a day, and its plan reports years of 2037 and 2085.
+ * What used to put near-empty years on the list was almost never the repository
+ * being quiet. It was one commit with a broken timestamp: presentation time may
+ * only move forward, so a single bad clock dragged every descendant with it and
+ * left behind a scatter of years holding two seconds each. Linux was the
+ * extreme case — five commits stamped 2030, 2037, 2077 and 2085 had pushed
+ * 1,475,072 of its 1,481,850 dates forward, and its plan spent nine of its
+ * twelve hours in years that have not happened.
+ *
+ * That is fixed where it belongs, in `correctTimestamps`: a stamp later than
+ * the moment the repository was read is not propagated. This floor is no longer
+ * load-bearing for Linux, whose years now run 2005 to 2026. It stays because a
+ * genuinely quiet year is still a real thing, and because a handful of imported
+ * commits dated 1996 or 2001 survive honestly at the other end of the history
+ * and are not worth offering as a span of their own.
  */
 const spanFloor = (duration: number) => Math.max(8, duration / 500);
 
@@ -254,13 +262,16 @@ function Pulse({ years }: { years: Array<[number, number]> }) {
  * The years of this entry worth offering as a span, most recent first.
  *
  * A year later than this one is not a year of anything, whatever the plan says.
- * That is the broken clock of `spanFloor` seen from the other end: presentation
- * time may only move forward, so one commit with a bad timestamp drags every
- * descendant past it, and Linux spends nine of its twelve hours in "2037" and
- * "2085". Offering those would put a repository's data-quality problem in front
- * of somebody as though it were a choice. Nothing is hidden by leaving them
- * out — the whole history plays every arrival, in order, whatever date each one
+ * Offering one would put a repository's data-quality problem in front of
+ * somebody as though it were a choice. Nothing is hidden by leaving it out —
+ * the whole history plays every arrival, in order, whatever date each one
  * claims, and it is the default.
+ *
+ * `correctTimestamps` now refuses to propagate a stamp from after the moment
+ * the repository was read, so no shipped plan reaches a future year any more.
+ * This is the second line rather than the first: a plan is written once and
+ * played by everyone, and an old artifact should not be able to put "2085" in
+ * a dropdown.
  */
 function offeredYears(e: CatalogEntry): Array<[number, number]> {
   const floor = spanFloor(e.durationSeconds ?? 0);
@@ -271,12 +282,14 @@ function offeredYears(e: CatalogEntry): Array<[number, number]> {
  * The years of this entry that are years, oldest first.
  *
  * A year later than this one is not a year of anything, whatever the plan says.
- * Presentation time may only move forward, so one commit with a broken clock
- * drags every descendant past it: Linux's plan spends nine of its twelve hours
- * in "2037" and "2085", which are 90% of its columns and two-thirds of its
- * offered spans if nothing filters them. Both the picture and the choice would
- * then be showing a repository's data-quality problem as though it were a fact
- * about the project.
+ * Both the picture and the choice would otherwise be showing a repository's
+ * data-quality problem as though it were a fact about the project — Linux's
+ * plan used to spend nine of its twelve hours in "2037" and "2085", which was
+ * 90% of its columns.
+ *
+ * The cause is fixed in `correctTimestamps` and no plan built since reaches a
+ * future year. This remains for the artifacts built before it, because a plan
+ * is written once and played by everyone.
  *
  * Nothing is hidden by leaving them out. The whole history plays every arrival,
  * in order, whatever date each one claims, and it is the default.
