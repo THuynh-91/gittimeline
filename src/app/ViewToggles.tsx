@@ -1,4 +1,5 @@
 import { store, updateSettings } from './store';
+import { Volume } from './Volume';
 
 /**
  * Taking things off the stage.
@@ -35,6 +36,7 @@ export function ViewToggles() {
       >
         Controls
       </button>
+      <Volume />
     </div>
   );
 }

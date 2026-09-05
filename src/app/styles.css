@@ -1960,3 +1960,62 @@ kbd {
   padding-bottom: 10px;
   background: linear-gradient(to top, rgba(7, 8, 12, 0.9) 45%, rgba(7, 8, 12, 0));
 }
+
+/* Music volume, beside the view toggles so it survives the controls going. */
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.vbtn.icon {
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.volume-range {
+  width: 76px;
+  height: 16px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.volume-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.volume-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.volume-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--accent);
+}
+
+.volume-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--accent);
+}
+
+.volume-range:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

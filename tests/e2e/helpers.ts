@@ -20,6 +20,8 @@ declare global {
       waveform: number[] | null;
       zoom(factor: number): void;
       loadFixture(id: string): void;
+      loadArtifact(url: string): Promise<void>;
+      setDuration(seconds: number): void;
       chooseScope(since: string | null, until: string | null, label: string): void;
       audioStarted: boolean;
       music: { title: string; artist: string; playing: boolean } | null;

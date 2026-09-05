@@ -212,38 +212,108 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
     }
   };
 
-  // Stage 1/2: default history, newest first, following pagination under budget.
+  // Stage 1/2: default history, newest first.
+  //
+  // The first page is fetched alone because it carries two things nothing else
+  // can give us: the tip sha, and the `last` link that says how many pages
+  // there are. Once that is known the remaining pages can be asked for by
+  // number and fetched together — history is walked page by page only because
+  // the *link* chain is sequential, not because the data is. On a large
+  // repository that is the difference between minutes and hours: Linux's first
+  // 59,000 commits took 597 sequential requests and twelve minutes, almost all
+  // of it waiting.
+  //
+  // Batches stay in page order and stop at the first one that would exceed a
+  // budget, so a truncated fetch is still a contiguous run from the newest
+  // commit backwards. Holes in the middle would become boundaries scattered
+  // through the history rather than one honest edge.
+  const CONCURRENCY = 6;
   const anchorSha = opts.pinnedTip ?? defaultBranch;
   const range = `${opts.since ? `&since=${encodeURIComponent(opts.since)}` : ''}${opts.until ? `&until=${encodeURIComponent(opts.until)}` : ''}`;
-  let url: string | null = `${repo.apiUrl}/commits?per_page=100${anchorSha ? `&sha=${encodeURIComponent(anchorSha)}` : ''}${range}`;
+  const base = `${repo.apiUrl}/commits?per_page=100${anchorSha ? `&sha=${encodeURIComponent(anchorSha)}` : ''}${range}`;
   let truncated = false;
   report('anchor', 'Establishing the anchor…', displayName);
   try {
-    while (url) {
+    const first = await client.get<ApiCommit[]>(base);
+    anyFromCache ||= first.fromCache;
+    stale ||= first.stale;
+    pages++;
+    if (!Array.isArray(first.data)) throw new GitHubError('malformed', 'Unexpected commit list from GitHub.');
+    addCommits(first.data);
+    if (first.link.lastPage) reportedTotal = first.link.lastPage * 100;
+    if (first.data[0] && !source.selectedTipSha) source.selectedTipSha = first.data[0].sha.toLowerCase();
+    report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
+
+    // How far can we go? Whichever of the three bounds bites first.
+    const lastPage = first.link.lastPage ?? (first.link.next ? Infinity : 1);
+    const wanted = Math.min(lastPage, maxPages);
+    if (lastPage > maxPages) {
+      truncated = true;
+      warnings.push(`Stopped after ${maxPages} pages to stay within GitHub’s request limit; earlier history is not loaded.`);
+    }
+
+    for (let next = 2; next <= wanted && !truncated; next += CONCURRENCY) {
       check();
-      if (pages >= maxPages) {
-        truncated = true;
-        warnings.push(`Stopped after ${pages} pages to stay within GitHub’s request limit; earlier history is not loaded.`);
-        break;
-      }
       if (!budgetLeft()) {
         truncated = true;
         warnings.push('Stopped before exhausting GitHub’s anonymous request limit; earlier history is not loaded.');
         break;
       }
-      const res: Awaited<ReturnType<typeof client.get<ApiCommit[]>>> = await client.get<ApiCommit[]>(url);
-      anyFromCache ||= res.fromCache;
-      stale ||= res.stale;
-      pages++;
-      if (!Array.isArray(res.data)) throw new GitHubError('malformed', 'Unexpected commit list from GitHub.');
-      addCommits(res.data);
-      if (pages === 1 && res.link.lastPage) reportedTotal = res.link.lastPage * 100;
-      if (pages === 1 && res.data[0] && !source.selectedTipSha) source.selectedTipSha = res.data[0].sha.toLowerCase();
+      const batch: number[] = [];
+      for (let n = next; n < next + CONCURRENCY && n <= wanted; n++) batch.push(n);
+      // Settled, not all: a rate limit part-way through a batch must not throw
+      // away the pages that already arrived. Take them in page order up to the
+      // first failure and stop there — keeping a page from beyond a gap would
+      // scatter boundaries through the history instead of leaving one edge.
+      const results = await Promise.allSettled(batch.map((n) => client.get<ApiCommit[]>(`${base}&page=${n}`)));
+      for (const settled of results) {
+        if (settled.status === 'rejected') {
+          const err = settled.reason;
+          if (err instanceof GitHubError && (err.kind === 'rate-limited' || err.kind === 'secondary-limit')) {
+            rateLimitedAt = err.rate;
+            truncated = true;
+            warnings.push('GitHub’s request limit was reached mid-way; the performance covers the commits loaded so far.');
+            break;
+          }
+          throw err;
+        }
+        const res = settled.value;
+        anyFromCache ||= res.fromCache;
+        stale ||= res.stale;
+        pages++;
+        if (!Array.isArray(res.data)) throw new GitHubError('malformed', 'Unexpected commit list from GitHub.');
+        addCommits(res.data);
+      }
+      if (truncated) break;
       report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
-      url = res.link.next;
       if (commits.size >= LIMITS.maxCommits) {
         truncated = true;
         break;
+      }
+    }
+    // `lastPage` is unknown when GitHub sends only a `next` link, which happens
+    // on ranges it will not count. Fall back to walking that chain.
+    if (!Number.isFinite(lastPage)) {
+      let url: string | null = first.link.next;
+      while (url && !truncated) {
+        check();
+        if (pages >= maxPages || !budgetLeft()) {
+          truncated = true;
+          warnings.push('Stopped before exhausting GitHub’s request limit; earlier history is not loaded.');
+          break;
+        }
+        const res: Awaited<ReturnType<typeof client.get<ApiCommit[]>>> = await client.get<ApiCommit[]>(url);
+        anyFromCache ||= res.fromCache;
+        stale ||= res.stale;
+        pages++;
+        if (!Array.isArray(res.data)) throw new GitHubError('malformed', 'Unexpected commit list from GitHub.');
+        addCommits(res.data);
+        report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
+        url = res.link.next;
+        if (commits.size >= LIMITS.maxCommits) {
+          truncated = true;
+          break;
+        }
       }
     }
   } catch (err) {

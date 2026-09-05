@@ -115,7 +115,7 @@ function syncRendererSettings() {
     selectedThread: store.selectedThread.value,
   };
   renderer.attenuation = store.mode.value === 'landing' ? 0.85 : 1;
-  audio.levels = { master: 0.7, effects: s.effectsLevel, muted: s.muted };
+  audio.levels = { master: s.effectsLevel, effects: s.effectsLevel, muted: s.muted };
   audio.dynamics = s.dynamics;
   audio.applyLevels();
 }
@@ -1209,6 +1209,17 @@ export function installDebugHook() {
     /** Answer the scope question with an arbitrary span, for the catalog build. */
     chooseScope(since: string | null, until: string | null, label: string) {
       chooseScope({ since, until, label });
+    },
+    /** Load a .gittimeline artifact straight from a URL, for experiments. */
+    async loadArtifact(url: string) {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      await loadArtifactFile(new File([blob], 'artifact.gittimeline.gz'));
+    },
+    /** Force a target duration and recompile, to explore density. */
+    setDuration(seconds: number) {
+      store.durationOverride.value = seconds > 0 ? seconds : null;
+      scheduleRecompile();
     },
     loadFixture(id: string) {
       void loadFixture(id);

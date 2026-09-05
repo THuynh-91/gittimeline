@@ -129,4 +129,28 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await page.getByTestId('toggle-controls').click();
     await expect(page.getByTestId('timeline')).toBeVisible();
   });
+
+  test('music volume is reachable, and survives the controls being hidden', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    await expect(page.getByTestId('volume')).toBeVisible();
+
+    const level = () => page.evaluate(() => JSON.parse(localStorage.getItem('gittimeline.settings.v1') ?? '{}'));
+    await page.getByTestId('volume-range').fill('30');
+    await expect.poll(async () => (await level()).effectsLevel).toBeCloseTo(0.3, 2);
+
+    // Dragging to zero mutes, and the mute button restores the level you were
+    // at rather than costing you the setting.
+    await page.getByTestId('volume-range').fill('0');
+    await expect.poll(async () => (await level()).muted).toBe(true);
+    await page.getByTestId('volume-mute').click();
+    await expect.poll(async () => (await level()).muted).toBe(false);
+    await expect.poll(async () => (await level()).effectsLevel).toBeCloseTo(0.3, 2);
+
+    // It lives with the view toggles because someone watching with the
+    // transport cleared still needs to turn the music down.
+    await page.getByTestId('toggle-controls').click();
+    await expect(page.getByTestId('timeline')).toHaveCount(0);
+    await expect(page.getByTestId('volume')).toBeVisible();
+  });
 });
