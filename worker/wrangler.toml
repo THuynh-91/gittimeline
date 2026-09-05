@@ -1,0 +1,37 @@
+# Cloudflare Worker: GitHub sign-in for GitTimeline, and nothing else.
+#
+# There are no secrets in this file and there must never be. `GITHUB_CLIENT_ID`
+# and `GITHUB_CLIENT_SECRET` are set with `wrangler secret put`, which stores
+# them encrypted against the deployed Worker rather than in the repository.
+# See README.md.
+
+name = "gittimeline-auth"
+main = "src/index.mjs"
+compatibility_date = "2025-09-01"
+
+# No `node_compat` / `nodejs_compat` flag: the Worker deliberately uses only
+# what the Workers runtime provides — `fetch`, `URL`, `crypto.getRandomValues`,
+# and a hand-written constant-time compare in place of `timingSafeEqual`. That
+# keeps the bundle at a few kilobytes and the cold start at nothing.
+
+# Workers Logs, off deliberately. Observability records the request URL, and
+# /auth/callback carries GitHub's authorization code in its query string. The
+# code is single-use and expires in minutes, but a service whose whole claim is
+# that it stores nothing should not be quietly retaining the one credential
+# that passes through it. `wrangler tail` streams the same information live,
+# without keeping it, for the times something actually needs debugging.
+[observability]
+enabled = false
+
+[vars]
+# The allowlist of origins that may receive a token. This is the single control
+# that stops the Worker being used to mint a token into somebody else's site,
+# so it lives in the repository where it is reviewable in a diff rather than in
+# a dashboard where a change leaves no trace.
+#
+# A fork MUST change this. Leaving it means a fork's own site is refused a
+# token — which is the safe direction to fail, but it will look like a bug.
+ALLOWED_ORIGINS = "https://thuynh-91.github.io"
+
+# GITHUB_OAUTH_BASE is optional and unset here. Set it only for GitHub
+# Enterprise Server, where the OAuth endpoints live on the customer's domain.

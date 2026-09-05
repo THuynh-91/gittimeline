@@ -1,5 +1,25 @@
 # GitTimeline auth
 
+> **Superseded by [`worker/`](../worker/README.md).**
+>
+> This is the Node original, and it is being replaced by a Cloudflare Worker
+> that does the same thing in 2 KB gzipped. `task-additional.md` asks for "a
+> tiny serverless function only for GitHub authentication" and says a
+> traditional Render backend "should not be necessary"; this was written before
+> that document was read. It works, but it is the wrong shape — a container that
+> idles, sleeps on the free tier, and has to be maintained, for a job that is a
+> few hundred bytes of request handling a handful of times a day.
+>
+> The flow is identical in both, deliberately: same routes, same `HttpOnly`
+> state cookie compared in constant time, same origin allowlist, same token in
+> the URL fragment, same absence of scopes. Porting it was not a redesign.
+>
+> This directory stays until the Worker is deployed and sign-in is confirmed
+> against it — deleting a working implementation before its replacement is live
+> would leave sign-in broken in between. Once `VITE_AUTH_BASE` points at the
+> Worker and a real sign-in has completed, delete `server/` and update
+> `DEFAULT_AUTH_BASE` in `src/app/auth.ts`.
+
 A GitHub sign-in service, and nothing else. **Deploying it is optional** — the
 site is a static bundle and works without it.
 

@@ -1,13 +1,18 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { CompiledPerformance } from '@/model/types';
+import type { CompiledPerformance, EdgeGeom, PlaybackPreset } from '@/model/types';
 import { planHashOf } from '@/model/hash';
 import {
+  geometryBreakdown,
+  PERF_SCHEMA_VERSION,
   PerformanceFormatError,
   performanceFileFor,
   performanceMatchesRequest,
   readCompiledPerformance,
   streamCompiledPerformance,
 } from '@/export/performance';
+import { parseArtifact } from '@/export/artifact';
+import { compilePerformance } from '@/choreography/compile';
 import { buildDemoDataset } from '@/fixtures/demo';
 import { FIXTURES } from '@/fixtures/corpus';
 import { compile, PRESET } from './shared';
@@ -199,5 +204,132 @@ describe('.gtperf compiled performance', () => {
   it('finds the plan that sits beside a dataset', () => {
     expect(performanceFileFor('facebook-react.gittimeline.gz')).toBe('facebook-react.gtperf.gz');
     expect(performanceFileFor('facebook-react.gittimeline')).toBe('facebook-react.gtperf.gz');
+  });
+});
+
+/**
+ * Compare two polylines the way the format now has to be right: value by
+ * value, on the bit patterns, and the arc length beside them.
+ *
+ * Length matters as much as the points do. It is no longer carried in the file
+ * for a regenerated edge — it comes back out of the generator with the points —
+ * and it is what every body on stage travels along, so an edge whose points
+ * came back perfectly and whose length did not would move at the wrong speed
+ * for its whole journey.
+ */
+function expectSameEdge(got: EdgeGeom, want: EdgeGeom, where: string) {
+  expect(got.pts, where).toBeInstanceOf(Float32Array);
+  expect(got.pts.length, `${where} point count`).toBe(want.pts.length);
+  const a = new Uint32Array(got.pts.buffer, got.pts.byteOffset, got.pts.length);
+  const b = new Uint32Array(want.pts.buffer, want.pts.byteOffset, want.pts.length);
+  for (let i = 0; i < b.length; i++) expect(a[i], `${where} value ${i}`).toBe(b[i]);
+  expect(got.length, `${where} arc length`).toBe(want.length);
+}
+
+describe('.gtperf regenerated geometry', () => {
+  it('rebuilds polylines rather than carrying them, across the whole corpus', () => {
+    for (const fixture of [...FIXTURES, { id: 'demo', build: buildDemoDataset }]) {
+      const perf = compile(fixture.build(), 'corpus');
+      if (!perf.edges.length) continue;
+      const geo = geometryBreakdown(perf);
+      // Not "smaller" — *regenerated*. An edge that stopped matching its route
+      // would still round-trip; it would just have quietly put every one of its
+      // points back into the file, and nothing else in this suite would notice.
+      expect(geo.raw, `${fixture.id} edges that had to carry their points`).toBe(0);
+      expect(geo.curve + geo.flat + geo.lane, fixture.id).toBe(perf.edges.length);
+      // The waveform is always 720 floats and always carried, which on a
+      // nine-commit fixture is most of the block; the claim being made is
+      // about the polylines, so it is measured on the polylines.
+      expect(geo.floats - perf.waveform.length, `${fixture.id} polyline floats kept`).toBeLessThan((geo.ptsFloats - perf.waveform.length) * 0.5);
+    }
+  });
+
+  it('returns every regenerated point and arc length exactly', async () => {
+    // The octopus fixture is the awkward one: a boundary commit whose unloaded
+    // parents fan out around it is the only route rebuilt from a parent slot
+    // rather than from two node positions.
+    for (const id of ['07-octopus-merge', '02-simple-split-merge', '01-linear']) {
+      const perf = compile(FIXTURES.find((f) => f.id === id)!.build(), 'corpus');
+      expect(geometryBreakdown(perf).raw, id).toBe(0);
+      const back = await readCompiledPerformance(streamOf(bytesOf(perf)));
+      expect(back.edges.length, id).toBe(perf.edges.length);
+      perf.edges.forEach((edge, i) => expectSameEdge(back.edges[i]!, edge, `${id} edge ${i} (${edge.kind})`));
+    }
+  });
+
+  it('carries the points of a polyline it cannot rebuild, rather than guessing', async () => {
+    const perf = compile(buildDemoDataset(), 'shared');
+    // A polyline no route would ever produce. The writer finds that out by
+    // trying it, and falls back; the alternative — trusting the recipe and
+    // regenerating something else — is the failure this whole design avoids.
+    perf.edges[0]!.pts = Float32Array.from([1.5, -2.5, 3.5, -4.5, 5.5, -6.5]);
+    perf.edges[0]!.length = 12.34;
+    expect(geometryBreakdown(perf).raw).toBe(1);
+    const back = await readCompiledPerformance(streamOf(bytesOf(perf)));
+    expectSameEdge(back.edges[0]!, perf.edges[0]!, 'unrebuildable edge');
+    expectSamePlan(perf, back);
+  });
+
+  it('puts back the subjects that travelled as node indices', async () => {
+    const perf = compile(buildDemoDataset(), 'shared');
+    const shas = new Set(perf.nodes.map((n) => n.sha));
+    // Both kinds have to be present for this to mean anything: subjects that
+    // name a node and are rewritten, and subjects that do not and are not.
+    const all = perf.events.flatMap((e) => e.subjectIds);
+    expect(all.some((s) => shas.has(s))).toBe(true);
+    expect(all.some((s) => s !== '' && !shas.has(s))).toBe(true);
+    const back = await readCompiledPerformance(streamOf(bytesOf(perf)));
+    expect(back.events.map((e) => e.subjectIds)).toEqual(perf.events.map((e) => e.subjectIds));
+  });
+
+  it('refuses a plan written to an older schema', async () => {
+    const perf = compile(buildDemoDataset(), 'shared');
+    const bytes = bytesOf(perf);
+    const nl = bytes.indexOf(0x0a);
+    const header = new TextDecoder().decode(bytes.subarray(0, nl)).replace(`"schemaVersion":${PERF_SCHEMA_VERSION}`, '"schemaVersion":1');
+    const patched = encoder.encode(header);
+    const out = new Uint8Array(patched.length + (bytes.length - nl));
+    out.set(patched);
+    out.set(bytes.subarray(nl), patched.length);
+    await expect(readCompiledPerformance(streamOf(out))).rejects.toThrow(/schema version 1/);
+  });
+});
+
+/**
+ * The claim, on a history somebody actually has.
+ *
+ * Every other test here compiles a fixture and reads back what it just wrote,
+ * in one process. That proves the format round-trips. It does not prove the
+ * thing the catalog actually rests on: that the file sitting in
+ * `public/catalog` — written by a separate build, from a real repository — is
+ * the plan this build would compute if it opened the dataset beside it.
+ *
+ * `public/catalog` is generated and gitignored, so this cannot be a hard
+ * requirement of the suite; it runs when a catalog is there and reports itself
+ * skipped when it is not. `scripts/build-performance.mjs` makes the same
+ * comparison on every file it writes and refuses to keep one that fails, which
+ * is where the guarantee lives for the files that ship.
+ */
+const REAL = 'public/catalog/BurntSushi-ripgrep';
+const haveReal = existsSync(`${REAL}.gittimeline.gz`) && existsSync(`${REAL}.gtperf.gz`) && existsSync(`${REAL}.perf.json`);
+
+describe.skipIf(!haveReal)('.gtperf against a real history', () => {
+  it('loads to the plan hash the browser would have compiled', async () => {
+    // The sidecar rather than a repeat of the build's constants: a plan
+    // compiled at a different preset is a different plan, and hard-coding one
+    // here would turn a preset mismatch into a confusing failure instead of a
+    // correct one.
+    const sidecar = JSON.parse(readFileSync(`${REAL}.perf.json`, 'utf8')) as { seed: string; preset: PlaybackPreset; planHash: string };
+    const bytesOfFile = (name: string) => new Uint8Array(readFileSync(name));
+    const { dataset } = await parseArtifact(new Blob([bytesOfFile(`${REAL}.gittimeline.gz`)]));
+    const fresh = compilePerformance(dataset, { preset: sidecar.preset, seed: sidecar.seed });
+    const shipped = await readCompiledPerformance(new Blob([bytesOfFile(`${REAL}.gtperf.gz`)]).stream().pipeThrough(new DecompressionStream('gzip')));
+
+    expect(shipped.planHash).toBe(fresh.planHash);
+    expect(planHashOf(shipped)).toBe(planHashOf(fresh));
+    expect(shipped.planHash).toBe(sidecar.planHash);
+    expect(shipped.edges.length).toBe(fresh.edges.length);
+    fresh.edges.forEach((edge, i) => expectSameEdge(shipped.edges[i]!, edge, `ripgrep edge ${i} (${edge.kind})`));
+    expectSamePlan(fresh, shipped);
   });
 });

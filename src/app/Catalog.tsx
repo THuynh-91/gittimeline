@@ -1,6 +1,7 @@
 import { Fragment } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { loadCatalogEntry } from './controller';
+import { trackCatalogOpen } from './analytics';
 
 /**
  * Histories fetched ahead of time and shipped with the site.
@@ -160,7 +161,14 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
     <button
       type="button"
       class={`catalog-card${featured ? ' featured' : ''}`}
-      onClick={() => void loadCatalogEntry(e.file, e.scope ? `${e.title} · ${e.scope}` : e.title)}
+      onClick={() => {
+        // Counted at the click rather than at the first frame, because the
+        // interesting number is the difference between the two: these are
+        // large downloads and some of them are long composes, and a card
+        // nobody waits out is the one worth knowing about.
+        trackCatalogOpen(e.slug, e.commits);
+        void loadCatalogEntry(e.file, e.scope ? `${e.title} · ${e.scope}` : e.title);
+      }}
       data-testid={`catalog-${e.slug.replace('/', '-')}`}
     >
       <span class="catalog-shot">

@@ -20,6 +20,7 @@ import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '
 import { gunzipIfNeeded, performanceFileFor, performanceMatchesRequest, readCompiledPerformance, type PerfDatasetRef } from '@/export/performance';
 import { fmtClock } from '@/choreography/events';
 import { claimTokenFromUrl } from './auth';
+import { trackPerformanceStart } from './analytics';
 
 /**
  * Orchestration: ingestion runs, compilation, the frame loop, keyboard,
@@ -293,7 +294,7 @@ function stageLabel(stage: string): string {
   return { graph: 'Reading the commit graph…', threads: 'Finding parallel threads…', activity: 'Measuring activity…', clock: 'Setting the tempo…', layout: 'Laying out the stage…', events: 'Writing the choreography…', camera: 'Directing the camera…', done: 'Ready' }[stage] ?? stage;
 }
 
-async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean }): Promise<CompiledPerformance | null> {
+async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean }): Promise<CompiledPerformance | null> {
   store.phase.value = 'BUILDING_DAG';
   const handle = compileInWorker(dataset, { preset: presetFromSettings(), seed: store.settings.value.seed }, (stage) => {
     if (run?.id !== r.id) return;
@@ -321,7 +322,7 @@ async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolea
  * commit rail read, and `loadCatalogEntry` fetches it separately, afterwards,
  * when it is small enough to be worth the bytes.
  */
-function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean }) {
+function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean }) {
   batch(() => {
     store.perf.value = perf;
     store.dataset.value = dataset;
@@ -352,6 +353,20 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   // the one thing it is asking you to do, which is read a sentence and type a
   // URL. In the player it stays at 1x, where it is the thing being watched.
   player.rate = opts.isDemo && store.mode.peek() === 'landing' ? 0.22 : 1;
+  // Every performance somebody actually started passes through here, and the
+  // landing backdrop is the one nobody did — counting it would turn "how often
+  // is a visualization started" into "how many people arrived". It is flagged
+  // by its caller rather than read off the current mode, because a compile
+  // that finishes after the viewer has clicked through to another page would
+  // otherwise be counted as a performance they chose.
+  //
+  // What may then be said about the repository is entirely `analytics.ts`'s
+  // decision. An artifact is either one of ours or a file the viewer supplied,
+  // and the allowlist there is what tells those two apart.
+  if (!opts.backdrop) {
+    const source = opts.isDemo ? 'demo' : perf.source.provider === 'synthetic' ? 'fixture' : opts.outcome === 'artifact' ? 'artifact' : 'repository';
+    trackPerformanceStart(source, `${perf.source.owner}/${perf.source.name}`, perf.stats.commits);
+  }
   releaseCamera();
   captionPtr = 0;
   renderer?.setPerformance(perf);
@@ -400,7 +415,7 @@ export async function loadDemo(opts: { autoplay: boolean; landing: boolean; star
     if (store.rendererMode.value !== 'poster') store.banner.value = null;
     store.error.value = null;
   });
-  await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: 'synthetic', isDemo: true });
+  await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: 'synthetic', isDemo: true, backdrop: opts.landing });
   // Behind the landing form, open on the demo's most alive moment. The first
   // second of any history is a single commit on an otherwise empty stage,
   // which is the least interesting thing the app can show.

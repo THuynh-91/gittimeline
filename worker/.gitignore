@@ -1,0 +1,6 @@
+# Local secrets for `wrangler dev`. Never commit this — it holds the OAuth
+# App's client secret in plain text. `.dev.vars.example` is the template.
+.dev.vars
+
+node_modules
+.wrangler

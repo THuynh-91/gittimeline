@@ -1,0 +1,8 @@
+# Copy to `.dev.vars` (gitignored) for `wrangler dev`. These are development
+# values only; the deployed Worker gets its secrets from `wrangler secret put`.
+GITHUB_CLIENT_ID = "Ov23li..."
+GITHUB_CLIENT_SECRET = "..."
+
+# `wrangler dev` serves on http://localhost:8787, so the browser will only be
+# returned to an origin named here. Override the deployed allowlist locally.
+ALLOWED_ORIGINS = "http://localhost:5173"

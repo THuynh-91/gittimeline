@@ -90,7 +90,7 @@ if (!datasets.length) {
 const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'warn' });
 const { parseArtifact } = await server.ssrLoadModule('/src/export/artifact.ts');
 const { compilePerformance } = await server.ssrLoadModule('/src/choreography/compile.ts');
-const { streamCompiledPerformance, readCompiledPerformance } = await server.ssrLoadModule('/src/export/performance.ts');
+const { streamCompiledPerformance, readCompiledPerformance, geometryBreakdown } = await server.ssrLoadModule('/src/export/performance.ts');
 const { planHashOf } = await server.ssrLoadModule('/src/model/hash.ts');
 const { DEFAULT_SETTINGS } = await server.ssrLoadModule('/src/app/store.ts');
 
@@ -162,6 +162,18 @@ for (const ds of datasets) {
 
     /* ---------- 3. write the plan ---------- */
 
+    // How much of the geometry the file will not be carrying. Printed rather
+    // than merely relied on: an edge that stopped matching its route still
+    // writes correctly, it just writes every point again, and the only visible
+    // symptom of that is a number in this line going up.
+    const geo = geometryBreakdown(perf);
+    const kept = geo.ptsFloats ? (1 - geo.floats / geo.ptsFloats) * 100 : 0;
+    console.log(
+      `  geometry ${geo.floats.toLocaleString('en-US')} of ${geo.ptsFloats.toLocaleString('en-US')} floats kept (${kept.toFixed(1)}% regenerated): ` +
+        `${geo.curve.toLocaleString('en-US')} curve, ${geo.flat.toLocaleString('en-US')} flat, ${geo.lane.toLocaleString('en-US')} lane, ${geo.raw.toLocaleString('en-US')} raw`,
+    );
+    rec.geomRaw = geo.raw;
+
     const datasetRef = { file: ds.file, bytes: datasetBytes, contentHash: dataset.contentHash, commits: dataset.commits.length };
     const tWrite = Date.now();
     const written = await writePerformance(out, perf, datasetRef);
@@ -190,6 +202,18 @@ for (const ds of datasets) {
         if (!Object.is(a[k], b[k])) throw new Error(`edge ${i} point ${k} changed: ${a[k]} != ${b[k]}`);
         ptsChecked++;
       }
+      // Most polylines are now regenerated rather than carried, and the arc
+      // length is regenerated with them. It is what every body on stage travels
+      // along, so it is checked as closely as the points are.
+      if (!Object.is(perf.edges[i].length, back.edges[i].length)) throw new Error(`edge ${i} arc length changed: ${perf.edges[i].length} != ${back.edges[i].length}`);
+    }
+    // Subjects travel as node indices where they name a node. `planHash` reads
+    // them and has already agreed above, but it hashes them alongside
+    // everything else; this says the substitution itself came back.
+    for (let i = 0; i < perf.events.length; i++) {
+      const a = perf.events[i].subjectIds;
+      const b = back.events[i].subjectIds;
+      if (a.length !== b.length || a.some((s, k) => s !== b[k])) throw new Error(`event ${i} (${perf.events[i].id}) subjects changed: ${JSON.stringify(a)} != ${JSON.stringify(b)}`);
     }
     console.log(`  verified in ${secs(tVerify)}: plan hash ${perf.planHash.slice(0, 16)}, ${ptsChecked.toLocaleString('en-US')} points identical`);
     rec.ok = true;

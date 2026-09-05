@@ -15,6 +15,8 @@ import type {
 } from '@/model/types';
 import { ENGINE } from '@/model/types';
 import { contentHashOf } from '@/model/hash';
+import { routeAlongLane, routeCurve } from '@/layout/layout';
+import type { Pt } from '@/layout/paths';
 
 /**
  * `.gtperf` — a compiled performance, shipped instead of computed.
@@ -64,13 +66,51 @@ import { contentHashOf } from '@/model/hash';
  * frames stay text and the geometry stays bytes. Nothing on either side ever
  * becomes one large string, and the whole file is still one download.
  *
- * The floats are laid out in one contiguous block — the waveform, then every
- * edge's polyline in index order — and each edge line carries the length of
- * its own slice. That keeps the header small: an index of 354,672 offsets
- * would have re-created the giant-string problem in the one line that has to
- * be read first.
+ * The floats are laid out in one contiguous block — the waveform, then
+ * whatever each edge still needs, in index order — and each edge line says how
+ * its own slice is to be read. That keeps the header small: an index of
+ * 354,672 offsets would have re-created the giant-string problem in the one
+ * line that has to be read first.
  *
- * ## Why the geometry is not written as it sits in memory
+ * ## Why most of the geometry is not written at all
+ *
+ * The polylines were the file. Measured on the shipped catalog, `EdgeGeom.pts`
+ * was 59% of Kubernetes' 87.9 MB and 51% of Linux's 266.3 MB, and it is the
+ * one section that is not really data: every polyline is the return value of
+ * `routeCurve` or `routeAlongLane` applied to two node positions. Linux's
+ * 451,956 of them are 70,279,078 points generated from 903,912 numbers the
+ * file already carries in its node records.
+ *
+ * So an edge names its route instead of listing its points, and the reader
+ * runs the same two functions the layout ran. `edgeRouteOf` recovers the call
+ * from the edge itself — its kind says which generator, its `parent` and
+ * `child` index the endpoints, and for a boundary commit's missing parents its
+ * `parentIndex` gives the fan offset. Four ways an edge's points can travel:
+ *
+ *  - **`GEOM_CURVE`** — `routeCurve(a, b, kind)`, no floats at all. Merges,
+ *    divergences and secondary edges: 84% of Kubernetes' points, 57% of
+ *    Linux's.
+ *  - **`GEOM_FLAT`** — `routeAlongLane` along a constant lane, no floats. The
+ *    primary spine is a straight horizontal axis, so every thread edge on it
+ *    is a level run between two x positions.
+ *  - **`GEOM_LANE`** — `routeAlongLane` along a lane that bulges. Half the
+ *    floats: the x positions are exactly uniform between the two endpoints and
+ *    come back from the generator, and only the y values are carried. The lane
+ *    curve itself cannot be recovered, because it is built from thread extents
+ *    that live in the layout pass and are not in the plan.
+ *  - **`GEOM_RAW`** — every point, as version 1 always wrote them.
+ *
+ * Nothing here is inferred and then trusted. The writer regenerates each
+ * candidate and compares it against the polyline the compiler actually
+ * produced — bit for bit, and the arc length with it — and falls back to the
+ * next form, and finally to raw points, the moment one disagrees. The
+ * constants those routes rebuild (the 70 units a boundary edge reaches back,
+ * the fan spacing on an octopus merge) are duplicated from `compilePerformance`
+ * and could drift from it; if they ever do, every edge simply fails its
+ * comparison and ships its points. A stale constant here costs bytes. It
+ * cannot cost correctness.
+ *
+ * ## Why the geometry that is left is not written as it sits in memory
  *
  * gzip is nearly useless on raw float32: the mantissa bytes of a smooth curve
  * look like noise, and React's 821,740 points compress from 3.29 MB to only
@@ -95,6 +135,19 @@ import { contentHashOf } from '@/model/hash';
  * negative zeroes and NaN payloads included. The cost is two linear passes on
  * load, which is milliseconds against the minutes this file exists to remove.
  *
+ * ## Subjects are named by index
+ *
+ * `ChoreographyEvent.subjectIds` is the other section that repeats what the
+ * file already has: 606,359 of Kubernetes' 746,289 subject ids are the SHA of
+ * a node listed a few thousand lines further down. A forty-character hex
+ * string is close to incompressible — gzip gets one down to about 25 bytes,
+ * and 20 is the floor — so those are written as the node's index instead and
+ * looked back up on load. Subjects that are not a node's sha (thread ids,
+ * contributor ids, aggregate ids, and the shas of commits that were collapsed
+ * into a ribbon and so have no node) stay strings. `planHash` reads
+ * `subjectIds`, so a mistake in that substitution is not a subtle one: the
+ * fingerprint stops matching and the build refuses to keep the file.
+ *
  * ## What this is not
  *
  * This is a *build output*, read only from the site's own origin by
@@ -106,7 +159,7 @@ import { contentHashOf } from '@/model/hash';
  * hostility.
  */
 
-export const PERF_SCHEMA_VERSION = 1;
+export const PERF_SCHEMA_VERSION = 2;
 export const PERF_MAGIC = 'gittimeline-perf';
 /** Suffix the build writes and the loader looks for, next to the dataset. */
 export const PERF_EXTENSION = '.gtperf.gz';
@@ -164,8 +217,34 @@ export interface PerfCounts {
   s: number;
 }
 
-/** An edge minus its polyline, which travels in the binary section. */
-export type SerializedEdge = Omit<EdgeGeom, 'pts'> & { ptsLen: number };
+/**
+ * How much of an edge's polyline is in the binary section, and what the reader
+ * does with the rest.
+ *
+ * These are numbers rather than names because they are written once per edge
+ * and there are 451,956 edges in Linux's plan.
+ */
+export const GEOM_RAW = 0;
+export const GEOM_CURVE = 1;
+export const GEOM_FLAT = 2;
+export const GEOM_LANE = 3;
+export type PerfGeomCode = typeof GEOM_RAW | typeof GEOM_CURVE | typeof GEOM_FLAT | typeof GEOM_LANE;
+
+/**
+ * An edge as it travels: no polyline, and no `length` or point count either.
+ *
+ * Both of those are outputs of the same generator call the points are, so a
+ * reader that regenerates the points has them for free. Only `GEOM_RAW`, which
+ * regenerates nothing, has to carry them.
+ */
+export type SerializedEdge = Omit<EdgeGeom, 'pts' | 'length'> & {
+  g: PerfGeomCode;
+  ptsLen?: number;
+  length?: number;
+};
+
+/** An event whose node-sha subjects have been replaced by node indices. */
+export type SerializedEvent = Omit<ChoreographyEvent, 'subjectIds'> & { subjectIds: Array<string | number> };
 
 /**
  * One body line. The tag is first so a reader can dispatch on it without
@@ -176,7 +255,7 @@ export type PerfRecord =
   | { t: 'n'; v: NodeGeom }
   | { t: 'e'; v: SerializedEdge }
   | { t: 't'; v: ThreadGeom }
-  | { t: 'v'; v: ChoreographyEvent }
+  | { t: 'v'; v: SerializedEvent }
   | { t: 'c'; v: CameraCue }
   | { t: 'm'; v: [UnixMs, number] }
   | { t: 'p'; v: [number, number] }
@@ -231,6 +310,151 @@ function requireLittleEndian() {
 const BINARY_CHUNK = 1 << 20;
 
 /**
+ * How far back a boundary commit's edge reaches for its unloaded parents, and
+ * how the extra parents of an octopus merge fan out around it.
+ *
+ * `compilePerformance` writes these literally, at the one place it draws an
+ * edge whose other end is a commit nobody fetched. They are repeated rather
+ * than imported because importing them would pull the whole compiler into the
+ * loader's bundle to read three numbers — and because being wrong about them
+ * is harmless: an edge whose regenerated shape does not match the compiled one
+ * is written out in full instead.
+ */
+const UNKNOWN_REACH = 70;
+const UNKNOWN_FAN = 28;
+const UNKNOWN_FAN_STEP = 14;
+
+/** The same two-decimal rounding `compilePerformance` applies to `EdgeGeom.length`. */
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/**
+ * The generator call that produced an edge's polyline.
+ *
+ * Every edge in a plan comes from one of exactly two functions, and which one —
+ * with which arguments — is written on the edge itself. `kind` picks the
+ * generator; `parent` and `child` index the endpoints out of the node array;
+ * `parentIndex` distinguishes the several unloaded parents of one boundary
+ * commit from each other. Nothing is measured off the polyline, so this
+ * answers the same way on both sides of the file.
+ *
+ * `null` means the edge does not fit any of them — an endpoint out of range, a
+ * kind this build does not know — and the points travel in full.
+ */
+type EdgeRoute =
+  | { via: 'curve'; a: Pt; b: Pt; kind: 'divergence' | 'merge' | 'secondary' }
+  | { via: 'lane'; x0: number; x1: number; flatY: number };
+
+function edgeRouteOf(edge: { kind: EdgeGeom['kind']; parent: number; child: number; parentIndex: number }, nodes: NodeGeom[]): EdgeRoute | null {
+  const b = nodes[edge.child];
+  if (!b) return null;
+  const a = edge.parent >= 0 ? nodes[edge.parent] : null;
+  switch (edge.kind) {
+    case 'divergence':
+    case 'merge':
+    case 'secondary':
+      return a ? { via: 'curve', a, b, kind: edge.kind } : null;
+    case 'thread':
+    case 'aggregate':
+      return a ? { via: 'lane', x0: a.x, x1: b.x, flatY: b.y } : null;
+    case 'unknown': {
+      // The first parent of a boundary commit runs level into it; the rest fan
+      // above and below so an octopus merge with unloaded parents does not draw
+      // several edges on top of each other.
+      if (edge.parentIndex === 0) return { via: 'lane', x0: b.x - UNKNOWN_REACH, x1: b.x, flatY: b.y };
+      const dy = (edge.parentIndex % 2 ? -1 : 1) * (UNKNOWN_FAN + UNKNOWN_FAN_STEP * Math.floor(edge.parentIndex / 2));
+      return { via: 'curve', a: { x: b.x - UNKNOWN_REACH, y: b.y + dy }, b, kind: 'secondary' };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Run the route, optionally feeding it y values that were stored rather than
+ * computed.
+ *
+ * `routeAlongLane` asks its lane function for exactly one y per sample, in
+ * order, so handing it a closure over the stored values rebuilds the polyline
+ * the layout produced — including its arc length, which accumulates over the
+ * same float32 values either way — without this module knowing anything about
+ * how lanes are shaped.
+ */
+function runRoute(route: EdgeRoute, laneY: ((i: number) => number) | null): { pts: Float32Array; length: number } {
+  if (route.via === 'curve') return routeCurve(route.a, route.b, route.kind);
+  if (!laneY) return routeAlongLane(() => route.flatY, route.x0, route.x1);
+  let i = 0;
+  return routeAlongLane(() => laneY(i++), route.x0, route.x1);
+}
+
+/** Are two polylines the same polyline — bits, not values — and the same length? */
+function sameGeometry(made: { pts: Float32Array; length: number }, pts: Float32Array, length: number): boolean {
+  if (made.pts.length !== pts.length) return false;
+  const a = new Uint32Array(made.pts.buffer, made.pts.byteOffset, made.pts.length);
+  const b = new Uint32Array(pts.buffer, pts.byteOffset, pts.length);
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return round2(made.length) === length;
+}
+
+/**
+ * The smallest form each edge's points can travel in, decided by trying it.
+ *
+ * Returns one code per edge and the running total of floats the binary section
+ * will hold, which the header has to state before any of the body is written.
+ * The work is one extra routing pass over the plan — the same call the layout
+ * already made once — which is seconds on Linux inside a build that takes
+ * minutes, and buys the reader the right to trust what it regenerates.
+ */
+function chooseGeometry(perf: CompiledPerformance): { codes: Uint8Array; floats: number } {
+  const codes = new Uint8Array(perf.edges.length);
+  let floats = perf.waveform.length;
+  for (let i = 0; i < perf.edges.length; i++) {
+    const e = perf.edges[i]!;
+    const route = edgeRouteOf(e, perf.nodes);
+    let code: PerfGeomCode = GEOM_RAW;
+    if (route && sameGeometry(runRoute(route, null), e.pts, e.length)) {
+      code = route.via === 'curve' ? GEOM_CURVE : GEOM_FLAT;
+    } else if (route && route.via === 'lane') {
+      const half = e.pts.length >> 1;
+      if (sameGeometry(runRoute(route, (k) => e.pts[k * 2 + 1] ?? 0), e.pts, e.length)) {
+        code = GEOM_LANE;
+        floats += half;
+      } else {
+        floats += e.pts.length;
+      }
+    } else {
+      floats += e.pts.length;
+    }
+    codes[i] = code;
+  }
+  return { codes, floats };
+}
+
+/**
+ * How each edge's points would travel, without writing a file.
+ *
+ * The build prints this and the tests assert on it, and both need it for the
+ * same reason: "smaller" is not the claim being made here, "regenerated"
+ * is — and an edge that quietly stopped matching its route would still write a
+ * correct file, just a much larger one. A count of how many edges fell back to
+ * raw points is the only thing that notices.
+ */
+export function geometryBreakdown(perf: CompiledPerformance): { raw: number; curve: number; flat: number; lane: number; floats: number; ptsFloats: number } {
+  const { codes, floats } = chooseGeometry(perf);
+  const out = { raw: 0, curve: 0, flat: 0, lane: 0, floats, ptsFloats: perf.waveform.length };
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i]!;
+    out.ptsFloats += perf.edges[i]!.pts.length;
+    if (code === GEOM_CURVE) out.curve++;
+    else if (code === GEOM_FLAT) out.flat++;
+    else if (code === GEOM_LANE) out.lane++;
+    else out.raw++;
+  }
+  return out;
+}
+
+/**
  * Emit a compiled performance frame by frame.
  *
  * A generator of `string | Uint8Array` rather than a buffer, so the caller
@@ -240,8 +464,13 @@ const BINARY_CHUNK = 1 << 20;
  */
 export function* streamCompiledPerformance(perf: CompiledPerformance, dataset: PerfDatasetRef | null = null): Generator<string | Uint8Array> {
   requireLittleEndian();
-  let floats = perf.waveform.length;
-  for (const e of perf.edges) floats += e.pts.length;
+  const { codes, floats } = chooseGeometry(perf);
+
+  // Which subjects are node shas has to be settled before the first event line
+  // is written, and the lookup is wanted for every one of them, so the index is
+  // built once here rather than searched per subject.
+  const nodeOfSha = new Map<string, number>();
+  for (let i = 0; i < perf.nodes.length; i++) nodeOfSha.set(perf.nodes[i]!.sha, i);
 
   const header: PerfHeader = {
     format: PERF_MAGIC,
@@ -291,27 +520,51 @@ export function* streamCompiledPerformance(perf: CompiledPerformance, dataset: P
   for (const v of perf.activity) yield `${JSON.stringify({ t: 'a', v })}\n`;
   for (const v of perf.aggregates) yield `${JSON.stringify({ t: 'g', v })}\n`;
   for (const v of perf.threads) yield `${JSON.stringify({ t: 't', v })}\n`;
-  for (const v of perf.events) yield `${JSON.stringify({ t: 'v', v })}\n`;
+  for (const ev of perf.events) {
+    const v: SerializedEvent = { ...ev, subjectIds: ev.subjectIds.map((s) => nodeOfSha.get(s) ?? s) };
+    yield `${JSON.stringify({ t: 'v', v })}\n`;
+  }
   for (const v of perf.camera) yield `${JSON.stringify({ t: 'c', v })}\n`;
   for (const v of perf.nodes) yield `${JSON.stringify({ t: 'n', v })}\n`;
-  for (const e of perf.edges) {
-    const { pts, ...rest } = e;
-    const v: SerializedEdge = { ...rest, ptsLen: pts.length };
+  for (let i = 0; i < perf.edges.length; i++) {
+    const { pts, length, ...rest } = perf.edges[i]!;
+    const g = codes[i] as PerfGeomCode;
+    const v: SerializedEdge = g === GEOM_RAW ? { ...rest, g, ptsLen: pts.length, length } : { ...rest, g };
     yield `${JSON.stringify({ t: 'e', v })}\n`;
   }
 
   const marker: PerfBinaryMarker = { t: 'bin', floats, codec: 'd2s' };
   yield `${JSON.stringify(marker)}\n`;
-  yield* binaryFrames(perf);
+  yield* binaryFrames(perf, codes);
 
   const trailer: PerfTrailer = { t: 'end', planHash: perf.planHash, contentHash: perfContentHash(perf.planHash) };
   yield `${JSON.stringify(trailer)}\n`;
 }
 
+/**
+ * A stretch of the block: `count` values from `bits`, starting at `start` and
+ * taken every `stride`. A stride of two is how a `GEOM_LANE` edge contributes
+ * only its y coordinates without a copy being made of them first.
+ */
+interface GeometryRun {
+  bits: Uint32Array;
+  start: number;
+  stride: number;
+  count: number;
+}
+
 /** Every float in the block, in the order the reader will put them back. */
-function* geometrySources(perf: CompiledPerformance): Generator<Float32Array> {
-  yield perf.waveform;
-  for (const e of perf.edges) yield e.pts;
+function* geometryRuns(perf: CompiledPerformance, codes: Uint8Array): Generator<GeometryRun> {
+  const w = perf.waveform;
+  yield { bits: new Uint32Array(w.buffer, w.byteOffset, w.length), start: 0, stride: 1, count: w.length };
+  for (let i = 0; i < perf.edges.length; i++) {
+    const code = codes[i]!;
+    if (code === GEOM_CURVE || code === GEOM_FLAT) continue;
+    const pts = perf.edges[i]!.pts;
+    const bits = new Uint32Array(pts.buffer, pts.byteOffset, pts.length);
+    if (code === GEOM_LANE) yield { bits, start: 1, stride: 2, count: pts.length >> 1 };
+    else yield { bits, start: 0, stride: 1, count: pts.length };
+  }
 }
 
 /**
@@ -327,7 +580,7 @@ function* geometrySources(perf: CompiledPerformance): Generator<Float32Array> {
  * consumer is a gzip stream and may still be holding the previous frame when
  * the next one starts filling.
  */
-function* binaryFrames(perf: CompiledPerformance): Generator<Uint8Array> {
+function* binaryFrames(perf: CompiledPerformance, codes: Uint8Array): Generator<Uint8Array> {
   const buf = new Uint8Array(BINARY_CHUNK);
   let used = 0;
   for (let plane = 0; plane < 4; plane++) {
@@ -336,10 +589,10 @@ function* binaryFrames(perf: CompiledPerformance): Generator<Uint8Array> {
     // first pair of values is written as-is.
     let back2 = 0;
     let back1 = 0;
-    for (const src of geometrySources(perf)) {
-      const bits = new Uint32Array(src.buffer, src.byteOffset, src.length);
-      for (let i = 0; i < bits.length; i++) {
-        const cur = bits[i]!;
+    for (const run of geometryRuns(perf, codes)) {
+      const { bits, stride } = run;
+      for (let i = 0, j = run.start; i < run.count; i++, j += stride) {
+        const cur = bits[j]!;
         buf[used++] = ((cur - back2) >>> shift) & 0xff;
         back2 = back1;
         back1 = cur;
@@ -375,7 +628,7 @@ export async function readCompiledPerformance(stream: ReadableStream<Uint8Array>
   const nodes: NodeGeom[] = [];
   const rawEdges: SerializedEdge[] = [];
   const threads: ThreadGeom[] = [];
-  const events: ChoreographyEvent[] = [];
+  const rawEvents: SerializedEvent[] = [];
   const camera: CameraCue[] = [];
   const timeMap: Array<[UnixMs, number]> = [];
   const tempoMap: Array<[number, number]> = [];
@@ -422,7 +675,7 @@ export async function readCompiledPerformance(stream: ReadableStream<Uint8Array>
       case 'n': nodes.push(rec.v); return;
       case 'e': rawEdges.push(rec.v); return;
       case 't': threads.push(rec.v); return;
-      case 'v': events.push(rec.v); return;
+      case 'v': rawEvents.push(rec.v); return;
       case 'c': camera.push(rec.v); return;
       case 'm': timeMap.push(rec.v); return;
       case 'p': tempoMap.push(rec.v); return;
@@ -504,7 +757,7 @@ export async function readCompiledPerformance(stream: ReadableStream<Uint8Array>
   const geometry = decodeGeometry(encoded, h.floats);
 
   const got: PerfCounts = {
-    n: nodes.length, e: rawEdges.length, t: threads.length, v: events.length, c: camera.length,
+    n: nodes.length, e: rawEdges.length, t: threads.length, v: rawEvents.length, c: camera.length,
     m: timeMap.length, p: tempoMap.length, a: activity.length, r: eras.length, i: contributors.length,
     g: aggregates.length, f: refs.length, l: landmarks.length, s: transcript.length,
   };
@@ -514,20 +767,47 @@ export async function readCompiledPerformance(stream: ReadableStream<Uint8Array>
     }
   }
 
-  // Hand each edge a window onto the shared block rather than a copy of it.
-  // Rust's polylines are 45 MB; copying them would double that for the length
-  // of the load and buy nothing, since nothing mutates a compiled plan and
-  // the transfer-to-worker path — the one place a shared buffer would
-  // matter — does not run for a precompiled performance.
+  // An edge that carried all its points gets a window onto the shared block
+  // rather than a copy of it: nothing mutates a compiled plan, and the
+  // transfer-to-worker path — the one place a shared buffer would matter —
+  // does not run for a precompiled performance. The regenerated forms allocate,
+  // because their points were never in the block to point at.
   const waveform = geometry.subarray(0, h.waveform);
   let off = h.waveform;
-  const edges: EdgeGeom[] = rawEdges.map((raw) => {
-    const { ptsLen, ...rest } = raw;
-    const pts = geometry.subarray(off, off + ptsLen);
-    off += ptsLen;
-    return { ...rest, pts };
+  const take = (): number => {
+    if (off >= geometry.length) throw new PerformanceFormatError('Geometry section is shorter than the edges that claim it.');
+    return geometry[off++]!;
+  };
+  const edges: EdgeGeom[] = rawEdges.map((raw, i) => {
+    const { g, ptsLen, length, ...rest } = raw;
+    if (g === GEOM_RAW) {
+      if (ptsLen === undefined || length === undefined) throw new PerformanceFormatError(`Edge ${i} carries its points but does not say how many.`);
+      if (off + ptsLen > geometry.length) throw new PerformanceFormatError('Geometry section is shorter than the edges that claim it.');
+      const pts = geometry.subarray(off, off + ptsLen);
+      off += ptsLen;
+      return { ...rest, pts, length };
+    }
+    const route = edgeRouteOf(rest, nodes);
+    if (!route) throw new PerformanceFormatError(`Edge ${i} names a route that cannot be rebuilt from this plan.`);
+    // `take` advances through the block once per sample the generator asks
+    // for, so the lane form never has to be told how many values are its own.
+    const made = runRoute(route, g === GEOM_LANE ? take : null);
+    return { ...rest, pts: made.pts, length: round2(made.length) };
   });
   if (off !== geometry.length) throw new PerformanceFormatError('Geometry section length does not match the edges that claim it.');
+
+  // Subjects are resolved here rather than as each event line arrives, because
+  // the node records may not have been read yet when it did — the section order
+  // in this file is chosen for what a failed read can report, not for this.
+  const events: ChoreographyEvent[] = rawEvents.map((ev, i) => ({
+    ...ev,
+    subjectIds: ev.subjectIds.map((s) => {
+      if (typeof s === 'string') return s;
+      const nd = nodes[s];
+      if (!nd) throw new PerformanceFormatError(`Event ${i} names node ${s}, which this plan does not have.`);
+      return nd.sha;
+    }),
+  }));
 
   return {
     engine: h.engine,

@@ -121,7 +121,31 @@ network request to a Google endpoint carries a pasted repository slug.
 
 ---
 
-## 4. Port the auth service off Render to a serverless function
+## ~~4. Port the auth service off Render to a serverless function~~ — DONE
+
+Built in `worker/` as a Cloudflare Worker: `wrangler.toml`, `src/index.mjs`
+(5.26 KiB, 2.02 KiB gzipped), and a `README.md` written for someone who has
+never used Wrangler. The flow was ported as-is — same routes, `HttpOnly` state
+cookie, origin allowlist, token in the fragment, no scopes — with the one
+substitution the platform forces: Workers have no `node:crypto`, so
+`timingSafeEqual` is replaced by a hand-written compare that never
+short-circuits.
+
+Proven under `wrangler dev` in the real workerd runtime against a stubbed
+GitHub token endpoint: 21 checks, including a forged state and a return URL off
+the allowlist both rejected before the code ever reaches GitHub, and a valid
+round trip putting the token in the fragment. Plus 24 unit tests over
+`handleRequest` — `npx vitest run --config worker/vitest.config.mjs`. Not
+deployed; that needs your Cloudflare account and an OAuth App, which GitHub has
+no API for creating. `worker/README.md` has the steps.
+
+`src/app/auth.ts` needs no change to work with it beyond `VITE_AUTH_BASE`, so
+it was left alone. `server/` is still in place, with a note at the top of its
+README pointing here; delete it once a real sign-in through the Worker has
+completed.
+
+<details>
+<summary>Original task</summary>
 
 **Why it matters:** `task-additional.md` says explicitly that a traditional
 Render backend should not be necessary, and that a tiny serverless function
@@ -147,6 +171,8 @@ flow. Keep:
 Secrets go in Worker secrets, never in `wrangler.toml`.
 
 Leave `server/` in place; I'll delete it once the Worker is proven.
+
+</details>
 
 ---
 

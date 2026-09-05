@@ -2,6 +2,7 @@ import { useEffect } from 'preact/hooks';
 import { useSignalEffect } from '@preact/signals';
 import { store } from './store';
 import { boot, handleKey, applySettingsToRuntime } from './controller';
+import { trackPageView } from './analytics';
 import { Stage } from './Stage';
 import { Landing } from './Landing';
 import { Prelude } from './Prelude';
@@ -27,6 +28,13 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // The mode is this app's router — everything lives at one URL — so a change
+  // of mode is what a page view is here. Reading only `store.mode` keeps this
+  // firing once per navigation rather than once per settings change.
+  useSignalEffect(() => {
+    trackPageView(store.mode.value);
+  });
 
   useSignalEffect(() => {
     const s = store.settings.value;

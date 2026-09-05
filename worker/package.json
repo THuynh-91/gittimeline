@@ -1,0 +1,16 @@
+{
+  "name": "gittimeline-auth-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "GitHub sign-in for GitTimeline as a Cloudflare Worker. Exchanges an OAuth code for a token and nothing else.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "test": "vitest run --config vitest.config.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.129.0"
+  }
+}
