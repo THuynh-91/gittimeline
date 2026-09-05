@@ -237,6 +237,64 @@ actually find it.
 
 ---
 
+## 8. Enhancements
+
+Not defects and not briefs — things that would make this better rather than
+correct. Roughly best value first; effort is rough.
+
+**8.1 "Director's cut" — a 60-second version of any repository · medium.**
+The plan already knows where the interesting moments are: `MAJOR_MERGE`,
+`PARALLEL_PHRASE`, `ERA_TRANSITION`, `QUIET_GAP`. Pick the best half-dozen and
+cut between them. Turns twelve hours of Linux into something a person will
+actually watch, and needs no new data — it is a playlist over a plan that
+already exists. Also the obvious answer to "the shelf's best entries are too
+long to try".
+
+**8.2 Deep-link to a moment, and a downloadable poster · small.**
+The share hash already carries `repo`, `t`, `focus` and `seed`, and
+`renderPosterSvg` already draws exact geometry as SVG. Both exist and neither is
+reachable from the UI. Wire "copy a link to this moment" and "save this frame".
+
+**8.3 Incremental dataset updates · medium, large infra win.**
+The weekly job re-reads every history in full. The clones are already cached, so
+`git log <last-tip>..HEAD` would read only what is new. Turns the Sunday run
+from an hour into minutes and makes adding entries cheap.
+
+**8.4 Follow a person through the history · small, half of it exists.**
+`focusContributor` already dims everything else. Add a picker: search a name,
+watch only their commits light up, and show first commit, last commit, busiest
+year. The most personal thing this app could offer.
+
+**8.5 Click a commit, open it on GitHub · small.**
+`githubUrl` lives in the dataset, which is never fetched for large entries — so
+the thing a viewer most wants to click is missing exactly where the history is
+most interesting. Same fix as commit subjects: carry it in the plan.
+
+**8.6 Compare two repositories side by side · large.**
+Two stages, one clock, normalised to the same commits per second. "React against
+Vue over the same decade" is a picture nothing else shows.
+
+**8.7 A WebGL stage · large.**
+The real answer to "hundreds of thousands of nodes on any machine". Sparks
+become one instanced draw call instead of ~35 canvas operations each. Would make
+3.3 and 5.4 moot rather than mitigated. Keep Canvas2D as the fallback, which
+already exists.
+
+**8.8 OffscreenCanvas in a worker · medium.**
+Rendering off the main thread, so a heavy frame cannot block input. Complements
+8.7 and is simpler alone.
+
+**8.9 Embeddable widget · medium.**
+An iframe mode with no chrome that autoplays a chosen span, so a project can put
+its own history in its README.
+
+**8.10 Beyond GitHub · medium.**
+Ingestion is `git clone` — it never needed GitHub. GitLab, Codeberg, or any URL
+`git clone` accepts would work with a different link builder. The catalog is
+already provider-tagged.
+
+---
+
 ## 8. Reference
 
 ### When a rebuild is needed
