@@ -2,7 +2,7 @@ import { batch, effect } from '@preact/signals';
 import { store, updateSettings, toast, announce, type AppError, type CatalogQuestion } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
-import { StageRenderer, type ManualCamera } from '@/renderer/canvas';
+import { renderProfile, StageRenderer, type ManualCamera } from '@/renderer/canvas';
 import { renderPosterSvg } from '@/renderer/poster';
 import { compileInWorker, type CompileHandle } from '@/player/compileClient';
 import { parseRepoUrl, type RepoRef } from '@/github/url';
@@ -1822,6 +1822,20 @@ export function installDebugHook() {
     },
     get audioStarted() {
       return audio.started;
+    },
+    /**
+     * Per-pass timings and counts for the last frames drawn. Inert until
+     * `enabled` is set, and the only way to ask "did the stage draw anything"
+     * on a history too large to photograph.
+     *
+     * Reading the pixels back is the obvious way and it does not work here:
+     * the stage is a `desynchronized` canvas, and above roughly forty thousand
+     * nodes both `page.screenshot` and `canvas.toDataURL` stall indefinitely
+     * rather than returning a blank image. `counts.nodesDrawn` costs nothing
+     * and answers the same question.
+     */
+    get render() {
+      return renderProfile;
     },
     get music() {
       const now = audio.nowPlaying;
