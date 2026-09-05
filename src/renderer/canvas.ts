@@ -688,12 +688,27 @@ export class StageRenderer {
     // the history sitting *on* a surface rather than *in* a space. It is now
     // barely a fifth of that and tinted cold, so the corners stay genuinely
     // black and the only bright things on screen are the commits.
-    const g = ctx.createRadialGradient(w * 0.5, h * 0.44, 0, w * 0.5, h * 0.44, Math.max(w, h) * 0.85);
-    g.addColorStop(0, 'rgba(16,20,34,0.30)');
-    g.addColorStop(0.55, 'rgba(10,12,20,0.14)');
+    const g = ctx.createRadialGradient(w * 0.5, h * 0.44, 0, w * 0.5, h * 0.44, Math.max(w, h) * 0.9);
+    g.addColorStop(0, 'rgba(14,19,36,0.22)');
+    g.addColorStop(0.5, 'rgba(9,11,20,0.10)');
     g.addColorStop(1, 'rgba(7,8,12,0)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
+
+    // Two faint cold clouds, off-centre and unmoving, so the black is not flat
+    // black. They are the difference between "the lights are off" and "this is
+    // a long way from anywhere" — and being off-axis, they never sit behind the
+    // copy, which is centred.
+    for (const [cx, cy, rad, tint] of [
+      [0.18, 0.24, 0.55, 'rgba(30,52,86,0.075)'],
+      [0.84, 0.76, 0.62, 'rgba(52,34,74,0.065)'],
+    ] as Array<[number, number, number, string]>) {
+      const neb = ctx.createRadialGradient(w * cx, h * cy, 0, w * cx, h * cy, Math.max(w, h) * rad);
+      neb.addColorStop(0, tint);
+      neb.addColorStop(1, 'rgba(7,8,12,0)');
+      ctx.fillStyle = neb;
+      ctx.fillRect(0, 0, w, h);
+    }
     if (this.settings.quality === 'minimal') return;
 
     // Stars. Deterministic, and slow enough that the drift is felt rather than
@@ -942,8 +957,11 @@ export class StageRenderer {
     const age = t - nd.impact;
     let x = nd.x;
     let y = nd.y;
-    // Existing geometry reacts: radial ripple from merge impacts, and a faint breath.
-    for (const r of ripples) {
+    // Existing geometry reacts: radial ripple from merge impacts, and a faint
+    // breath. Suppressed behind the form for the same reason as the arrival
+    // halo, and more so — a merge ripple reaches much further, so on the
+    // landing it reads as a shockwave crossing the whole page.
+    for (const r of this.shopWindow ? [] : ripples) {
       const d = Math.hypot(x - r.x, y - r.y);
       if (d < 4 || d > r.reach) continue;
       const wave = Math.sin((d / 34 - r.age * 6.5) * 1.0) * Math.exp(-r.age * 1.6) * (1 - d / r.reach);
@@ -962,10 +980,23 @@ export class StageRenderer {
     const threadSel = this.settings.selectedThread != null && nd.threadIdx === this.settings.selectedThread;
     const structural = nd.isSpine ? ivory : threadSel ? PALETTE.accent : slate;
     const baseR = nd.isMerge ? 5.2 * Math.min(2.1, volumeScale(nd.mergeVolume)) : nd.isSpine ? 4.1 : 3.2;
-    const r = baseR * pop * (1 + nd.salience * 0.5);
+    // A merge that absorbed a great deal is drawn big, which is the point of
+    // the scale — on a stage. Behind the form the same rule produces one
+    // object several times the size of everything else, and the eye goes to it
+    // instead of to the sentence it is sitting beside.
+    const r = Math.min(baseR * pop * (1 + nd.salience * 0.5), this.shopWindow ? 7 : Infinity);
 
-    // arrival halo in the contributor's color, fading — human energy touching structure
-    if (age < 1.4 && !this.settings.reducedMotion) {
+    // Arrival halo in the contributor's colour, fading — human energy touching
+    // structure. It is punctuation: it says *this just landed*, and it earns
+    // its cost on a stage somebody is watching.
+    //
+    // Behind the landing form it does not. The ring expands fourteen pixels a
+    // second from every commit, and at the shop window's framing that is a
+    // circle sweeping across the page while somebody is trying to read a
+    // sentence — the eye is pulled to it precisely because it is moving, and
+    // there is nothing there to look at once it arrives. The commits still
+    // land, still light up; they simply stop announcing it.
+    if (age < 1.4 && !this.settings.reducedMotion && !this.shopWindow) {
       const a = 1 - age / 1.4;
       ctx.beginPath();
       ctx.arc(x, y, r + 4 + age * 14, 0, Math.PI * 2);
@@ -979,7 +1010,7 @@ export class StageRenderer {
         glow.fill();
       }
     }
-    if (nd.kind === 'root') {
+    if (nd.kind === 'root' && !this.shopWindow) {
       const seed = this.settings.reducedMotion ? 0.5 : 0.5 + 0.5 * Math.sin(t * 1.3);
       ctx.beginPath();
       ctx.arc(x, y, r + 6 + seed * 2, 0, Math.PI * 2);
@@ -996,7 +1027,7 @@ export class StageRenderer {
       ctx.strokeStyle = rgba(structural, 0.8 * dim);
       ctx.lineWidth = 1.3;
       ctx.stroke();
-      if (nd.parentCount > 2) {
+      if (nd.parentCount > 2 && !this.shopWindow) {
         ctx.beginPath();
         ctx.arc(x, y, r + 5.2, 0, Math.PI * 2);
         ctx.strokeStyle = rgba(structural, 0.5 * dim);
@@ -1004,7 +1035,7 @@ export class StageRenderer {
         ctx.stroke();
       }
     }
-    if (nd.kind === 'boundary') {
+    if (nd.kind === 'boundary' && !this.shopWindow) {
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
       ctx.arc(x, y, r + 4, 0, Math.PI * 2);
@@ -1013,15 +1044,21 @@ export class StageRenderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    // persistent contributor ring: who touched this commit, readable when paused
-    if (age > 0.05) {
+    // Persistent contributor ring: who touched this commit, readable when
+    // paused. Every ring on a node is an annotation — who, how many parents,
+    // whether it is tagged — and annotations are what the landing page does not
+    // want. A heavy merge carries four of them, which at the shop window's
+    // framing is a fifty-pixel target sitting beside the form doing nothing but
+    // catching the eye. The node itself still shows; it just stops being
+    // labelled.
+    if (age > 0.05 && !this.shopWindow) {
       ctx.beginPath();
       ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(color, (focusIdx === nd.contributorIdx ? 0.9 : 0.38) * dim);
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-    if (nd.tagLabels.length) {
+    if (nd.tagLabels.length && !this.shopWindow) {
       ctx.beginPath();
       ctx.arc(x, y, r + 7, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(ivory, 0.55 * dim);
