@@ -100,6 +100,23 @@ jobs:
       - name: SPA-friendly 404 (static hosting has no server routing)
         run: cp dist/index.html dist/404.html
 
+      - name: Drop the catalog files nothing can ask for
+        # An entry that ships a compiled plan is played from the plan; its
+        # dataset is then read for one purpose only, filling commit subjects
+        # back into the ledger — and that fill-in is refused above
+        # HYDRATE_MAX_BYTES, because it is one synchronous pass that would
+        # freeze the stage mid-performance. Every dataset above that limit is
+        # therefore published and never fetched by anybody.
+        #
+        # Measured on the current shelf that is 636 MB of 945 MB, which is not
+        # merely idle: it is most of the distance to the ceiling checked below.
+        #
+        # Only `dist` is pruned. The datasets stay where they are built,
+        # because they are what a plan is recompiled from when the choreography
+        # changes, and re-cloning Chromium to get one back is an hour nobody
+        # should spend.
+        run: node scripts/prune-catalog.mjs --dir dist/catalog --apply
+
       - name: Check the site against the Pages size limit
         # A published GitHub Pages site may be no larger than 1 GB, and the
         # catalog is nearly all of what this one weighs: measured on a full
