@@ -14,7 +14,11 @@ export default tseslint.config(
   // ignored it since it was added, but a flat config does not read nested
   // gitignores, so a `wrangler dev` running in the background puts its bundling
   // scratch — someone else's generated code — into this run.
-  { ignores: ['dist/**', 'dist-*/**', '.*-dist/**', 'node_modules/**', 'playwright-report/**', 'test-results/**', '**/.wrangler/**'] },
+  // `gt-*` are throwaway measurement scripts — already in .gitignore, so CI
+  // never sees them, but a local `eslint .` was failing on an unused import in
+  // a probe that had done its job an hour earlier and made the whole run look
+  // red. Nothing that cannot be committed should be able to fail the lint.
+  { ignores: ['dist/**', 'dist-*/**', '.*-dist/**', 'node_modules/**', 'playwright-report/**', 'test-results/**', '**/.wrangler/**', 'gt-*.mjs', 'gt-*.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
