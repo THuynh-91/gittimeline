@@ -45,6 +45,17 @@ export interface EventPlan {
   events: ChoreographyEvent[];
   landmarks: Landmark[];
   transcript: string[];
+  /**
+   * The most threads moving at the same instant, anywhere in the performance.
+   *
+   * Measured by the sweep that finds parallel phrases, because that sweep
+   * already knows — it just was not saying. The number shown on screen used to
+   * be `subjectIds.length` of the largest phrase, which is the *union* of every
+   * thread that phrase ever touched. On Linux that reported 108,690 of 109,030
+   * threads "moving at once", which is not a measurement of anything: the true
+   * peak is 458 and the average is 244.
+   */
+  peakConcurrentThreads: number;
 }
 
 export function fmtDate(ms: number | null | undefined): string {
@@ -308,6 +319,18 @@ export function buildEvents(ctx: EventContext): EventPlan {
   // --- Parallel phrases: windows with ≥2 concurrently moving performers ---
   const performerEdges = edges.filter((e) => e.body === 'performer').sort((a, b) => a.start - b.start);
   const parallelRuns: Array<{ start: number; end: number; max: number; threads: Set<number> }> = [];
+  let peakConcurrentThreads = 0;
+  /**
+   * How long a "phrase" is allowed to be before it stops being one.
+   *
+   * A run used to end only when fewer than two threads were moving. On a busy
+   * project that never happens — Linux averages 244 — so the run opened in the
+   * first seconds, closed at the end, and produced exactly one event spanning
+   * 43,196 of the performance's 43,200 seconds, carrying the union of every
+   * thread that had ever been active. An event covering everything distinguishes
+   * nothing, and 108,690 thread ids is a megabyte of plan saying so.
+   */
+  const MAX_PHRASE_SECONDS = 25;
   {
     const step = 0.1;
     let run: (typeof parallelRuns)[number] | null = null;
@@ -330,11 +353,25 @@ export function buildEvents(ctx: EventContext): EventPlan {
       // `duration / 0.1` steps.
       const active = new Set<number>();
       for (const e of open) if (e.start <= t) active.add(e.threadIdx);
+      if (active.size > peakConcurrentThreads) peakConcurrentThreads = active.size;
       if (active.size >= 2) {
         if (!run) run = { start: t, end: t, max: active.size, threads: new Set(active) };
         run.end = t;
-        run.max = Math.max(run.max, active.size);
-        active.forEach((a) => run!.threads.add(a));
+        if (active.size > run.max) {
+          // The subjects are the threads moving at the busiest instant of this
+          // phrase, not everything it ever saw. That is both the honest answer
+          // to "which threads" and the difference between an event carrying a
+          // couple of dozen ids and one carrying a hundred thousand.
+          run.max = active.size;
+          run.threads = new Set(active);
+        }
+        // A phrase that never ends is not a phrase. Cut it and start the next
+        // one immediately, so a long busy stretch reads as a run of phrases
+        // rather than as one twelve-hour blur.
+        if (run.end - run.start >= MAX_PHRASE_SECONDS) {
+          parallelRuns.push(run);
+          run = { start: t, end: t, max: active.size, threads: new Set(active) };
+        }
       } else if (run && t - run.end > 0.6) {
         parallelRuns.push(run);
         run = null;
@@ -375,7 +412,7 @@ export function buildEvents(ctx: EventContext): EventPlan {
   landmarks.sort((a, b) => a.time - b.time);
 
   const transcript = buildTranscript(events, ctx);
-  return { events, landmarks, transcript };
+  return { events, landmarks, transcript, peakConcurrentThreads };
 }
 
 /** Deterministic per-second budget: the most salient impacts keep full amplitude, the rest collapse to local pulses. */

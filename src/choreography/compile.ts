@@ -584,7 +584,11 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   }
 
   const refs = ds.refs.filter((r) => g.index.has(r.targetSha));
-  const maxConcurrentThreads = plan.events.filter((e) => e.type === 'PARALLEL_PHRASE').reduce((m, e) => Math.max(m, e.subjectIds.length), threads.length ? 1 : 0);
+  // Measured by the event sweep, which counts how many threads are moving at
+  // each step. This used to read `subjectIds.length` of the largest phrase —
+  // the *union* of every thread that phrase touched — and on Linux that put
+  // "up to 108,690 moving at once" on screen against a true peak of 458.
+  const maxConcurrentThreads = Math.max(plan.peakConcurrentThreads, threads.length ? 1 : 0);
 
   const warnings = [...ds.coverage.warnings];
   if (tc.largeCorrections.length) warnings.push(`${tc.largeCorrections.length} commit timestamp${tc.largeCorrections.length === 1 ? '' : 's'} corrected by more than a day to respect parent-before-child order.`);
