@@ -95,11 +95,38 @@ export function buildGraph(commits: CommitNode[]): GraphIndex {
   return { shas, index, parents, parentSlots, firstParent, children, roots, boundaries, topo, unknownParentCount };
 }
 
+/**
+ * When a commit happened, from the two stamps Git records.
+ *
+ * The author date is the right one to prefer: it is when the work was written,
+ * and an old patch applied today is honestly old. So a commit authored in 2010
+ * and committed in 2020 reads as 2010, and that is deliberate.
+ *
+ * But a commit cannot have been authored *after* it was committed. The
+ * committer stamp is written by the machine making the commit; the author
+ * stamp travels with a patch and is the one people mistype. Where the author
+ * date is the later of the two, it is the one that is wrong, and the earlier
+ * of the pair is the only defensible reading.
+ *
+ * This is not a tidy-up. Linux commit a27ac38efd6d — "[ACPI] fix merge error
+ * that broke CONFIG_ACPI_DEBUG=y build" — carries an author date of
+ * 2019-04-05 against a committer date of 2005-07-12: a typo of one digit in
+ * the year. Presentation time may only move forward, so that single stamp
+ * dragged every one of the 1.4 million commits after it past 2019, and the
+ * twelve-hour performance spent 6.9 of those hours inside the single calendar
+ * year 2019 while 2006 through 2018 shared about two minutes between them.
+ * Fourteen years of Linux had been folded into a point by one wrong character.
+ *
+ * It is rare, which is what makes it safe to act on: 143 commits of Linux's
+ * 1,481,850 have an author date more than a day after their committer date,
+ * and every other repository on the shelf is in single figures.
+ */
 export function rawTimeOf(c: CommitNode): number {
-  const a = c.authoredAtRaw ? Date.parse(c.authoredAtRaw) : NaN;
-  if (Number.isFinite(a)) return a;
-  const b = c.committedAtRaw ? Date.parse(c.committedAtRaw) : NaN;
-  if (Number.isFinite(b)) return b;
+  const authored = c.authoredAtRaw ? Date.parse(c.authoredAtRaw) : NaN;
+  const committed = c.committedAtRaw ? Date.parse(c.committedAtRaw) : NaN;
+  if (Number.isFinite(authored) && Number.isFinite(committed)) return Math.min(authored, committed);
+  if (Number.isFinite(authored)) return authored;
+  if (Number.isFinite(committed)) return committed;
   return NaN;
 }
 

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { waitForReady } from './helpers';
 
 /**
@@ -15,7 +15,7 @@ import { waitForReady } from './helpers';
  */
 
 /** What fraction of a grid of samples is brighter than the background? */
-async function inkedFraction(page: import('@playwright/test').Page): Promise<number> {
+async function inkedFraction(page: Page): Promise<number> {
   return page.evaluate(() => {
     const canvas = document.querySelector('canvas')!;
     const off = document.createElement('canvas');

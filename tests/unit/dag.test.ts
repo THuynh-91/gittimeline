@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { buildDataset, type RawCommitRecord } from '@/model/dataset';
-import { buildGraph } from '@/dag/graph';
+import { buildGraph, rawTimeOf } from '@/dag/graph';
 import { correctTimestamps } from '@/dag/time';
 import { selectSpine } from '@/dag/spine';
 import { assignThreads } from '@/dag/threads';
@@ -93,6 +93,64 @@ describe('DAG invariants (property-based)', () => {
       }),
       { numRuns: 60 },
     );
+  });
+
+  it('an author date later than its own committer date is not believed', () => {
+    // Linux commit a27ac38efd6d — "[ACPI] fix merge error that broke
+    // CONFIG_ACPI_DEBUG=y build" — is authored 2019-04-05 and committed
+    // 2005-07-12. One digit of the year is wrong, and nothing can be authored
+    // after it was committed.
+    //
+    // Presentation time may only move forward, so that single stamp used to
+    // drag all 1.4 million commits after it past 2019: the twelve-hour
+    // performance spent 6.9 hours inside the year 2019 while 2006 to 2018
+    // shared about two minutes between them. Fourteen years folded into a
+    // point by one character.
+    const commit = (authored: string | null, committed: string | null) =>
+      ({ authoredAtRaw: authored, committedAtRaw: committed }) as unknown as Parameters<typeof rawTimeOf>[0];
+
+    expect(rawTimeOf(commit('2019-04-05T05:07:45Z', '2005-07-12T04:12:09Z'))).toBe(Date.parse('2005-07-12T04:12:09Z'));
+
+    // An old patch applied today is honestly old — the author date is still
+    // preferred whenever it is the earlier of the two, which is the normal case.
+    expect(rawTimeOf(commit('2010-01-01T00:00:00Z', '2020-01-01T00:00:00Z'))).toBe(Date.parse('2010-01-01T00:00:00Z'));
+
+    // And either alone is still used when it is all there is.
+    expect(rawTimeOf(commit('2015-06-01T00:00:00Z', null))).toBe(Date.parse('2015-06-01T00:00:00Z'));
+    expect(rawTimeOf(commit(null, '2015-06-01T00:00:00Z'))).toBe(Date.parse('2015-06-01T00:00:00Z'));
+    expect(Number.isNaN(rawTimeOf(commit(null, null)))).toBe(true);
+  });
+
+  it('a mistyped author year does not drag the history after it', () => {
+    const at = (d: string) => new Date(`${d}T00:00:00Z`).toISOString();
+    // A 2005 chain whose third commit claims to have been authored in 2019.
+    const spec: Array<[string, string]> = [
+      ['2005-07-10', '2005-07-10'],
+      ['2005-07-11', '2005-07-11'],
+      ['2019-04-05', '2005-07-12'],
+      ['2005-07-13', '2005-07-13'],
+      ['2006-03-31', '2006-03-31'],
+    ];
+    const chain = spec.map(([a, c], i) => ({
+      sha: String(i).repeat(40),
+      parentShas: i === 0 ? [] : [String(i - 1).repeat(40)],
+      authorIdentityId: 'a',
+      committerIdentityId: null,
+      authoredAtRaw: at(a),
+      committedAtRaw: at(c),
+      presentationTime: 0,
+      messageSubject: `c${i}`,
+      messageBodyAvailable: false,
+      githubUrl: null,
+      flags: { isMerge: false, isBoundary: false, isTimeCorrected: false, isBot: false },
+    })) as unknown as Parameters<typeof buildGraph>[0];
+
+    const g = buildGraph(chain);
+    const tc = correctTimestamps(g, chain, Date.parse('2026-09-05T00:00:00Z'));
+    // The commit after it keeps 2005, and the one after that keeps 2006.
+    expect(new Date(tc.presentation[3]!).getUTCFullYear()).toBe(2005);
+    expect(new Date(tc.presentation[4]!).getUTCFullYear()).toBe(2006);
+    for (const t of tc.presentation) expect(new Date(t).getUTCFullYear()).toBeLessThan(2019);
   });
 
   it('a broken clock is not allowed to rewrite the commits after it', () => {
