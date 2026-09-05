@@ -248,14 +248,20 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
     const lastPage = first.link.lastPage ?? (first.link.next ? Infinity : 1);
     const wanted = Math.min(lastPage, maxPages);
     if (lastPage > maxPages) {
+      // Known in advance that this fetch will not reach the end — but that is
+      // a fact about the *result*, not a reason to stop now. Driving the loop
+      // off this flag ended the fetch after the first page and quietly
+      // returned a hundred commits wherever a page budget applied.
       truncated = true;
       warnings.push(`Stopped after ${maxPages} pages to stay within GitHub’s request limit; earlier history is not loaded.`);
     }
 
-    for (let next = 2; next <= wanted && !truncated; next += CONCURRENCY) {
+    let stop = false;
+    for (let next = 2; next <= wanted && !stop; next += CONCURRENCY) {
       check();
       if (!budgetLeft()) {
         truncated = true;
+        stop = true;
         warnings.push('Stopped before exhausting GitHub’s anonymous request limit; earlier history is not loaded.');
         break;
       }
@@ -272,6 +278,7 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
           if (err instanceof GitHubError && (err.kind === 'rate-limited' || err.kind === 'secondary-limit')) {
             rateLimitedAt = err.rate;
             truncated = true;
+            stop = true;
             warnings.push('GitHub’s request limit was reached mid-way; the performance covers the commits loaded so far.');
             break;
           }
@@ -284,10 +291,11 @@ export async function ingestRepository(repo: RepoRef, opts: IngestOptions): Prom
         if (!Array.isArray(res.data)) throw new GitHubError('malformed', 'Unexpected commit list from GitHub.');
         addCommits(res.data);
       }
-      if (truncated) break;
+      if (stop) break;
       report('expanding', `Mapping ${commits.size.toLocaleString('en-US')} known commits…`, displayName);
       if (commits.size >= LIMITS.maxCommits) {
         truncated = true;
+        stop = true;
         break;
       }
     }

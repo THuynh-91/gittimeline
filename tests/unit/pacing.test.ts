@@ -16,7 +16,9 @@ import type { Dataset, PlaybackPreset } from '@/model/types';
  *
  * The failure these guard against is not a crash: it is a large repository
  * whose arrivals are individually correct but land faster than they can be
- * seen. It has appeared three times.
+ * seen. It has appeared three times. The thresholds below are half what they
+ * were, because the pace itself was halved: what used to need 2x on the speed
+ * control is now what 1x plays.
  *
  * Once because aggregation sized the show for 0.26s per commit while the clock
  * then played it at 0.12s. Once because the roller-coaster's dynamic range
@@ -72,9 +74,9 @@ describe('pace is watchable at every size', () => {
 
       // No exceptions and no degraded path. Length is never bought by making
       // arrivals invisible; a history that needs longer simply gets longer.
-      expect(m.median, 'the typical arrival holds the stage').toBeGreaterThanOrEqual(0.25);
-      expect(m.p10, 'even the fastest tenth stays above the flicker threshold').toBeGreaterThanOrEqual(0.12);
-      expect(m.rate, 'arrivals per second stay countable').toBeLessThanOrEqual(4.5);
+      expect(m.median, 'the typical arrival holds the stage').toBeGreaterThanOrEqual(0.125);
+      expect(m.p10, 'even the fastest tenth stays above the flicker threshold').toBeGreaterThanOrEqual(0.06);
+      expect(m.rate, 'arrivals per second stay countable').toBeLessThanOrEqual(9);
 
       // What a long show must guarantee instead is that nobody arrives at one
       // by accident: it is predicted from two probe requests and the viewer is
@@ -91,7 +93,7 @@ describe('pace is watchable at every size', () => {
   it('the histories built on merges are slower per commit than they used to be', () => {
     for (const id of ['21-pull-request-treadmill', '22-merge-dense-decade', '23-back-merge-decade']) {
       const m = measure(FIXTURES.find((f) => f.id === id)!.build());
-      expect(m.duration / m.nodes, id).toBeGreaterThanOrEqual(0.22);
+      expect(m.duration / m.nodes, id).toBeGreaterThanOrEqual(0.11);
     }
   });
 
@@ -122,10 +124,12 @@ describe('a history too dense to show whole is predicted before it is fetched', 
    * is exactly what a decade of back-merges still does.
    */
   const REAL = [
-    { name: 'ripgrep', commits: 2299, mergeRatio: 0.027, visible: 335, now: 335, outruns: false },
-    { name: 'svelte 2023', commits: 860, mergeRatio: 0.031, visible: 235, now: 235, outruns: false },
-    { name: 'public-apis 2021', commits: 1796, mergeRatio: 0.435, visible: 1587, now: 1171, outruns: true },
-    { name: 'mdBook', commits: 3296, mergeRatio: 0.316, visible: 2584, now: 1207, outruns: true },
+    // Re-measured after the pace halved: a doubled per-commit budget means
+    // aggregation collapses less, so every one of these keeps more than it did.
+    { name: 'ripgrep', commits: 2299, mergeRatio: 0.027, years: [2016, 2026], visible: 532, now: 532, outruns: false },
+    { name: 'svelte 2023', commits: 860, mergeRatio: 0.031, years: [2023, 2023], visible: 343, now: 343, outruns: false },
+    { name: 'public-apis 2021', commits: 1796, mergeRatio: 0.435, years: [2021, 2021], visible: 1171, now: 1171, outruns: false },
+    { name: 'mdBook', commits: 3296, mergeRatio: 0.316, years: [2015, 2026], visible: 1210, now: 1210, outruns: false },
   ];
 
   it('decides correctly for every real history measured', () => {

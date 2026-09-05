@@ -30,19 +30,28 @@
  * legible pace, however long that takes, because it was chosen.
  */
 
-/** Stage time one visible commit needs to read as its own beat. */
-export const SECONDS_PER_NODE = 0.26;
-export const SECONDS_PER_NODE_REDUCED = 0.4;
+/**
+ * Stage time one visible commit gets.
+ *
+ * This was 0.26s, chosen as the point below which an arrival stops reading as
+ * its own beat — and watching it, the first thing anyone reached for was the
+ * speed control. A timelapse is not read commit by commit; the eye follows the
+ * shape. So the natural pace is what 2x used to be, and 1x means it: shows are
+ * half as long and the selector opens where it should.
+ */
+export const SECONDS_PER_NODE = 0.13;
+export const SECONDS_PER_NODE_REDUCED = 0.2;
 /** Head and tail reserved by the clock, excluded from the per-commit budget. */
 export const FRAME_SECONDS = 4.2;
 /**
  * The length past which a performance is long enough to ask about first.
  *
  * Not a cap. Nothing truncates a show to this; it is the threshold that turns
- * "here is your repository" into "this one is six minutes, do you want all of
- * it?".
+ * "here is your repository" into "this one is three minutes, do you want all
+ * of it?". It halved along with the pace, so the amount of *history* it
+ * corresponds to is unchanged.
  */
-export const LONG_PERFORMANCE_SECONDS = 360;
+export const LONG_PERFORMANCE_SECONDS = 180;
 
 /** Visible commits that fit inside that length at the legible pace. */
 export const MAX_LEGIBLE_NODES = Math.floor((LONG_PERFORMANCE_SECONDS - FRAME_SECONDS) / SECONDS_PER_NODE);
