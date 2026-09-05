@@ -463,5 +463,5 @@ for (const spec of SHIPPED) {
 
 await browser.close();
 writeIndex();
-console.log(`\n${entries.length} entries written, ${entries.filter((e) => e.logo).length} with a mark, ${entries.filter((e) => e.years).length} offering years`);
+console.log(`\n${entries.length} ${entries.length ? 'entries written' : 'entries — nothing written'}, ${entries.filter((e) => e.logo).length} with a mark, ${entries.filter((e) => e.years).length} offering years`);
 for (const s of skipped) console.log(`  skipped — ${s}`);
