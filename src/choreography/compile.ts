@@ -19,7 +19,7 @@ import { assignThreads } from '@/dag/threads';
 import { aggregateHistory } from '@/analysis/aggregate';
 import { analyzeActivity } from '@/analysis/activity';
 import { buildClock, mapMonotone, CLOCK_HEAD, CLOCK_TAIL, type ClockItem } from './clock';
-import { MAX_PERFORMANCE_SECONDS, SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
+import { SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './pace';
 import { layoutGraph, routeAlongLane, routeCurve, X_PER_SECOND, type ThreadLayoutInput } from '@/layout/layout';
 import { buildEvents } from './events';
 import { planCamera } from './camera';
@@ -176,6 +176,21 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // 0.26s a commit and the clock then played it at 0.12s — so every large
   // repository ran at over twice the pace it had been collapsed for.
   const perNode = reducedMotion ? SECONDS_PER_NODE_REDUCED : SECONDS_PER_NODE;
+  // Collapse for the show that will actually be played, not the one that was
+  // asked for.
+  //
+  // `targetSeconds` is uncapped, and the length is capped afterwards — so a
+  // very large history was aggregated for a nine-hour performance and then
+  // played in thirty-five minutes. Linux kept 332,279 nodes and delivered them
+  // at 158 arrivals a second; Rust 118. The suite asserts nine. Every one of
+  // those arrivals was individually correct and the result was a blur, which
+  // is exactly the failure the aggregation budget exists to prevent — the
+  // ceiling had quietly reintroduced it from the other side.
+  //
+  // A ceiling on length is therefore also a ceiling on how much can be shown.
+  // Capping the budget too means a history too big for thirty-five minutes is
+  // collapsed harder rather than played faster: fewer ribbons, each still
+  // counted and still exact, and each arrival still gets its beat.
   const visibleBudget = Math.max(40, Math.min(opts.preset.aggregateAbove, Math.round((targetSeconds - HEAD - TAIL) / perNode)));
   const agg = aggregateHistory({
     g,
@@ -282,7 +297,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   const paced =
     opts.preset.targetDuration > 0
       ? targetSeconds
-      : Math.min(MAX_PERFORMANCE_SECONDS, Math.max(targetSeconds, HEAD + TAIL + visible.length * perNode));
+      : Math.max(targetSeconds, HEAD + TAIL + visible.length * perNode);
   const clock = buildClock(items, paced, reducedMotion);
 
   onProgress('layout');

@@ -36,7 +36,25 @@ const MERGE_ANTICIPATION = 2.6;
 export function planCamera(input: CameraPlanInput): CameraCue[] {
   const { nodes, edges, events, duration, reducedMotion } = input;
   const cues: CameraCue[] = [];
-  const steps = Math.ceil(duration / CAMERA_STEP) + 1;
+  // How finely to keyframe the camera.
+  //
+  // 0.05s is the resolution the motion deserves, and on a normal history that
+  // is what it gets. It stops being affordable at length: a nine-hour
+  // performance at that step is 645,561 cues to plan, smooth and carry, and
+  // that cost — not anything about watchability — was the reason a hard
+  // thirty-five minute ceiling briefly existed. Capping the *length* to make
+  // the camera affordable is solving the wrong problem; a show should be as
+  // long as its history honestly needs.
+  //
+  // So the step stretches instead. Past the budget the camera is keyframed
+  // more coarsely and interpolated between, which is what it already does
+  // between cues — the frames are smoothed and fitted to a screen, and at
+  // these lengths the camera is moving slowly enough that a coarser grid is
+  // indistinguishable. Nothing about the history is affected: this is how
+  // often the camera is *asked* where to look, not what it finds.
+  const MAX_CUES = 60_000;
+  const step = Math.max(CAMERA_STEP, duration / MAX_CUES);
+  const steps = Math.ceil(duration / step) + 1;
 
   const merges = events.filter((e) => e.type === 'MERGE_IMPACT' || e.type === 'MAJOR_MERGE' || e.type === 'OCTOPUS_MERGE');
   const splits = events.filter((e) => e.type === 'DIVERGENCE');
@@ -85,7 +103,7 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
   const tmp = { x: 0, y: 0 };
 
   for (let s = 0; s < steps; s++) {
-    const t = s * CAMERA_STEP;
+    const t = s * step;
     // maintain the set of edges that are or will shortly be active
     while (edgePtr < sortedEdges.length && sortedEdges[edgePtr]!.start <= t + LOOK_AHEAD) open.push(sortedEdges[edgePtr++]!);
     // Swap-remove rather than splice. `open` is unordered as far as this loop
@@ -129,13 +147,33 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     // Below the budget nothing is sampled and nothing changes.
     const BUDGET = 2000;
     const stride = open.length > BUDGET ? Math.ceil(open.length / BUDGET) : 1;
-    for (let oi = 0; oi < open.length; oi += stride) {
+    for (let oi = 0; oi < open.length; oi++) {
       const e = open[oi]!;
+      // Every live edge contributes its own endpoints, with no stride at all.
+      //
+      // The stride below samples where a body has travelled *to*, which is an
+      // interpolation along a curve and costs a `pointAt`. Skipping some of
+      // those is safe: the frame is smoothed and then fitted, so a few
+      // in-between positions change nothing measurable.
+      //
+      // Skipping an edge entirely is not safe, and this is where the sampling
+      // was wrong. A thread that opened between two sampled indices never
+      // entered the bounding box at all, so the camera framed a box that did
+      // not contain it and the new thread played off the side of the screen —
+      // exactly the threads a viewer is most likely to be watching. The
+      // endpoints are two array reads and no curve evaluation, so including
+      // all of them costs almost nothing and makes the box complete by
+      // construction.
+      const pts = e.pts;
+      include(pts[0]!, pts[1]!);
+      include(pts[pts.length - 2]!, pts[pts.length - 1]!);
+      if (e.start <= t && e.end >= t && e.body === 'performer') threadsActive.add(e.threadIdx);
+
+      if (oi % stride !== 0) continue;
       if (e.start <= t && e.end >= t) {
         const u = (t - e.start) / Math.max(1e-6, e.end - e.start);
         pointAt(e.pts, u, tmp);
         include(tmp.x, tmp.y);
-        if (e.body === 'performer') threadsActive.add(e.threadIdx);
       }
       // near-future position, so the frame leads the movement
       const ahead = Math.min(e.end, t + LOOK_AHEAD);
@@ -145,6 +183,7 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
         include(tmp.x, tmp.y);
       }
     }
+
     // The primary spine is the anchor: keep its newest landed node in frame.
     const anchor = spineNodes[spinePtr];
     if (anchor && anchor.impact <= t) include(anchor.x, anchor.y);
@@ -251,8 +290,8 @@ export function planCamera(input: CameraPlanInput): CameraCue[] {
     const spring = (pos: number, vel: number, target: number, p: number): [number, number] => {
       const w0 = (2 * Math.PI) / p;
       const acc = w0 * w0 * (target - pos) - 2 * w0 * vel;
-      const v = vel + acc * CAMERA_STEP;
-      return [pos + v * CAMERA_STEP, v];
+      const v = vel + acc * step;
+      return [pos + v * step, v];
     };
     [cx, vx] = spring(cx, vx, tx, period);
     [cy, vy] = spring(cy, vy, ty, period);
@@ -294,7 +333,12 @@ function round(v: number, p = 2): number {
 /** Sample the cue list at time t (linear between cues; punch smoothed by the renderer). */
 export function sampleCamera(cues: CameraCue[], t: number): CameraCue {
   if (!cues.length) return { time: t, x: 0, y: 0, w: 600, h: 400, rotation: 0, punch: 1, reasonEventId: null, state: 'intimate' };
-  const f = Math.max(0, Math.min(cues.length - 1, t / CAMERA_STEP));
+  // The grid the cues were laid on, read from the cues rather than assumed.
+  // `planCamera` stretches it on a long performance, and a sampler using the
+  // nominal constant would then read the wrong cue — the camera would race
+  // through its plan and stop moving partway.
+  const step = cues.length > 1 ? cues[1]!.time - cues[0]!.time : CAMERA_STEP;
+  const f = Math.max(0, Math.min(cues.length - 1, t / Math.max(1e-6, step)));
   const i = Math.floor(f);
   const a = cues[i]!;
   const b = cues[Math.min(cues.length - 1, i + 1)]!;

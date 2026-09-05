@@ -2221,10 +2221,18 @@ kbd {
    It also solves the case that prompted this — an entry with no thumbnail is
    now a dark poster rather than a large panel of hatching demanding to know
    why it is empty. */
+/* Three hundred was the height while the slot held ripgrep and there was
+   nothing under the counts. Linux moved into it carrying a wait long enough to
+   be worth naming, and the warning that comes with one is four lines — which
+   made the body as tall as the whole card, so `flex-end` had nothing to push
+   it down past and every word of it sat over the brightest part of the frame.
+   The card is now taller than the words it has to hold, which is what the
+   design assumed all along and only stopped being true when the largest entry
+   on the shelf became one that could be opened. */
 .catalog-card.featured {
   flex-direction: column;
   position: relative;
-  min-height: 300px;
+  min-height: 430px;
   justify-content: flex-end;
   overflow: hidden;
 }
@@ -2238,21 +2246,29 @@ kbd {
   z-index: 0;
 }
 
+/* Dimmer than it was, because a frame of Linux is not only a texture — it has
+   words drawn into it. The renderer letters the big convergences on the stage
+   itself ("32 commits converge", half a dozen of them across this frame), and
+   type over type is the one thing a backdrop must not be: at half opacity the
+   card's own slug line was reading against a caption baked into the picture
+   behind it. */
 .catalog-card.featured .catalog-shot img {
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .catalog-card.featured:hover .catalog-shot img {
-  opacity: 0.62;
+  opacity: 0.5;
 }
 
 /* The words need a floor to stand on, not a veil over the whole frame: the
-   picture stays legible at the top and hands over to ink where the type is. */
+   picture stays legible at the top and hands over to ink where the type is.
+   The handover is higher and steeper than it was, for the same reason as the
+   height above — the body it has to cover grew by a four-line warning. */
 .catalog-card.featured .catalog-shot::after {
   inset: 0;
   width: auto;
   height: auto;
-  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.9) 26%, rgba(9, 11, 17, 0.55) 52%, rgba(9, 11, 17, 0.2) 76%, rgba(9, 11, 17, 0.06) 100%);
+  background: linear-gradient(to top, rgba(9, 11, 17, 0.97) 0%, rgba(9, 11, 17, 0.93) 52%, rgba(9, 11, 17, 0.72) 70%, rgba(9, 11, 17, 0.28) 86%, rgba(9, 11, 17, 0.05) 100%);
 }
 
 .catalog-card.featured .catalog-body {
@@ -2468,7 +2484,12 @@ kbd {
   inset: 0;
   z-index: 8;
   overflow-y: auto;
-  background: radial-gradient(ellipse at 50% 0%, rgba(7, 8, 12, 0.82), rgba(7, 8, 12, 0.95) 70%);
+  /* Linear, not radial. This was an ellipse centred at 50% and it is the last
+     one anywhere in the app — every other centred gradient has come out
+     already, and each time the complaint about "a dark circle in the middle"
+     came back because another one was still there. A vertical fade does the
+     same job of settling the page behind the cards and has no centre to find. */
+  background: linear-gradient(to bottom, rgba(7, 8, 12, 0.86) 0%, rgba(7, 8, 12, 0.93) 45%, rgba(7, 8, 12, 0.96) 100%);
 }
 
 .page-inner {

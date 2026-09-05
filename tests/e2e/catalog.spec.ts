@@ -56,17 +56,24 @@ test.describe('pre-fetched catalog', () => {
     }, '/');
     if (!index) test.skip(true, 'no catalog built into this bundle');
 
+    // `HEAD`, and the variable has always said so. A `GET` here asked for the
+    // body of every artifact on the shelf, which was 85 MB while the shelf
+    // stopped at LLVM and became 981 MB the moment Linux, Rust and Chromium
+    // could be opened and joined it — a gigabyte pulled through the page to
+    // establish twelve status codes, and a minute is not long enough to do it
+    // in. What is being asserted is that the file is there and served, and a
+    // `HEAD` is that assertion with none of the download.
+    const fetched = (f: string) => page.evaluate(async (u) => (await fetch(`/catalog/${u}`, { method: 'HEAD' })).status, f);
+
     for (const e of index.entries) {
-      const head = await page.evaluate(async (f) => (await fetch(`/catalog/${f}`)).status, e.file);
-      expect(head, `${e.slug} artifact is served`).toBe(200);
+      expect(await fetched(e.file), `${e.slug} artifact is served`).toBe(200);
       // A card with a broken image is worse than a card with none, so a
       // thumbnail that is *claimed* has to resolve. Claiming none is allowed:
       // capturing a frame means compiling the whole history in a browser, and
       // the largest of these take minutes, so the card falls back to a drawn
       // placeholder rather than the entry falling out of the catalog.
       if (e.poster) {
-        const shot = await page.evaluate(async (f) => (await fetch(`/catalog/${f}`)).status, e.poster);
-        expect(shot, `${e.slug} thumbnail is served`).toBe(200);
+        expect(await fetched(e.poster), `${e.slug} thumbnail is served`).toBe(200);
       }
       expect(e.posterBytes, `${e.slug} thumbnail is small enough for a landing page`).toBeLessThan(120_000);
       // The owner's logo is under the same rule as the thumbnail, and for a
@@ -74,8 +81,16 @@ test.describe('pre-fetched catalog', () => {
       // is not a local file cannot be a logo at all. Claiming one that does not
       // resolve would put a broken image on the page that promises no requests.
       if (e.logo) {
-        const mark = await page.evaluate(async (f) => (await fetch(`/catalog/${f}`)).status, e.logo);
-        expect(mark, `${e.slug} logo is served`).toBe(200);
+        expect(await fetched(e.logo), `${e.slug} logo is served`).toBe(200);
+      }
+      // A claimed plan is the one field on a card that is a promise about the
+      // click rather than a description of the repository: it is what the card
+      // quotes as the cost of opening, and it is what says the wait is a
+      // download rather than a compile. An index naming a plan that is not
+      // served would put a size on the card that nothing is going to charge.
+      if (e.plan) {
+        expect(await fetched(e.plan), `${e.slug} plan is served`).toBe(200);
+        expect(e.planBytes, `${e.slug} says what its plan weighs`).toBeGreaterThan(1000);
       }
       expect(e.commits, `${e.slug} has commits`).toBeGreaterThan(0);
       expect(e.bytes, `${e.slug} has bytes`).toBeGreaterThan(1000);

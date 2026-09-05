@@ -114,17 +114,16 @@ export function willOutrunTheCeiling(commits: number | null, mergeRatio: number 
 
 
 /**
- * The longest a performance may run.
+ * There is no ceiling on length, and there was one briefly.
  *
- * Not a taste judgement — a measured limit. Rust's whole history leaves 248,298
- * nodes after aggregation, and giving each a readable moment came to 32,278
- * seconds: a nine-hour performance. Beyond being unwatchable it is unbuildable,
- * because the camera is keyframed every `CAMERA_STEP` and nine hours is 645,561
- * keyframes to plan, smooth and carry in memory. Planning Rust's camera alone
- * took twenty-eight minutes.
+ * It was thirty-five minutes, and the argument for it was not that a long show
+ * is unwatchable — it was that a very long one is unbuildable: the camera is
+ * keyframed every `CAMERA_STEP`, and nine hours of Rust came to 645,561 cues
+ * to plan, smooth and carry.
  *
- * Thirty-five minutes is where a history stops being something you watch and
- * starts being something you leave running, which is the point at which
- * stretching further buys nothing. Anything under it is unaffected.
+ * That is a reason to keyframe more coarsely, not a reason to lie about how
+ * long a history is. `planCamera` stretches its grid past a budget now, so the
+ * cost is bounded without the length being. A show is as long as its history
+ * honestly needs; a viewer who wants a shorter one picks a span, and the span
+ * says what it left out.
  */
-export const MAX_PERFORMANCE_SECONDS = 35 * 60;
