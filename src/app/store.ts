@@ -61,6 +61,15 @@ export interface Settings {
    */
   showRail: boolean;
   showControls: boolean;
+  /**
+   * The nameplate riding the end of the main line.
+   *
+   * On by default: the straight ivory line is what every other thing on the
+   * stage is described relative to, and a first-time viewer has no way to know
+   * which one it is. Once you do, it is one more object between you and the
+   * picture, so it comes off.
+   */
+  showSpineLabel: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dynamics: 'dramatic',
   labels: 'landmarks',
   showGlyphs: true,
+  showSpineLabel: true,
   autoCamera: true,
   quality: 'full',
   includeBranches: true,

@@ -26,6 +26,7 @@ export interface RenderSettings {
   hoverNode: number | null;
   selectedThread: number | null;
   showGlyphs: boolean;
+  showSpineLabel: boolean;
   /** Screen-space safe insets (top chrome, bottom timeline). */
   safe: { top: number; bottom: number; left: number; right: number };
 }
@@ -273,6 +274,7 @@ export class StageRenderer {
     hoverNode: null,
     selectedThread: null,
     showGlyphs: true,
+    showSpineLabel: true,
     safe: { top: 56, bottom: 150, left: 24, right: 24 },
   };
   manual: ManualCamera | null = null;
@@ -2126,7 +2128,7 @@ export class StageRenderer {
     // another label and never gets skipped for overlapping.
     const spine = p.threads[0];
     const spineBegun = spine && spine.nodeIdxs.length > 0 && p.nodes[spine.nodeIdxs[0]!]!.impact <= t;
-    if (spine && spine.label && spineBegun && labels !== 'minimal') {
+    if (spine && spine.label && spineBegun && labels !== 'minimal' && this.settings.showSpineLabel) {
       const text = spine.label.toUpperCase();
       ctx.save();
       ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -2147,7 +2149,9 @@ export class StageRenderer {
       // compiler emits, and measured on Kubernetes the two were a flat 374px
       // apart at every depth in the performance.
       const lineY = head.y;
-      const GAP = 25;
+      // Twice what it was. At 25 the plate read as attached to the line —
+      // close enough to be part of the stroke rather than a label on it.
+      const GAP = 50;
       // Held on the stage when the head has run off it, which is the usual
       // case on a long history: the camera frames the work and the line
       // continues past the edge, so the plate waits at the margin.

@@ -238,6 +238,17 @@ function SettingsPanel() {
         onChange={(v) => { updateSettings({ labels: v ? 'landmarks' : 'minimal' }); applySettingsToRuntime(); }}
         testId="labels-toggle"
       />
+      {/* Sits under "notes on the history" because it is the same kind of
+          thing — something written onto the picture rather than part of it —
+          but it is its own switch: the branch names and the merge captions
+          come and go all over the stage, while this one object is always in
+          the same place and some people will want exactly it gone. */}
+      <Toggle
+        label="Name the main line"
+        value={s.showSpineLabel}
+        onChange={(v) => { updateSettings({ showSpineLabel: v }); applySettingsToRuntime(); }}
+        testId="spine-label-toggle"
+      />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
       <Toggle label="High contrast" value={s.highContrast} onChange={(v) => { updateSettings({ highContrast: v }); applySettingsToRuntime(); }} />
 

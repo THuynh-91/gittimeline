@@ -295,6 +295,7 @@ function syncRendererSettings() {
     // its light; it just stops talking over the page.
     labels: shopWindow ? 'minimal' : s.labels,
     showGlyphs: s.showGlyphs,
+    showSpineLabel: s.showSpineLabel,
     contributorFocus: store.contributorFocus.value,
     selectedNode: store.selectedNode.value,
     hoverNode: store.hoverNode.value,
