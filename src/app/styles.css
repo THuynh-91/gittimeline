@@ -1218,6 +1218,18 @@ a {
   display: flex;
   gap: 2px;
   height: 38px;
+  /* The track owns the gesture. Without this a drag scrolls the dialog on a
+     touch screen instead of choosing years. */
+  touch-action: none;
+}
+
+.scope-track.dragging {
+  cursor: ew-resize;
+}
+
+.scope-track.dragging .scope-year {
+  /* Nothing follows the pointer during a drag except the selection itself. */
+  transition: none;
 }
 
 .scope-year {
@@ -1728,6 +1740,32 @@ a {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+}
+
+/* The scope dialog's two actions sit at opposite ends: start at the left where
+   the reading finishes, leave at the right where a dismiss belongs. */
+.scope-actions {
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.scope-close {
+  transition:
+    color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+    background 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Red only on hover, and only on the border and the word.
+   Filling it would make leaving look like the destructive option, which it is
+   not — nothing is lost by closing, the shelf is still there. This is the
+   colour saying "this is the way out", not "are you sure". */
+.scope-close:hover,
+.scope-close:focus-visible {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 kbd {

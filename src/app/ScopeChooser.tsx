@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { store, type CatalogQuestion } from './store';
 import { chooseScope, chooseCatalogSpan, dismissScope, cancel } from './controller';
 import { legibleSecondsFor, predictVisible } from '@/choreography/pace';
@@ -82,6 +82,51 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
     setTo(y);
     setPending(false);
   };
+
+  // Dragging across the track picks a range in one gesture, and clicking two
+  // years still does. Both, because they suit different intents: a drag is for
+  // "roughly this stretch", and two clicks are for "exactly 2014 to 2019" —
+  // and two clicks are what a keyboard has anyway.
+  //
+  // The gesture is judged on release rather than on press. Pressing does not
+  // change the selection; if the pointer never reaches a different year it was
+  // a click and goes through `pick`, and if it does, it was a drag and the two
+  // ends are the year pressed and the year under the pointer. Deciding on
+  // press instead would make every drag start by destroying the selection the
+  // drag was about to replace, which flickers.
+  const anchor = useRef<number | null>(null);
+  const dragged = useRef(false);
+  const [dragging, setDragging] = useState(false);
+  // Pointer capture sends every subsequent event to the track, so the year
+  // under the pointer has to be found by hit-testing rather than read off the
+  // event's target.
+  const yearAt = (clientX: number, clientY: number): number | null => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const btn = el instanceof Element ? el.closest<HTMLElement>('[data-year]') : null;
+    return btn ? Number(btn.dataset.year) : null;
+  };
+  const onDown = (e: PointerEvent) => {
+    const y = yearAt(e.clientX, e.clientY);
+    if (y == null) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    anchor.current = y;
+    dragged.current = false;
+    setDragging(true);
+  };
+  const onMove = (e: PointerEvent) => {
+    if (anchor.current == null) return;
+    const y = yearAt(e.clientX, e.clientY);
+    if (y == null || y === anchor.current) return;
+    dragged.current = true;
+    setFrom(Math.min(anchor.current, y));
+    setTo(Math.max(anchor.current, y));
+    setPending(false);
+  };
+  const onUp = () => {
+    if (anchor.current != null && !dragged.current) pick(anchor.current);
+    anchor.current = null;
+    setDragging(false);
+  };
   return (
     <div
       class="prelude"
@@ -107,14 +152,23 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
               fact about the compiler, offered to somebody deciding how to
               spend an evening. How long, how big, how soon: that is the whole
               question at this point. */}
-          {runtime(q.durationSeconds)} long, {size} to download.
-          {years.length > 1 && <> Any stretch of it costs the same download.</>}
+          {runtime(q.durationSeconds)} long, {size}{import.meta.env.VITE_CATALOG_BASE ? ' in the complete package. Only the sections you watch are downloaded.' : ' to download.'}
+          {!import.meta.env.VITE_CATALOG_BASE && years.length > 1 && <> Any stretch of it costs the same download.</>}
           {q.openSeconds != null && q.openSeconds >= 5 && <> About {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
         </p>
 
         {years.length > 1 && lo != null && hi != null && (
           <div class="scope-range">
-            <div class="scope-track" role="group" aria-label="Choose a range of years" data-testid="scope-track">
+            <div
+              class={`scope-track${dragging ? ' dragging' : ''}`}
+              role="group"
+              aria-label="Choose a range of years — click two, or drag across"
+              data-testid="scope-track"
+              onPointerDown={onDown}
+              onPointerMove={onMove}
+              onPointerUp={onUp}
+              onPointerCancel={onUp}
+            >
               {years.map((y) => {
                 const inside = y >= lo && y <= hi;
                 return (
@@ -133,7 +187,14 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
                     aria-pressed={inside}
                     aria-label={`${y}, ${runtime(secondsOf(y))}`}
                     title={`${y} · ${runtime(secondsOf(y))}`}
-                    onClick={() => pick(y)}
+                    data-year={y}
+                    // The pointer path handles mouse and touch; this is left for
+                    // the keyboard, where Enter and Space raise a click with no
+                    // pointer sequence behind it.
+                    onClick={(e) => {
+                      if (e.detail !== 0) return;
+                      pick(y);
+                    }}
                     data-testid={`scope-year-${y}`}
                   >
                     <span>{String(y).slice(2)}</span>
@@ -164,7 +225,11 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
           </div>
         )}
 
-        <div class="btn-row">
+        {/* The way out sits opposite the way in, at the far corner. Beside
+            the primary it is a second thing to read before choosing; pushed to
+            the other end it is where a dialog's dismiss has always been, and
+            the eye stops passing over it on the way to the button that matters. */}
+        <div class="btn-row scope-actions">
           <button
             type="button"
             class="btn primary"
@@ -173,8 +238,8 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
           >
             {whole || lo == null ? `Watch everything · ${runtime(q.durationSeconds)}` : `Watch ${chosen} · ${runtime(chosenSecs)}`}
           </button>
-          <button type="button" class="btn" onClick={dismissScope} data-testid="scope-cancel">
-            Not this one
+          <button type="button" class="btn scope-close" onClick={dismissScope} data-testid="scope-cancel">
+            Close
           </button>
         </div>
       </div>
