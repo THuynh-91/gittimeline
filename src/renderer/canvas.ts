@@ -790,7 +790,60 @@ export class StageRenderer {
       cx: cue.x,
       cy: cue.y,
     };
+    // The head of the main line is kept between three fifths and seven tenths
+    // of the way across.
+    //
+    // The director composes a shot around the phrase it is playing, and that
+    // is frequently nowhere near the end of the spine: measured on a seek into
+    // CPython, every travelling body sat about five thousand pixels off the
+    // left of the frame, and on Kubernetes a fifth of them were off the left
+    // edge deep into the performance. The main line is the thing everything
+    // else is described relative to, so losing it is not a framing choice.
+    //
+    // A band and not a fixed column, so the director still composes freely
+    // whenever the head is already somewhere sensible; the camera only moves
+    // when the head would otherwise leave the band, and then only far enough
+    // to bring it back to the near edge. Applied after the cue so the shot's
+    // scale, rotation and vertical framing are untouched — this is a
+    // horizontal correction and nothing else.
+    const head = this.spineHead(t);
+    if (head && this.view.scale > 0) {
+      const lo = this.width * 0.6;
+      const hi = this.width * 0.7;
+      const sx = this.worldToScreen(head.x, head.y).x;
+      if (sx < lo || sx > hi) this.view.cx += (sx - (sx < lo ? lo : hi)) / this.view.scale;
+    }
   }
+
+  /**
+   * The newest commit on the main line that has landed.
+   *
+   * Binary search, because the spine can be a third of a million commits, and
+   * cached for the frame because both the camera and the nameplate want it.
+   */
+  private spineHead(t: number): NodeGeom | null {
+    const p = this.perf;
+    const spine = p?.threads[0];
+    if (!p || !spine || !spine.nodeIdxs.length) return null;
+    if (this.headFrame === this.frameCounter && this.headAt === t) return this.headNode;
+    let lo = 0;
+    let hi = spine.nodeIdxs.length - 1;
+    let at = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
+        at = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    this.headFrame = this.frameCounter;
+    this.headAt = t;
+    this.headNode = at >= 0 ? p.nodes[spine.nodeIdxs[at]!]! : null;
+    return this.headNode;
+  }
+  private headFrame = -1;
+  private headAt = NaN;
+  private headNode: NodeGeom | null = null;
 
   /**
    * Edges touching the current horizontal view, in the compiler's draw order.
@@ -1982,19 +2035,9 @@ export class StageRenderer {
       const track = 1.4;
       const padX = 7;
       const boxW = w + track * (text.length - 1) + padX * 2;
-      // The head of the line: the newest spine commit that has landed. Found
-      // rather than walked to — the spine can be a third of a million commits.
-      let lo = 0;
-      let hi = spine.nodeIdxs.length - 1;
-      let at = 0;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
-          at = mid;
-          lo = mid + 1;
-        } else hi = mid - 1;
-      }
-      const onLine = p.nodes[spine.nodeIdxs[at]!]!;
+      // The same head the camera framed, so the plate cannot disagree with the
+      // shot it is standing in.
+      const onLine = this.spineHead(t) ?? p.nodes[spine.nodeIdxs[0]!]!;
       const head = this.worldToScreen(onLine.x, onLine.y);
       // Its height is read off that commit, not from `spineY`: that returns a
       // constant 0 and describes the layout's intent — "the primary spine is a
@@ -2045,6 +2088,16 @@ export class StageRenderer {
         cx += ctx.measureText(ch).width + track;
       }
       ctx.restore();
+      // Claim the ground it stands on.
+      //
+      // This one is drawn directly rather than through `place()`, because it
+      // never yields and never gets skipped — but not going through `place()`
+      // also meant it never told `place()` it was there, so every later
+      // caption happily wrote across it. Every run produced at least one, and
+      // the result reads as a rendering fault: "21 merged branches · 49
+      // commiMAIN". Registering the box costs nothing and makes the captions
+      // route around the one label that cannot move.
+      drawn.push({ x: x - 4, y, w: boxW + 8 });
       this.mainLabelAt = { x, y };
     } else this.mainLabelAt = null;
     // how much converged, on the merges big enough to warrant saying so
