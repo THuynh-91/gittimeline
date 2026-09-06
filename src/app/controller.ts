@@ -41,6 +41,27 @@ let windowGeneration = 0;
 let windowPending = false;
 let committingSeek = false;
 
+/**
+ * What to put in front of a viewer when an interval will not load.
+ *
+ * The worker's own refusals are written for people — "This interval is missing
+ * from the catalog.", "This view contains too much detail. Zoom in and retry."
+ * — and are shown as they are. A network failure is not written for anybody:
+ * `fetch` rejects with `TypeError: Failed to fetch` in Chromium, `NetworkError
+ * when attempting to fetch resource.` in Firefox and `Load failed` in WebKit.
+ * Putting one of those on screen answers "my wifi dropped" with a fragment of
+ * a specification.
+ *
+ * Found by pulling the network out mid-performance: the banner read
+ * "Failed to fetch" beside a Retry button.
+ */
+function intervalError(error: unknown): string {
+  const raw = error instanceof Error ? error.message.trim() : '';
+  const platform = /failed to fetch|networkerror|load failed|network ?request ?failed|fetch failed|^err_|the operation was aborted/i.test(raw);
+  if (!raw || platform) return 'That stretch of the history could not be downloaded. Check your connection and try again.';
+  return raw;
+}
+
 async function prepareCatalogWindow(t: number, manual = false) {
   const source = catalogSource;
   if (!source) return;
@@ -104,7 +125,7 @@ async function prepareCatalogWindow(t: number, manual = false) {
   } catch(error) {
     if(source!==catalogSource||generation!==windowGeneration)return;
     player.pause();
-    store.banner.value={kind:'info',message:error instanceof Error?error.message:'Could not load this interval.',action:{label:'Retry',run:()=>void prepareCatalogWindow(t,manual)}};
+    store.banner.value={kind:'info',message:intervalError(error),action:{label:'Retry',run:()=>void prepareCatalogWindow(t,manual)}};
   } finally {
     if(source===catalogSource&&generation===windowGeneration){windowPending=false;store.buffering.value=false;syncAudioToPlayback();}
   }
