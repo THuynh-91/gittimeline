@@ -14,7 +14,7 @@ export type Provenance = 'exact' | 'derived' | 'aggregate' | 'estimated' | 'unkn
 export const ENGINE = {
   modelSchemaVersion: 1,
   analyzerVersion: 3,
-  layoutVersion: 5,
+  layoutVersion: 4,
   choreographyVersion: 6,
 } as const;
 

@@ -228,17 +228,7 @@ export function layoutGraph(threads: ThreadLayoutInput[], impact: Float64Array, 
     const span = Math.max(1, lay.xEnd - lay.xStart);
     const u = Math.max(0, Math.min(1, (px - lay.xStart) / span));
     const bulge = lay.bulge * Math.sin(Math.PI * u);
-    // Lanes are counted from one, not from zero.
-    //
-    // At zero the first lane on each side resolved to `side * bulge` — twelve
-    // pixels off the spine at the very most, and exactly zero at both ends of
-    // the thread, where the bulge vanishes. So every lane-0 branch was drawn
-    // along the main line rather than beside it: touching it where it began
-    // and ended, and never further than a hairline from it in between. On a
-    // repository with hundreds of threads open at once that is most of the
-    // picture laid over the one line everything else is meant to be read
-    // against.
-    return spineY(px) + lay.side * ((lay.lane + 1) * LANE_GAP + bulge);
+    return spineY(px) + lay.side * (lay.lane * LANE_GAP + bulge);
   };
 
   for (const t of threads) for (const id of t.nodeIds) y[id] = laneY(t.idx, x[id]!);

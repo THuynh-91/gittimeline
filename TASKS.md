@@ -64,12 +64,36 @@ Find out why before rebuilding. Suspect the aggregate pass and the merge-ratio
 input to it: `mergeRatio` decides how much can be gathered without hiding
 topology, and a linear history collapses where a pull-request one does not.
 
-**A2. Lane spacing — done, needs the rebuild to reach the shelf.**
-Lanes counted from zero put every lane-0 branch at `side * bulge` — twelve
-pixels off the spine at most, and exactly zero at each end of the thread. They
-were drawn *along* the main line. Counted from one now; nearest branch on the
-demo went from ~0 to 91px. `layoutVersion` 4 → 5, which is what invalidates the
-catalog built on 2026-09-06.
+**A2. Lane spacing — investigated, nothing to fix here, and the reason is
+worth keeping.**
+
+The theory was that lanes counted from zero put a branch at `side * bulge` —
+twelve pixels off the spine at most — and so drew it along the main line.
+**That does not happen.** `lane` starts at `minLane`, and `minLane` is 1 for a
+branch off the spine and higher for a branch off a branch; lane 0 is never
+assigned to anything but the spine itself. The change was made, measured, and
+reverted, along with its `layoutVersion` bump.
+
+What is actually within a few pixels of the main line, counted by edge kind:
+
+| | |
+| ---: | --- |
+| 3 | divergence, at its **start** |
+| 2 | divergence, in the middle |
+| 1 | merge, in the middle |
+| 1 | merge, at its **end** |
+
+All correct. A branch has to touch the main line where it forks off it and
+where it rejoins it; that is what those two events are.
+
+**The real cause of lines looking crowded is the camera, not the layout — and
+that is good news, because it costs no rebuild.** Lanes are 54 world units
+apart, but the camera fits the bounding box of the work, so the more lanes are
+open the further it pulls back and the fewer screen pixels those 54 units
+become. Note the corollary: **raising `LANE_GAP` cannot help.** A wider gap
+makes a proportionally taller box, the fit scale shrinks by the same factor,
+and the picture is pixel-for-pixel identical. Any real improvement has to come
+from the camera framing fewer lanes, or from C1.
 
 ### B. Independent of the rebuild — deploy configuration
 
@@ -137,10 +161,12 @@ suggestion chip — are closed, with tests.
 
 Two complaints have repeatedly been reported as one. They are not.
 
-### Threads drawn *on* the main line — a defect, fixed
+### Threads drawn *on* the main line — not a defect either
 
-See A2. Lane 0 evaluated to the spine's own height, so those branches were
-drawn along it rather than beside it.
+See A2. The lane-0 theory was wrong, and what touches the main line is
+divergences starting and merges ending, which is what those edges are for.
+Crowding is the camera's zoom, and `LANE_GAP` is a dead end because the fit
+scales with it.
 
 ### Threads drawn *past* the main line — not a defect, and not fixable
 
