@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { waitForReady } from './helpers';
+import { waitForReady, silenceWebkit } from './helpers';
+
+// WebKit takes no mute switch, so the soundtrack is refused rather than
+// silenced. Chromium and Firefox are muted at the audio output in
+// `playwright.config.ts` and load the music normally.
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'webkit') await silenceWebkit(page);
+});
 
 test.describe('travelling the finished picture', () => {
   test('a slider appears when the performance ends and pans without changing zoom', async ({ page }) => {

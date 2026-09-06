@@ -75,6 +75,20 @@ export async function routeGitHub(page: Page, repo: MockRepo | null, opts: MockO
  * A skip that fires on a timing race is worse than a failure: the suite stays
  * green and says "2 skipped" on a line nobody reads.
  */
+/**
+ * Keep the soundtrack out of the room on the one engine that cannot be told to.
+ *
+ * Chromium takes `--mute-audio` and Firefox takes `media.volume_scale`, both of
+ * which silence the output and leave every observable the app has alone.
+ * WebKit has neither, so the files are refused instead: nothing decodes and
+ * nothing plays. `fallback.spec.ts` reads the volume control's effect out of
+ * `localStorage`, which is written whether or not a track ever loaded, so the
+ * one test that cares still tests what it says it does.
+ */
+export async function silenceWebkit(page: Page) {
+  await page.route('**/music/**', (route) => route.abort());
+}
+
 export async function shelfPresent(page: Page, timeout = 15_000): Promise<boolean> {
   try {
     await page.getByTestId('catalog').waitFor({ state: 'visible', timeout });
