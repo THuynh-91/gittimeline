@@ -1966,6 +1966,15 @@ export function installDebugHook() {
     get render() {
       return renderProfile;
     },
+    /** The world rectangle the camera is looking at, and the window loaded for it. */
+    get view() {
+      const v = renderer?.viewport() ?? null;
+      const w = store.perf.value?.window ?? null;
+      const xs = store.perf.value?.nodes;
+      let lo = null, hi = null;
+      if (xs && xs.length) { lo = xs[0]!.x; hi = xs[0]!.x; for (const n of xs) { if (n.x < lo) lo = n.x; if (n.x > hi) hi = n.x; } }
+      return v ? { ...v, window: w ? { start: w.start, end: w.end, minX: w.minX, maxX: w.maxX } : null, geomMinX: lo, geomMaxX: hi } : null;
+    },
     /** Where the MAIN nameplate was drawn last frame. */
     get spineLabel() {
       return renderer?.spineLabel ?? null;

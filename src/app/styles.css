@@ -2468,7 +2468,11 @@ kbd {
      the band grows, and cannot end up underneath the transport either — both
      of which happened while it was absolutely positioned against `--band`. */
   align-self: flex-start;
-  margin-bottom: 2px;
+  /* Lifted ten pixels clear of the row beneath it. It is the band's own first
+     row — the commits and controls toggles and the volume slider — and it sat
+     hard against the date line under it, so three unrelated controls read as
+     one block. */
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 6px;

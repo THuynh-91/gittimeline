@@ -1954,12 +1954,19 @@ export class StageRenderer {
     // of its time being clipped back and forth across that clamp as the camera
     // moved. Easing the clamped value only smeared the same problem out.
     //
-    // The name of a line does not need to point at a particular commit on it.
-    // It needs to be findable. So it sits at one fixed place in the frame,
-    // against the right margin at the height of the line it names, and the
-    // history runs under it. Nothing about it is a function of the clock, so
-    // there is nothing for it to teleport between and nothing for a pause to
-    // freeze mid-glide.
+    // So it rides just off the end of the line, 25px clear of the newest
+    // commit on it, at that commit's own height.
+    //
+    // Pinning it to the frame's right margin fixed the jumping and put it a
+    // long way from the thing it names — on a wide shot the line ends in the
+    // middle of the stage and the plate sat at the edge with nothing under it.
+    // The two faults that made following the head unwatchable are gone now and
+    // neither was the following: the plate was being clamped into the camera's
+    // safe area, which reserves 150px at the bottom of a stage barely 550
+    // tall, so it detached from a spine that spends much of its time below
+    // that band and slammed between the clamps; and its height came from
+    // `spineY`, a constant 0 that describes the layout's intent rather than
+    // the geometry the compiler emits, which put it a flat 374px off the line.
     //
     // Drawn directly rather than through `place()`: this one never yields to
     // another label and never gets skipped for overlapping.
@@ -1975,35 +1982,31 @@ export class StageRenderer {
       const track = 1.4;
       const padX = 7;
       const boxW = w + track * (text.length - 1) + padX * 2;
-      const x = this.width - this.settings.safe.right - boxW - 6;
-      // The height of the line directly beneath the plate, read off an actual
-      // commit on it.
-      //
-      // Not from `spineY`. That returns a constant 0 and describes the layout's
-      // intent — "the primary spine is a perfectly straight horizontal axis" —
-      // rather than the geometry the compiler emitted, and the two do not
-      // agree: measured on Kubernetes, `worldToScreen(0, spineY(x))` came out a
-      // flat 374px away from where the spine's own bodies were drawn, at every
-      // depth in the performance. A plate placed off that would name the main
-      // line from a third of a screen above it.
-      //
-      // So: the last spine commit at or before the plate's column, and no
-      // later than the one that has landed, because the height of a line that
-      // has not been drawn yet is not a thing to point at.
-      const wx = this.screenToWorld(x + boxW / 2, 0).x;
+      // The head of the line: the newest spine commit that has landed. Found
+      // rather than walked to — the spine can be a third of a million commits.
       let lo = 0;
       let hi = spine.nodeIdxs.length - 1;
       let at = 0;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        const nd = p.nodes[spine.nodeIdxs[mid]!]!;
-        if (nd.x <= wx && nd.impact <= t) {
+        if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
           at = mid;
           lo = mid + 1;
         } else hi = mid - 1;
       }
       const onLine = p.nodes[spine.nodeIdxs[at]!]!;
-      const lineY = this.worldToScreen(onLine.x, onLine.y).y;
+      const head = this.worldToScreen(onLine.x, onLine.y);
+      // Its height is read off that commit, not from `spineY`: that returns a
+      // constant 0 and describes the layout's intent — "the primary spine is a
+      // perfectly straight horizontal axis" — rather than the geometry the
+      // compiler emits, and measured on Kubernetes the two were a flat 374px
+      // apart at every depth in the performance.
+      const lineY = head.y;
+      const GAP = 25;
+      // Held on the stage when the head has run off it, which is the usual
+      // case on a long history: the camera frames the work and the line
+      // continues past the edge, so the plate waits at the margin.
+      const x = Math.max(this.settings.safe.left + 6, Math.min(this.width - this.settings.safe.right - boxW - 6, head.x + GAP));
       // Kept on the canvas, not inside the safe area.
       //
       // The safe insets are a compositional margin for the *camera* — 150px at
