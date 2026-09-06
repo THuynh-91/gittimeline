@@ -208,8 +208,29 @@ export class StageRenderer {
    */
   private aggByMinX: Int32Array = new Int32Array(0);
   private aggMinX: Float64Array = new Float64Array(0);
-  /** The widest ribbon there is, which bounds how far back a visible one can start. */
-  private aggWidestSpan = 0;
+  /**
+   * The ribbons, grouped by how wide they are, each group holding positions
+   * into `aggByMinX` rather than ribbons.
+   *
+   * Same trouble as `longLevels`, one floor up. The caption walk starts at
+   * `worldLeft - aggWidestSpan`, and `aggWidestSpan` is the widest ribbon in
+   * the entire history — so a single very wide one drags the start of the walk
+   * back to nearly zero and the loop runs to the right edge of the view over
+   * tens of thousands of entries to place a handful of captions. Measured on
+   * Linux at 1.8-2.7 ms a frame from half an hour in.
+   *
+   * Grouping bounds the reach per group by that group's own widest member. It
+   * also makes the "too narrow to caption" test free: a whole group whose
+   * widest ribbon is under the threshold can be skipped, where today every one
+   * of its members is fetched and `continue`d one at a time.
+   *
+   * Positions, not ribbons, because `place()` is order-dependent — the first
+   * caption to claim a piece of the stage keeps it. Collecting positions and
+   * sorting them restores the exact global order the single walk had.
+   */
+  private aggLevels: Array<{ pos: Int32Array; minX: Float64Array; maxSpan: number }> = [];
+  /** Scratch for the above, reused so a per-frame pass allocates nothing. */
+  private aggPicked: number[] = [];
   /**
    * Where the main line's nameplate was drawn last frame, for measurement.
    *
@@ -340,6 +361,7 @@ export class StageRenderer {
     // that silently reads someone else's rectangle.
     this.aggregateEdges = [];
     this.aggregateEdgePos = [];
+    this.aggLevels = [];
     p.edges.forEach((edge, i) => {
       if (edge.kind !== 'aggregate') return;
       this.aggregateEdges.push(edge);
@@ -412,13 +434,26 @@ export class StageRenderer {
       order.sort((a, b) => this.edgeBounds[this.aggregateEdgePos[a]! * 4]! - this.edgeBounds[this.aggregateEdgePos[b]! * 4]!);
       this.aggByMinX = Int32Array.from(order);
       this.aggMinX = Float64Array.from(order, (k) => this.edgeBounds[this.aggregateEdgePos[k]! * 4]!);
-      let widest = 0;
-      for (const k of order) {
-        const eb = this.aggregateEdgePos[k]! * 4;
+      const byLevel = new Map<number, number[]>();
+      for (let oi = 0; oi < this.aggByMinX.length; oi++) {
+        const eb = this.aggregateEdgePos[this.aggByMinX[oi]!]! * 4;
         const span = this.edgeBounds[eb + 2]! - this.edgeBounds[eb]!;
-        if (span > widest) widest = span;
+        const level = Math.ceil(Math.log2(Math.max(1, span)));
+        const list = byLevel.get(level);
+        if (list) list.push(oi);
+        else byLevel.set(level, [oi]);
       }
-      this.aggWidestSpan = widest;
+      this.aggLevels = [];
+      for (const list of byLevel.values()) {
+        // Already ascending: `oi` was walked in order.
+        let maxSpan = 0;
+        for (const oi of list) {
+          const eb = this.aggregateEdgePos[this.aggByMinX[oi]!]! * 4;
+          const span = this.edgeBounds[eb + 2]! - this.edgeBounds[eb]!;
+          if (span > maxSpan) maxSpan = span;
+        }
+        this.aggLevels.push({ pos: Int32Array.from(list), minX: Float64Array.from(list, (oi) => this.aggMinX[oi]!), maxSpan });
+      }
     }
     const order = new Int32Array(p.nodes.length);
     for (let i = 0; i < order.length; i++) order[i] = i;
@@ -2063,23 +2098,33 @@ export class StageRenderer {
       const MIN_RIBBON_PX = 36;
       const minRibbonWorld = MIN_RIBBON_PX / Math.max(1e-6, v.scale);
       // Binary search to the first ribbon that could reach the left edge of
-      // the stage, then walk forward until they start past the right edge.
-      // A ribbon overlapping the view must begin no earlier than
-      // `worldLeft - aggWidestSpan`, which is what makes this exact rather
+      // the stage, then walk forward until they start past the right edge. A
+      // ribbon overlapping the view must begin no earlier than the left edge
+      // less the widest it could be, which is what makes this exact rather
       // than a heuristic.
-      let lo2 = 0;
-      let hi2 = this.aggMinX.length - 1;
-      let from = this.aggMinX.length;
-      const reach = worldLeft - this.aggWidestSpan;
-      while (lo2 <= hi2) {
-        const mid = (lo2 + hi2) >> 1;
-        if (this.aggMinX[mid]! >= reach) {
-          from = mid;
-          hi2 = mid - 1;
-        } else lo2 = mid + 1;
+      //
+      // Per group rather than once over everything: each group's reach is its
+      // own widest ribbon, and a group whose widest is already too narrow to
+      // caption is skipped whole. Positions are collected and then sorted, so
+      // what `place()` sees is the same sequence, in the same order, that a
+      // single walk over all of them produced.
+      const picked = this.aggPicked;
+      picked.length = 0;
+      for (const level of this.aggLevels) {
+        if (level.maxSpan < minRibbonWorld) continue;
+        const lm = level.minX;
+        const reach = worldLeft - level.maxSpan;
+        let lo2 = 0;
+        let hi2 = lm.length;
+        while (lo2 < hi2) {
+          const mid = (lo2 + hi2) >> 1;
+          if (lm[mid]! < reach) lo2 = mid + 1;
+          else hi2 = mid;
+        }
+        for (let i = lo2; i < lm.length && lm[i]! <= worldRight; i++) picked.push(level.pos[i]!);
       }
-      for (let oi = from; oi < this.aggByMinX.length; oi++) {
-        if (this.aggMinX[oi]! > worldRight) break;
+      picked.sort((m, n) => m - n);
+      for (const oi of picked) {
         const ai = this.aggByMinX[oi]!;
         const e = this.aggregateEdges[ai]!;
         if (e.start > t) continue;
