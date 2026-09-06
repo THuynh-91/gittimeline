@@ -1796,16 +1796,41 @@ export class StageRenderer {
     // everything else is described relative to it — so its name rides along
     // with it instead of being a fact stated at the beginning and forgotten.
     //
-    // Pinned to the left edge of the stage rather than to a commit, because
-    // the spine runs the whole width and any point on it is as good as any
-    // other. Drawn directly rather than through `place()`: this one never
-    // yields to another label, and never gets skipped for overlapping.
+    // It rides at the *head* of the line, not at the left edge.
+    //
+    // Pinning it left put the name at the oldest thing on screen — the end the
+    // history has already finished with — while the line it names grows away
+    // from it to the right. The label belongs where the work is: just ahead of
+    // the newest commit on the main line, pushed along as the line advances,
+    // so it reads as a nameplate the spine is carrying rather than a caption
+    // parked in a corner.
+    //
+    // Clamped to the right margin when the head has run off the stage, which
+    // is the usual case on a long history: the camera frames the work and the
+    // spine continues past the edge, so the label sits at the frame's edge and
+    // keeps pointing the right way.
+    //
+    // Drawn directly rather than through `place()`: this one never yields to
+    // another label and never gets skipped for overlapping.
     const spine = p.threads[0];
     if (spine && spine.label && labels !== 'minimal') {
-      const sy = this.worldToScreen(this.view.cx, spineY(this.view.cx)).y;
+      // The newest spine commit that has landed, found rather than walked to.
+      let lo = 0;
+      let hi = spine.nodeIdxs.length - 1;
+      let head = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
+          head = mid;
+          lo = mid + 1;
+        } else hi = mid - 1;
+      }
+      const headNode = head >= 0 ? p.nodes[spine.nodeIdxs[head]!]! : null;
+      const headScreen = headNode ? this.worldToScreen(headNode.x, headNode.y) : null;
+      const sy = headScreen ? headScreen.y : this.worldToScreen(this.view.cx, spineY(this.view.cx)).y;
       const top = this.settings.safe.top;
       const bottom = this.height - this.settings.safe.bottom;
-      if (sy > top + 6 && sy < bottom - 6) {
+      if (headNode && sy > top + 6 && sy < bottom - 6) {
         const text = spine.label.toUpperCase();
         ctx.save();
         ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -1815,7 +1840,9 @@ export class StageRenderer {
         const track = 1.4;
         const padX = 7;
         const boxW = w + track * (text.length - 1) + padX * 2;
-        const x = this.settings.safe.left + 10;
+        // Ahead of the head commit, and never past the right margin.
+        const rightLimit = this.width - this.settings.safe.right - boxW - 6;
+        const x = Math.max(this.settings.safe.left + 6, Math.min(rightLimit, (headScreen?.x ?? 0) + 16));
         const y = sy - 15;
         ctx.fillStyle = rgba(PALETTE.ink, 0.72);
         ctx.beginPath();

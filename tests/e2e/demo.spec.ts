@@ -11,9 +11,7 @@ test.describe('built-in demo performance', () => {
     await page.goto('/');
     await expect(page.getByTestId('url-input')).toBeVisible();
     await expect(page.getByTestId('play-button')).toBeVisible();
-    // The hint reads back what the field understood, and says where the work
-    // happens when it has nothing to read back yet.
-    await expect(page.locator('#url-hint')).toContainText('Rendered on your device');
+    await expect(page.getByText('Fetched from GitHub, rendered on your device', { exact: false }).first()).toBeVisible();
     await waitForReady(page);
     expect(await page.evaluate(() => window.__gittimeline.mode)).toBe('landing');
     const a = await stageHash(page);
