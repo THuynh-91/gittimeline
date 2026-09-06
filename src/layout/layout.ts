@@ -262,6 +262,40 @@ export function routeCurve(a: Pt, b: Pt, kind: 'divergence' | 'merge' | 'seconda
     const c2 = { x: b.x - dx * 0.3, y: b.y - lift };
     return flattenCubic(a, c1, c2, b);
   }
-  const tension = kind === 'merge' ? 0.55 : 0.45;
-  return sCurve(a, b, tension);
+  if (kind === 'merge') {
+    // A merge turns onto the main line late, instead of gliding in along it.
+    //
+    // `sCurve` is symmetric: both control points sit `dx * tension` from their
+    // own end. At 0.55 the second one lands at `b.x - 0.55dx`, which is *before*
+    // the first, so the curve reached the spine's height around 45% of the way
+    // across and then ran along it to the merge commit. Drawn progressively
+    // that paints the main line's own path far ahead of where the main line has
+    // actually got to: measured on Kubernetes, merge edges at 77-94% progress
+    // reaching up to 8,269 screen pixels past the spine's tip, within a few
+    // pixels of its height. It reads exactly as the main line continuing past
+    // its own head, and it is the future being drawn.
+    //
+    // Asymmetric instead. The branch holds its own lane for the first half —
+    // which is where it still is — and turns down onto the spine in the last
+    // fifth, at the commit it is merging into.
+    // The run-in is capped in absolute units, not taken as a share of the
+    // branch's length. A share does not bound anything: a branch open for two
+    // years has an enormous span, and a fifth of an enormous span is still an
+    // enormous distance spent travelling along the main line before reaching
+    // the commit it merges into. Whatever the branch's age, it turns down onto
+    // the spine within this much of the merge.
+    // Both control points are anchored to the *merge*, not shared out along
+    // the branch's length. Capping the second one alone did not bound anything
+    // measurable: a cubic starts bending toward its final height long before it
+    // reaches that control point, so the curve was still inside a few pixels of
+    // the main line for well over a thousand world units. With the first
+    // control point held out at the turn and at the branch's own height, the
+    // curve hugs its lane for the whole run and does its descending inside this
+    // window.
+    const span = Math.max(12, dx);
+    const approach = Math.min(Math.max(160, span * 0.25), 420);
+    const turnX = Math.max(a.x + span * 0.2, b.x - approach);
+    return flattenCubic(a, { x: turnX, y: a.y }, { x: b.x - approach * 0.35, y: b.y }, b);
+  }
+  return sCurve(a, b, 0.45);
 }
