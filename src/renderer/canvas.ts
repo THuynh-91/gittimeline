@@ -919,8 +919,21 @@ export class StageRenderer {
     let y = head.y;
     if (next && next.impact > head.impact) {
       const f = Math.max(0, Math.min(1, (t - head.impact) / (next.impact - head.impact)));
-      x = head.x + (next.x - head.x) * f;
-      y = head.y + (next.y - head.y) * f;
+      // Eased the way the edge itself is revealed, not straight in time.
+      //
+      // `travelU` does not run linearly: an ordinary stroke goes as `f^1.6`
+      // and a merge accelerates into its landing. Interpolating linearly here
+      // put the tip ahead of the ink for most of every commit, so the plate
+      // sat further off the line than it was asked to and the line appeared to
+      // chase it and catch up at each arrival. Same curve, same place.
+      const merge = next.mergeVolume > 0;
+      const u = this.settings.reducedMotion
+        ? f
+        : merge
+          ? f * f * (3 - 2 * f) * 0.6 + 0.4 * Math.pow(f, 1.7)
+          : Math.pow(f, 1.6);
+      x = head.x + (next.x - head.x) * u;
+      y = head.y + (next.y - head.y) * u;
     }
     this.tipFrame = this.frameCounter;
     this.tipAt = t;
@@ -965,6 +978,32 @@ export class StageRenderer {
    * of the work is before it draws, and the only thing that knows is the draw.
    * A frame of lag on a camera that is already smoothed is invisible.
    */
+  /**
+   * How much of the additive light to lay down, given how full the stage is.
+   *
+   * Branches are drawn twice — `lighter` over the picture and again into the
+   * glow buffer — while the main line is a plain `source-over` stroke that
+   * never enters the glow at all. So the busier the history the brighter the
+   * branches get, and the one line everything else is read against loses by
+   * comparison. Square root, so total additive light grows as sqrt(n) rather
+   * than n: fuller without brighter. Keyed to live edges rather than to frame
+   * time so a history looks the same on every machine, and a no-op at 24.
+   */
+  private energy = 1;
+  /**
+   * The spine's structural strokes, deferred until after the glow composite.
+   *
+   * *Deferred*, not repeated. Drawing them in the edge pass and again on top
+   * laid the same halo down twice: the alpha compounded and the per-edge
+   * segments overlapped unevenly at their joins, which is the thick chunky
+   * band that appeared along the main line. It is one stroke, moved.
+   *
+   * Moving it costs nothing either. The glow buffer only ever receives the
+   * contributor energy trail; a structural stroke is `source-over` on the main
+   * context and was never part of the bloom, so drawing it after the composite
+   * changes when it lands and not what it is.
+   */
+  private spineRedraw: Array<{ pts: Float32Array; u: number; alpha: number }> = [];
   private frontWorldX = -Infinity;
   private frontPrev = -Infinity;
   private headIdx = -1;
@@ -1032,6 +1071,7 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
+    this.spineRedraw.length = 0;
     this.frontPrev = this.frontWorldX;
     this.frontWorldX = -Infinity;
     const prof = renderProfile.enabled ? renderProfile : null;
@@ -1142,6 +1182,8 @@ export class StageRenderer {
       prof.counts.edgesActive += activeEdges.length;
     }
     lap('settledEdges');
+    // Set before the additive passes read it, from what is actually live.
+    this.energy = Math.max(0.35, Math.min(1, Math.sqrt(24 / Math.max(1, activeEdges.length))));
     for (const e of activeEdges) this.drawActiveEdge(ctx, useGlow ? glow : null, e, t, ivory, slate, focusIdx);
     lap('activeEdges');
 
@@ -1244,7 +1286,7 @@ export class StageRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'lighter';
       ctx.filter = 'blur(6px)';
-      ctx.globalAlpha = this.settings.noFlash ? 0.55 : 0.85;
+      ctx.globalAlpha = (this.settings.noFlash ? 0.55 : 0.85) * this.energy;
       ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
       if (this.shopWindow) {
         // A second, wider pass of the same light, so the picture reads as one
@@ -1259,6 +1301,61 @@ export class StageRenderer {
       ctx.filter = 'none';
       ctx.restore();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
+    // The main line, once, over the bloom.
+    //
+    // In the edge pass it is painted before the glow composite, so every
+    // branch's blurred light lands on top of it — which is why it is the
+    // dimmest thing on a dense stage and why branches have three times been
+    // reported as crossing it. Here it is the one thing nothing is ever drawn
+    // over, by construction rather than one cause at a time.
+    //
+    // The ink casing arrives with density and is absent without it. On a quiet
+    // history there is nothing for the main line to be separated *from*, and a
+    // dark rim around it there is an outline drawn for its own sake.
+    if (this.spineRedraw.length) {
+      const casing = 0.7 * (1 - this.energy);
+      const heft = 1 - this.energy;
+      ctx.save();
+      // Back into world space. The glow composite leaves the context in screen
+      // pixels, and `drawPolyline` speaks world coordinates — mixing the two
+      // draws the main line at the origin, a couple of pixels wide, which is
+      // to say not at all. It took the spine off the stage entirely, landing
+      // page included.
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.translate(v.ox, v.oy);
+      ctx.rotate(v.rotation);
+      ctx.scale(v.scale, v.scale);
+      ctx.translate(-v.cx, -v.cy);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      // One path for the whole spine, stroked three times.
+      //
+      // Stroked per edge instead, every commit is a seam: adjacent runs share
+      // an endpoint, their round caps overlap, and a translucent halo laid
+      // down twice there is visibly brighter than the run either side of it.
+      // Zoomed out, the main line stopped reading as a line and started
+      // reading as fifty joined segments. Collected into a single path it is
+      // rasterised once per stroke, so the overlaps cost nothing and show
+      // nothing — and it is three strokes a frame rather than three per edge.
+      //
+      // The alpha of the settled spine is uniform, so one value covers the
+      // whole run; the in-flight edge carries its own and is the last piece.
+      const alpha = this.spineRedraw[0]!.alpha;
+      ctx.beginPath();
+      for (const seg of this.spineRedraw) this.drawPolyline(ctx, seg.pts, seg.u, false);
+      if (casing > 0.02) {
+        ctx.strokeStyle = rgba(PALETTE.ink, casing);
+        ctx.lineWidth = (9 + 2 * heft) / v.scale;
+        ctx.stroke();
+      }
+      ctx.strokeStyle = rgba(PALETTE.ivory, alpha * (0.22 + 0.06 * heft));
+      ctx.lineWidth = (7 + 1.6 * heft) / v.scale;
+      ctx.stroke();
+      ctx.strokeStyle = rgba(PALETTE.ivory, alpha);
+      ctx.lineWidth = (2.6 + 0.8 * heft) / v.scale;
+      ctx.stroke();
+      ctx.restore();
     }
     lap('glow');
 
@@ -1378,14 +1475,18 @@ export class StageRenderer {
    * Cost is now proportional to what is on screen instead of to elapsed time,
    * which is the property that lets a very long performance stay flat.
    */
-  private drawPolyline(ctx: CanvasRenderingContext2D, pts: Float32Array, u = 1) {
+  private drawPolyline(ctx: CanvasRenderingContext2D, pts: Float32Array, u = 1, begin = true) {
     const count = pts.length >> 1;
     if (count < 2) return;
     const x0 = this.clipX0;
     const x1 = this.clipX1;
     const f = u * (count - 1);
     const full = Math.min(count - 1, Math.floor(f));
-    ctx.beginPath();
+    // `begin` lets a caller collect several runs into one path. Stroking a
+    // path once rasterises the whole shape and composites it once, so pieces
+    // that overlap do not lay their alpha down twice — which is the difference
+    // between a line and a string of beads where the pieces meet.
+    if (begin) ctx.beginPath();
     // Where the pen currently sits, as a point index; -1 when it has been
     // lifted and the next visible segment has to start with a `moveTo`.
     let penAt = -1;
@@ -1443,14 +1544,7 @@ export class StageRenderer {
       return;
     }
     if (spine) {
-      ctx.strokeStyle = rgba(ivory, alpha * 0.22);
-      ctx.lineWidth = 7;
-      this.drawPolyline(ctx, e.pts);
-      ctx.stroke();
-      ctx.strokeStyle = rgba(ivory, alpha);
-      ctx.lineWidth = 2.6;
-      this.drawPolyline(ctx, e.pts);
-      ctx.stroke();
+      this.spineRedraw.push({ pts: e.pts, u: 1, alpha });
       // A slow light runs back along everything already built, so the finished
       // structure keeps breathing instead of turning into wallpaper.
       if (!this.settings.reducedMotion && this.sweepX > -Infinity) {
@@ -1530,10 +1624,14 @@ export class StageRenderer {
     const structural = spine ? ivory : slate;
     const width = e.kind === 'aggregate' ? 8 : spine ? 2.8 : e.kind === 'secondary' ? 1.2 : 1.9;
     // revealed structural path
-    ctx.strokeStyle = rgba(structural, (spine ? 0.95 : 0.85) * dim);
-    ctx.lineWidth = width;
-    this.drawPolyline(ctx, e.pts, u);
-    ctx.stroke();
+    if (spine) {
+      this.spineRedraw.push({ pts: e.pts, u, alpha: 0.95 * dim });
+    } else {
+      ctx.strokeStyle = rgba(structural, 0.85 * dim);
+      ctx.lineWidth = width;
+      this.drawPolyline(ctx, e.pts, u);
+      ctx.stroke();
+    }
     // contributor energy flowing through the revealed path (never recolors the structure permanently)
     const trailLen = this.settings.reducedMotion ? 0 : 0.35;
     if (trailLen > 0) {
@@ -1548,10 +1646,10 @@ export class StageRenderer {
         const b = pointAt(e.pts, u, this.tmp2);
         const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
         grad.addColorStop(0, rgba(color, 0));
-        grad.addColorStop(1, rgba(color, 0.55 * dim));
+        grad.addColorStop(1, rgba(color, 0.55 * dim * this.energy));
         ctx.strokeStyle = grad;
       } else {
-        ctx.strokeStyle = rgba(color, 0.34 * dim);
+        ctx.strokeStyle = rgba(color, 0.34 * dim * this.energy);
       }
       ctx.lineWidth = width + 1.5;
       this.drawPartial(ctx, e.pts, from, u);
@@ -1560,7 +1658,7 @@ export class StageRenderer {
       // The glow layer gets the same stroke a second time. One copy of the
       // light is enough when the stage is full of it.
       if (glow && this.edgeDetail >= 0.5) {
-        glow.strokeStyle = rgba(color, 0.5 * dim);
+        glow.strokeStyle = rgba(color, 0.5 * dim * this.energy);
         glow.lineWidth = width + 4;
         this.drawPartial(glow, e.pts, from, u);
         glow.stroke();
