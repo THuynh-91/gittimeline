@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { performanceEnded, store } from './store';
-import { exploreState, exploreTo, dateAtFraction } from './controller';
+import { exploreState, exploreTo, dateAtFraction, cameraIsManual } from './controller';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -23,6 +23,30 @@ export function ExploreBar() {
   const perf = store.perf.value;
   const [pos, setPos] = useState(0.5);
   const [visible, setVisible] = useState(1);
+  /**
+   * Whether the viewer has actually taken the view.
+   *
+   * The date hero answers "where are we?" and the answer is the playhead's
+   * date — until somebody goes travelling, at which point it has to describe
+   * what they are looking at instead. Deciding that from the camera alone was
+   * wrong: the closing shot moves the camera on its own, and on a streamed
+   * history it settles somewhere that is not the ending, so the readout
+   * announced a date nobody had navigated to and captioned it "Travelling the
+   * finished history" with no travelling done.
+   *
+   * Measured at the final frame, untouched: Node said September 2012 while the
+   * timeline said 2026-09-04 — fourteen years apart. CPython 12.67, React
+   * 11.25, mdBook 5.50. The demo is exempt because it is held whole and its
+   * whole picture fits, which is the case the existing `visible >= 0.995`
+   * guard was written for and the only case it catches.
+   *
+   * A ref rather than state: the loop below runs on every frame and has to see
+   * this the instant the slider moves. Through state it saw the previous
+   * value until the effect restarted, and overwrote the position the slider
+   * had just set — which passed in Chromium and failed in Firefox and WebKit,
+   * the two engines whose timing differs enough to lose that race.
+   */
+  const travelling = useRef(false);
   const dragging = useRef(false);
 
   const ended = performanceEnded();
@@ -44,7 +68,12 @@ export function ExploreBar() {
       // that ran to 2026 announced "January 2019" at the final frame, because
       // that is where the middle of the history happens to fall. Hand the date
       // back to the playhead until the viewer zooms in on somewhere.
-      const at = st.visible >= 0.995 ? null : st.at;
+      // Only once somebody has taken it: the slider was moved, or the camera
+      // was taken by hand. The whole-picture guard stays, because even a
+      // deliberate traveller is not at any particular month when the entire
+      // history is on screen.
+      const taken = travelling.current || cameraIsManual();
+      const at = !taken || st.visible >= 0.995 ? null : st.at;
       if (store.travelAt.peek() !== at) store.travelAt.value = at;
       setVisible((v) => (Math.abs(v - st.visible) > 0.005 ? st.visible : v));
     };
@@ -52,6 +81,7 @@ export function ExploreBar() {
     return () => {
       cancelAnimationFrame(raf);
       store.travelAt.value = null;
+      travelling.current = false;
     };
   }, [ended]);
 
@@ -66,6 +96,7 @@ export function ExploreBar() {
   const onInput = (e: Event) => {
     const f = Number((e.currentTarget as HTMLInputElement).value) / 1000;
     dragging.current = true;
+    travelling.current = true;
     setPos(f);
     store.travelAt.value = f;
     exploreTo(f);

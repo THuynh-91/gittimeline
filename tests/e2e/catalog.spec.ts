@@ -100,6 +100,49 @@ test.describe('pre-fetched catalog', () => {
     expect(calls, 'a span costs no GitHub requests either').toEqual([]);
   });
 
+  /**
+   * The date on screen must describe the playhead until somebody goes looking.
+   *
+   * At the final frame the camera settles by itself, and on a streamed history
+   * it settles somewhere that is not the ending — so the explore control saw a
+   * fraction of the picture on screen, decided the viewer must be travelling,
+   * and handed the date readout to the camera's position. Nobody had touched
+   * anything. Node announced September 2012 while the timeline said 2026-09-04:
+   * fourteen years apart, with "Travelling the finished history" underneath it.
+   *
+   * The built-in demo never showed this, because it is held whole and its
+   * whole picture fits — which is the one case the previous guard covered.
+   */
+  test('at the end, the date still describes the playhead', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+    const cheapest = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
+      return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
+    });
+    await page.getByTestId('catalog').getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+    await page.getByTestId('scope-full').click();
+    await waitForReady(page);
+    const duration = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((t) => window.__gittimeline.seek(t), duration);
+    await page.waitForFunction(() => !window.__gittimeline.buffering, null, { timeout: 120_000 });
+    // Touch nothing else. Long enough for the closing shot to settle.
+    await page.waitForTimeout(3000);
+
+    const hero = (await page.getByTestId('date-hero').innerText()).replace(/\s+/g, ' ').trim();
+    const slider = (await page.getByTestId('timeline').getAttribute('aria-valuetext')) ?? '';
+    const year = (t: string) => { const m = t.match(/(19|20)\d{2}/); return m ? Number(m[0]) : NaN; };
+    expect(year(hero), `date hero read "${hero}"`).not.toBeNaN();
+    expect(year(slider), `timeline read "${slider}"`).not.toBeNaN();
+    expect(Math.abs(year(hero) - year(slider)), `the hero says "${hero}", the timeline says "${slider}"`).toBeLessThanOrEqual(1);
+
+    // And it must not claim the viewer is travelling when they are not.
+    const caption = (await page.getByTestId('caption').innerText()).trim();
+    expect(caption, 'nobody has touched the camera').not.toMatch(/travelling/i);
+  });
+
   test('every catalog entry is real, reachable and honestly described', async ({ page }) => {
     await page.goto('/');
     // Asked of wherever the shelf actually is. It used to be published with
