@@ -62,14 +62,32 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   const pace = q.durationSeconds > 0 ? q.nodes / q.durationSeconds : 0;
   const size = q.bytes >= 1e7 ? `${Math.round(q.bytes / 1e6)} MB` : `${(q.bytes / 1e6).toFixed(1)} MB`;
 
+  // What fraction of the history is drawn as its own arrival rather than
+  // gathered into a ribbon. Null when the entry does not say.
+  const drawn = q.nodes ?? null;
+  const drawnShare = drawn != null && q.commits ? drawn / q.commits : null;
+  const commitsLabel = q.commits >= 1e6 ? `${(q.commits / 1e6).toFixed(1)} million` : q.commits.toLocaleString();
   return (
     <div class="prelude" role="dialog" aria-labelledby="scope-title" data-testid="scope-chooser">
       <div class="error-card scope-card">
         <h2 id="scope-title">{q.label}</h2>
         <p>
-          The whole history runs {runtime(q.durationSeconds)} and lands {pace.toFixed(1)} commits a second — every one of them gets its own beat, so nothing here is going faster than it can be followed. It is simply that long.{' '}
+          {/* "Every one of them gets its own beat" is true of most of the
+              shelf and wildly untrue of the top of it. Chromium draws 923
+              arrivals out of 1,817,062 commits and LLVM 894 out of 595,778 —
+              0.05% and 0.15% — because the compiler collapses dense stretches
+              into aggregate ribbons rather than drawing every commit. That is
+              a good decision and the sentence describing it was not: it told
+              someone about to spend three minutes that they were about to
+              watch 1.8 million commits arrive one at a time. So the claim is
+              made only when it holds, and the rest of the time the ribbons are
+              named for what they are. */}
+          The whole history runs {runtime(q.durationSeconds)} and lands {pace.toFixed(1)} arrivals a second
+          {drawnShare == null || drawnShare >= 0.5
+            ? ' — every commit gets its own beat, so nothing here is going faster than it can be followed. It is simply that long.'
+            : `, gathering ${commitsLabel} commits into them. Long runs of steady work arrive as one broad stroke rather than a commit at a time, which is the only way a history this size is watchable at all.`}{' '}
           {years.length > 1 && <>Any stretch of it costs the same {size} download, played from a different place to a different place.{' '}</>}
-          {q.openSeconds != null && q.openSeconds >= 15 && <>Either way it is about {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
+          {q.openSeconds != null && q.openSeconds >= 5 && <>Either way it is about {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
         </p>
 
         {years.length > 1 && lo != null && hi != null && (

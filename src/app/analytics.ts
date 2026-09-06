@@ -64,7 +64,7 @@ export type PageView = 'landing' | 'player' | 'catalog' | 'signin';
  * flag, because "is this one of the histories we ship" is the same question
  * the allowlist already answers.
  */
-export type PerformanceSource = 'repository' | 'artifact' | 'demo' | 'fixture';
+export type PerformanceSource = 'repository' | 'artifact' | 'demo' | 'fixture' | 'private';
 
 export type AnalyticsEvent =
   | { kind: 'page_view'; view: PageView }
@@ -90,6 +90,16 @@ export type Allowlist = ReadonlyMap<string, string>;
  * was watched and nothing else, not even its size.
  */
 const OFF_CATALOG = 'a public repository';
+
+/**
+ * A private history contributes that something was watched. Nothing else.
+ *
+ * Not even its size: `commit_bucket` is a coarse number, but a coarse number
+ * attached to a private repository is a fingerprint of it, and the whole
+ * argument for sending anything at all is that nothing sent can be traced to
+ * a repository somebody chose not to publish.
+ */
+const PRIVATE = 'a private repository';
 
 /**
  * And what a file the visitor supplied is called.
@@ -161,6 +171,8 @@ function repositoryParams(source: PerformanceSource, slug: string | null, commit
   // are built in the browser out of a script in this repository; there is no
   // owner, no name and nothing to protect.
   if (source === 'demo' || source === 'fixture') return {};
+
+  if (source === 'private') return { repository: PRIVATE };
 
   const named = slug ? allow.get(slug.toLowerCase()) : undefined;
   if (named) {

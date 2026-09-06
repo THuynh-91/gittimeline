@@ -1,5 +1,5 @@
 import { batch, effect } from '@preact/signals';
-import { store, updateSettings, toast, announce, type AppError, type CatalogQuestion } from './store';
+import { store, isBusy, updateSettings, toast, announce, type AppError, type CatalogQuestion } from './store';
 import { Player } from '@/player/player';
 import { AudioEngine } from '@/audio/engine';
 import { renderProfile, StageRenderer, type ManualCamera } from '@/renderer/canvas';
@@ -1751,6 +1751,19 @@ export function handleKey(e: KeyboardEvent): boolean {
   if (typing && e.key !== 'Escape') return false;
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
   const hasPerf = !!player.perf;
+  // A shortcut never eats a control's own key.
+  //
+  // Every one of these returns `true`, and the listener in `App` turns that
+  // into `preventDefault()` — so any key claimed here is taken away from
+  // whatever has focus. Space is the one that matters: it is how a keyboard
+  // user presses a button, and because the landing page keeps a demo compiled
+  // behind the form `hasPerf` is *always* true, so Space was claimed on every
+  // screen. Measured, it activated nothing anywhere — not the catalog cards,
+  // not the scope dialog's own button, not Cancel on a 153 MB download — and
+  // silently paused the demo behind the page instead.
+  const activatable =
+    !!target && (target.tagName === 'BUTTON' || target.tagName === 'A' || target.getAttribute('role') === 'button');
+  if (activatable && (e.key === ' ' || e.key === 'Enter')) return false;
   switch (e.key) {
     case ' ':
       if (!hasPerf) return false;
@@ -1801,6 +1814,20 @@ export function handleKey(e: KeyboardEvent): boolean {
       seek(player.duration);
       return true;
     case 'Escape':
+      // Outermost thing first. A dialog, and then a load in progress, both sit
+      // in front of everything else on this list, and neither was consulted:
+      // Escape on the scope chooser left it open, and Escape 8.7s into a
+      // 153 MB download was swallowed — `handleKey` claimed the key, cancelled
+      // the browser's default, and did nothing with it, so the load ran to
+      // completion and started playing.
+      if (store.scope.value) {
+        dismissScope();
+        return true;
+      }
+      if (store.error.value || isBusy.value) {
+        cancel();
+        return true;
+      }
       if (store.panel.value !== 'none') store.panel.value = 'none';
       else if (store.selectedNode.value != null || store.selectedThread.value != null || store.contributorFocus.value) {
         selectNode(null);

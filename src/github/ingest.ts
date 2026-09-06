@@ -92,6 +92,16 @@ export interface RepoProbe {
   firstYear: number | null;
   lastYear: number | null;
   displayName: string;
+  /**
+   * Whether GitHub says this repository is private.
+   *
+   * Carried out of the probe because everything downstream that writes
+   * something down has to know. A private history must not be cached, must
+   * not be recorded as recently opened, and must not contribute its size to
+   * an analytics event — and the only place that fact is available for free
+   * is the repository response the probe already makes.
+   */
+  isPrivate: boolean;
 }
 
 /**
@@ -136,6 +146,7 @@ export async function probeRepository(repo: RepoRef, client: GitHubClient): Prom
     firstYear: created && Number.isFinite(created.getTime()) ? created.getUTCFullYear() : null,
     lastYear: pushed && Number.isFinite(pushed.getTime()) ? pushed.getUTCFullYear() : new Date().getUTCFullYear(),
     displayName: typeof meta.data?.full_name === 'string' ? cleanText(meta.data.full_name, 160) : repo.slug,
+    isPrivate: meta.data?.private === true,
   };
 }
 

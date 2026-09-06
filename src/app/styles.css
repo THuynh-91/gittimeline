@@ -416,6 +416,10 @@ a {
   background: rgba(20, 24, 36, 0.6);
   border: 1px solid var(--line);
   border-radius: 999px;
+  /* `.rail-kind` is our own word for what happened, so it can be styled.
+     `.rail-tag` is the repository's own identifier and it cannot: the ledger
+     was rendering `v0.0.2` as `V0.0.2`, a tag that does not exist, 200px from
+     the stage drawing the same tag correctly. */
   padding: 6px 10px;
   color: var(--text-dim);
   font-size: 12px;
@@ -603,7 +607,6 @@ a {
   font-style: normal;
   font-size: 10px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0 6px;

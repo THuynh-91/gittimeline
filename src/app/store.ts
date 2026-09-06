@@ -118,7 +118,10 @@ export interface CatalogQuestion {
   /** What the performance is called once it starts. */
   label: string;
   durationSeconds: number;
+  /** Arrivals drawn one at a time. Far fewer than `commits` on a big history. */
   nodes: number;
+  /** Commits the history holds, drawn or gathered into a ribbon. */
+  commits: number;
   /** What the click pulls down, which is the same for every answer. */
   bytes: number;
   /** Seconds from click to first frame, measured at build time; null if never timed. */

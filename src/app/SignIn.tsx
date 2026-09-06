@@ -46,7 +46,7 @@ export function SignIn() {
           <p class="page-lead">
             {connected
               ? 'Requests now run against your own allowance — about 5,000 an hour, enough for a large project’s whole history in one sitting.'
-              : 'Read public histories faster, and watch your own private ones. Neither sends your code anywhere.'}
+              : 'Read public histories against your own allowance instead of a shared one. Nothing you connect sends your code anywhere.'}
           </p>
         </header>
 
@@ -159,8 +159,19 @@ export function SignIn() {
             GitHub without passing through anything of ours. */}
         <section class="grant" aria-labelledby="private-heading">
           <h2 id="private-heading">Your private repositories</h2>
+          {/* Stated as what it will be, because it is not what it is.
+              This section described a second authorization in the present
+              tense — "you pick exactly which repositories to grant" — while
+              the sign-in above it requests no scopes at all and there is no
+              second authorization to accept. A page that describes a feature
+              it does not have is the one kind of copy this project cannot
+              afford, because everything else it claims about what it does
+              with your data is asking to be taken on trust. */}
           <p class="grant-lead">
-            You can watch your own private repositories too. That is a second, separate authorization — you pick <b>exactly which repositories</b> to grant, read-only, and you can change or revoke it whenever you like.
+            <b>Not yet — this is what it will be.</b> Watching a private repository will be a second, separate
+            authorization: a small GitHub App you install on <b>exactly the repositories you choose</b>, granted
+            read-only and revocable per repository. Signing in today does not ask for it and cannot see a private
+            repository. When it exists, these are the terms it will keep.
           </p>
           <ul>
             <li>
@@ -170,7 +181,7 @@ export function SignIn() {
               <b>We have nothing to save it on.</b> This is a static site — HTML, JavaScript and pre-built data files. There is no backend, no database, no analytics of your repository contents, and no log that could contain them. Not "we choose not to store it": there is nowhere to store it.
             </li>
             <li>
-              <b>Only what you authorize.</b> Repositories you do not grant are invisible to this app, exactly as they are to a stranger.
+              <b>Only what you authorize.</b> Repositories you do not grant will be invisible to this app, exactly as they are to a stranger.
             </li>
             <li>
               <b>Read-only, and only the history.</b> Commit messages, authors, dates and the shape of the branches. Never file contents — the app has no use for them and does not ask.

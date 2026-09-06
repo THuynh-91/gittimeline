@@ -314,9 +314,14 @@ function paintBackdrop(
   for (const tick of yearTicks(perf)) {
     const x = xOf(tick.t);
     if (x < 2 || x > w - 2) continue;
+    // The riser and its year live and die together. Drawing the riser first
+    // and then culling only the label left bare ticks in the run — 2023, 2024,
+    // a nameless riser, 2026 — which reads as a year that failed to render
+    // rather than as a year deliberately not labelled.
+    if (x - lastLabel <= 46) continue;
     ctx.fillStyle = 'rgba(230,225,214,0.14)';
     ctx.fillRect(x, line - 5, 1, 4);
-    if (x - lastLabel > 46) {
+    {
       // Kept inside the strip, on both axes.
       //
       // The baseline was a constant offset from the track, which is a bet on

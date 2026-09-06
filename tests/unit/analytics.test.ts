@@ -132,6 +132,32 @@ describe('analytics: the URL is not safe to send', () => {
     expect(sent).toContain('https://gittimeline.test/');
   });
 
+  it('says a private history was watched and refuses to say anything else about it', () => {
+    // A commit bucket is coarse, and a coarse number attached to a repository
+    // somebody chose not to publish is still a fingerprint of it. The whole
+    // argument for transmitting anything is that nothing transmitted can be
+    // traced back to a private repository, so this asserts the absence of the
+    // bucket as firmly as the absence of the name.
+    const e: AnalyticsEvent = { kind: 'performance_start', source: 'private', slug: 'acme/secret-widget', commits: 4200 };
+    const plan = planEvent(e, CATALOG, 'https://example.test/');
+    expect(plan.params.repository).toBe('a private repository');
+    expect(plan.params.commit_bucket).toBeUndefined();
+    const sent = wire(e, CATALOG, 'https://example.test/');
+    expect(sent).not.toContain('acme');
+    expect(sent).not.toContain('secret-widget');
+    expect(sent).not.toContain('4200');
+    expect(sent).not.toContain('1k');
+  });
+
+  it('does not name a private repository even if its slug is in the catalog', () => {
+    // Impossible in practice and cheap to guarantee: the allowlist is consulted
+    // before anything else, so without an explicit guard ahead of it a private
+    // repository whose slug collided with a shipped one would be named.
+    const plan = planEvent({ kind: 'performance_start', source: 'private', slug: 'torvalds/linux', commits: 1_481_850 }, CATALOG, 'https://example.test/');
+    expect(plan.params.repository).toBe('a private repository');
+    expect(plan.params.commit_bucket).toBeUndefined();
+  });
+
   it('attaches a page location to every event', () => {
     const events: AnalyticsEvent[] = [
       { kind: 'page_view', view: 'landing' },

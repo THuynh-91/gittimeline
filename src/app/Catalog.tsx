@@ -169,7 +169,17 @@ export interface CatalogEntry {
  * card that gains and loses its warning between builds is not describing
  * anything real.
  */
-const SLOW_SECONDS = 15;
+/*
+ * Fifteen seconds was a threshold no entry could reach, so every warning
+ * behind it was dead code: the slowest thing on the shelf records 14.2 and the
+ * next is 9.2, and nothing on any card or in any dialog mentioned the wait at
+ * all. Measured from the click to the first frame — which is the wait a
+ * visitor actually experiences — Linux is 21.0-26.9s against its recorded
+ * 14.2, Rust 15.1 against 9.2, Kubernetes 9.1 against 4.7. The figures are
+ * two to three times optimistic because they time the fetch and not the parse.
+ * Five is the level at which a wait is worth mentioning.
+ */
+const SLOW_SECONDS = 5;
 
 /**
  * How much of a plan a year has to hold before it is worth offering: eight
@@ -362,6 +372,7 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
       label: e.scope ? `${e.title} · ${e.scope}` : e.title,
       durationSeconds: e.durationSeconds ?? 0,
       nodes: e.nodes ?? 0,
+      commits: e.commits ?? 0,
       bytes: cost,
       openSeconds: e.openSeconds,
       years: offeredYears(e),
