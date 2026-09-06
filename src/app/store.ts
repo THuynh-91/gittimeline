@@ -66,6 +66,16 @@ export interface Settings {
   lengthMode: 'brief' | 'natural' | 'extended';
   reducedMotion: boolean;
   noFlash: boolean;
+  /**
+   * Hold the camera still: no punch on an impact, no roll.
+   *
+   * Separate from `reducedMotion`, which also slows every transition, stops
+   * the bodies travelling and takes the eased reveal off the edges. Somebody
+   * who is fine with the show but not with the camera lurching at them wants
+   * one of those things and not the other, and a person who gets motion sick
+   * should not have to choose between the whole performance and none of it.
+   */
+  noShake: boolean;
   highContrast: boolean;
   muted: boolean;
   effectsLevel: number;
@@ -108,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lengthMode: 'natural',
   reducedMotion: false,
   noFlash: false,
+  noShake: false,
   highContrast: false,
   muted: false,
   effectsLevel: 0.7,

@@ -187,7 +187,18 @@ export function SignIn() {
               <b>Read-only, and only the history.</b> Commit messages, authors, dates and the shape of the branches. Never file contents — the app has no use for them and does not ask.
             </li>
             <li>
-              <b>Gone when you close the tab.</b> The token lives in this tab's memory. Nothing is written to disk, and reopening the site starts from nothing.
+              {/* This used to end "Nothing is written to disk, and reopening
+                  the site starts from nothing." The first half is true of the
+                  token and the sentence did not stop there: a cache of the
+                  public GitHub responses already fetched is kept on the device
+                  so the same history is not downloaded twice — measured at
+                  115 KB after opening one repository — along with the list of
+                  what has been watched. Saying otherwise on the page that
+                  explains what is stored is the one place it matters most, and
+                  it sat directly above a paragraph about private repositories.
+                  Settings has the size and a button to clear it. */}
+              <b>Gone when you close the tab.</b> The token lives in this tab's memory and is never written to disk. Responses already fetched from GitHub are
+              cached on your device so the same history is not downloaded twice; that cache holds public data only, and Settings shows its size and clears it.
             </li>
           </ul>
           <p class="grant-revoke">

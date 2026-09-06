@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { store, updateSettings, type PanelId } from './store';
+import { store, updateSettings, toast, type PanelId } from './store';
 import { MusicCredit } from './MusicCredit';
 import {
   seek,
@@ -9,6 +9,7 @@ import {
   scheduleRecompile,
   applySettingsToRuntime,
   refetchCurrent,
+  cache,
 } from './controller';
 import { fmtClock, fmtDate } from '@/choreography/events';
 import { describeAggregate } from '@/analysis/aggregate';
@@ -250,6 +251,11 @@ function SettingsPanel() {
         testId="spine-label-toggle"
       />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
+      {/* Next to "No flashes" because they are the same kind of request, and
+          separate from reduced motion because that also stops the travelling
+          and slows every transition — this holds the camera still and lets
+          the performance carry on. */}
+      <Toggle label="Hold the camera still" value={s.noShake} onChange={(v) => { updateSettings({ noShake: v }); applySettingsToRuntime(); }} testId="no-shake-toggle" />
       <Toggle label="High contrast" value={s.highContrast} onChange={(v) => { updateSettings({ highContrast: v }); applySettingsToRuntime(); }} />
 
       {store.perf.value?.source.provider === 'github' && (
@@ -258,8 +264,53 @@ function SettingsPanel() {
         </button>
       )}
 
+      <h3>Stored on this device</h3>
+      <StoredOnDevice />
+
       <h3>Large repositories</h3>
       <TokenField />
+    </div>
+  );
+}
+
+/**
+ * What is kept here, how much of it, and a way to be rid of it.
+ *
+ * `cache.estimate()` was already being called at boot into `store.storage` and
+ * displayed nowhere; `ApiCache.clearAll` and `clearRepository` were written and
+ * called from nowhere. So the app cached GitHub responses on the device, the
+ * sign-in page said nothing was written to disk, and there was no way to remove
+ * it. Two of those three are now fixed elsewhere; this is the third.
+ */
+function StoredOnDevice() {
+  const est = store.storage.value;
+  const [busy, setBusy] = useState(false);
+  const mb = est && est.usage != null ? est.usage / 1e6 : null;
+  return (
+    <div class="stored">
+      <p class="dim">
+        {mb == null
+          ? 'Responses already fetched from GitHub are cached here so the same history is not downloaded twice, together with the list of what you have watched. Public data only.'
+          : `${mb < 1 ? `${Math.round((est!.usage ?? 0) / 1000)} KB` : `${mb.toFixed(1)} MB`} of cached GitHub responses and watch history. Public data only — a token is never stored.`}
+      </p>
+      <button
+        type="button"
+        class="btn small"
+        disabled={busy}
+        data-testid="clear-storage"
+        onClick={() => {
+          setBusy(true);
+          void (async () => {
+            await cache.clearAll();
+            store.recent.value = [];
+            store.storage.value = await cache.estimate();
+            setBusy(false);
+            toast('Cleared what was stored on this device');
+          })();
+        }}
+      >
+        {busy ? 'Clearing…' : 'Clear it'}
+      </button>
     </div>
   );
 }

@@ -2640,7 +2640,13 @@ kbd {
   display: flex;
   align-items: center;
   gap: 6px;
-  opacity: 0.28;
+  /* 0.28 put COMMITS and CONTROLS at 2.13:1 against the stage and the volume
+     icon at 1.42:1, measured off rendered pixels — well under the 4.5:1 these
+     need, and high contrast mode did not rescue them because it changes the
+     palette and not the opacity. These are controls, not decoration; they are
+     allowed to be quiet and not allowed to be unreadable. Still lifting to
+     full on hover and focus. */
+  opacity: 0.72;
   transition: opacity 0.2s ease;
 }
 
@@ -3578,4 +3584,10 @@ kbd {
 }
 .catalog-out p {
   margin: 0 0 14px;
+}
+
+/* What is kept on this device, and the button that removes it. */
+.stored p {
+  margin: 0 0 10px;
+  color: var(--text-dim);
 }
