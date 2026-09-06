@@ -322,7 +322,13 @@ a {
 
 .timeline {
   position: relative;
-  height: 26px;
+  /* Tall enough for the year labels.
+     At 26px the track sat at 11px and the year captions above it were drawn
+     with their baseline at 4px, so the top of every digit fell outside the
+     canvas and each year rendered with its head sliced off. The strip carries
+     three rows — captions, ticks, landmarks — and 26px was only ever enough
+     for two of them. */
+  height: 32px;
   margin: 2px 0 4px;
 }
 

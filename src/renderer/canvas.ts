@@ -173,6 +173,52 @@ export class StageRenderer {
   private aggMinX: Float64Array = new Float64Array(0);
   /** The widest ribbon there is, which bounds how far back a visible one can start. */
   private aggWidestSpan = 0;
+  /**
+   * Where the main line's nameplate currently sits, in *world* units.
+   *
+   * The head of the spine is a commit, so following it directly makes the
+   * label jump from one landing to the next — a step every time something
+   * lands, which on a busy history is a stutter and on a quiet one is a long
+   * freeze followed by a lurch. The line underneath it is moving continuously;
+   * the name on it should be too, so this is the label's own position, pushed
+   * toward the head a fraction of the remaining gap every frame.
+   *
+   * World units and not screen ones, which is the whole of why the first
+   * attempt at this did not work. Easing a screen position means easing away
+   * the camera's motion as well as the head's, so every pan the label is
+   * anchored to it fights — and the camera pans constantly. Measured, the
+   * screen-space target moved a median of 8.2px and a maximum of 410px per
+   * frame while its net travel over ten seconds was 43px: not a push, a
+   * shake. In world units the target only ever increases, because spine
+   * commits are laid out in order, so what is left to smooth is exactly the
+   * thing that is lumpy — the head hopping from one commit to the next — and
+   * the camera is applied afterwards, unsmoothed and exact.
+   */
+  private mainLabelX: number | null = null;
+  /** Real seconds the clock advanced last frame; zero while paused. See `render`. */
+  private lastDtReal = 1 / 60;
+  /**
+   * Where the plate is and where it is heading, for measurement.
+   *
+   * The difference between a label that steps and one that is pushed is a few
+   * pixels a frame, which no screenshot settles and which cannot be read off a
+   * `desynchronized` canvas at all on a history of any size. This reports the
+   * two numbers directly.
+   */
+  get spineLabel(): { x: number; target: number; world: number; headWorld: number; camera: number } | null {
+    if (this.mainLabelX == null) return null;
+    return {
+      x: this.worldToScreen(this.mainLabelX, 0).x,
+      target: this.mainLabelTarget,
+      world: this.mainLabelX,
+      headWorld: this.mainLabelHeadWorld,
+      // A fixed world point's screen position, so the camera's own movement
+      // can be told apart from the label's.
+      camera: this.worldToScreen(0, 0).x,
+    };
+  }
+  private mainLabelTarget = 0;
+  private mainLabelHeadWorld = 0;
   /** How much of each spark's comet to draw this frame; see the body loop. */
   private bodyDetail = 1;
   /** How much of each thread's energy trail to draw this frame; see the body loop. */
@@ -344,6 +390,7 @@ export class StageRenderer {
     byX.sort((a, b) => p.nodes[a]!.x - p.nodes[b]!.x || a - b);
     this.nodesByX = byX;
     this.resetLanded();
+    this.mainLabelX = null;
     this.shopView = null;
     const first = p.camera.length ? sampleCamera(p.camera,at) : null;
     if (first) {
@@ -540,10 +587,21 @@ export class StageRenderer {
     const scale = Math.min(Math.max(vertical, 0.45), 1.9);
     const winW = safeW / scale;
     const target = {
-      // The newest work sits four fifths of the way across: far enough from the
-      // edge that its halo is not clipped, close enough that the space in front
-      // of it — where nothing has happened yet — is a fifth of the frame rather
-      // than half of it, which is what the director's framing left there.
+      // The newest work sits four fifths of the way across, and the fifth in
+      // front of it is not spare room.
+      //
+      // It looks like spare room. Mean ink coverage by twelfth of the frame
+      // runs 4.9 5.2 5.5 5.7 6.1 6.2 6.4 5.6 4.7 3.9 2.7 1.7 — a picture that
+      // peaks two thirds across and thins towards the right edge, which reads
+      // as a camera standing ahead of its subject. It is not. `recentBounds`
+      // measures commits that have *landed*, and the comets travelling toward
+      // commits that have not are all in front of it: at this framing a third
+      // of everything in flight is already within 40px of the right edge.
+      // Closing the gap to a twentieth raised the right-hand third's coverage
+      // from 0.57 of the left's to 0.93 and put 99% of the travelling bodies
+      // off the edge, up to 294px past it — the picture gets fuller and the
+      // live half of it goes missing. The right of this frame is meant to be
+      // sparse. It is where the work is arriving.
       cx: b.maxX + winW * 0.2 - winW / 2,
       cy: (b.minY + b.maxY) / 2,
       scale,
@@ -704,6 +762,14 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
+    // Only while the performance is actually running.
+    //
+    // Anything eased across frames is a side effect, and a paused stage must
+    // not accumulate side effects: the clock stops but the frames do not, so
+    // an easing driven by wall time would keep creeping while the picture is
+    // supposed to be frozen. Driving it from whether `t` moved makes a pause a
+    // real pause and leaves seeking — where `t` jumps — to the snap below.
+    this.lastDtReal = t !== this.lastT && dtReal > 0 ? Math.min(0.1, dtReal) : 0;
     const prof = renderProfile.enabled ? renderProfile : null;
     let mark = prof ? performance.now() : 0;
     const started = mark;
@@ -1826,7 +1892,18 @@ export class StageRenderer {
         } else hi = mid - 1;
       }
       const headNode = head >= 0 ? p.nodes[spine.nodeIdxs[head]!]! : null;
-      const headScreen = headNode ? this.worldToScreen(headNode.x, headNode.y) : null;
+      // Pushed toward the head in world units. `lastDtReal` rather than a
+      // per-frame constant so the glide takes the same wall-clock time on a
+      // slow machine as on a fast one, and snapped rather than glided when the
+      // gap is enormous — a seek or a cut is not a push.
+      if (headNode) {
+        this.mainLabelHeadWorld = headNode.x;
+        const reach = Math.abs(this.screenToWorld(this.width, 0).x - this.screenToWorld(0, 0).x);
+        if (this.mainLabelX == null || Math.abs(headNode.x - this.mainLabelX) > reach) this.mainLabelX = headNode.x;
+        else this.mainLabelX += (headNode.x - this.mainLabelX) * Math.min(1, this.lastDtReal * 6);
+      }
+      const at = this.mainLabelX ?? this.view.cx;
+      const headScreen = headNode ? this.worldToScreen(at, spineY(at)) : null;
       const sy = headScreen ? headScreen.y : this.worldToScreen(this.view.cx, spineY(this.view.cx)).y;
       const top = this.settings.safe.top;
       const bottom = this.height - this.settings.safe.bottom;
@@ -1840,10 +1917,19 @@ export class StageRenderer {
         const track = 1.4;
         const padX = 7;
         const boxW = w + track * (text.length - 1) + padX * 2;
-        // Ahead of the head commit, and never past the right margin.
+        // Ahead of the line's head, and never past the right margin. This
+        // clamp stays in screen units because it is about the frame's edge,
+        // not about the history: on a long one the spine runs off the right
+        // and the plate holds at the margin, still pointing the right way.
         const rightLimit = this.width - this.settings.safe.right - boxW - 6;
-        const x = Math.max(this.settings.safe.left + 6, Math.min(rightLimit, (headScreen?.x ?? 0) + 16));
-        const y = sy - 15;
+        this.mainLabelTarget = headScreen ? headScreen.x + 16 : 0;
+        const x = Math.max(this.settings.safe.left + 6, Math.min(rightLimit, this.mainLabelTarget));
+        // Read the line's height back at wherever the plate actually ended up.
+        // Taken at the unclamped position instead, the connector below would
+        // reach for the spine's height somewhere off the right of the frame
+        // and stop short of the line it is supposed to touch.
+        const lineY = this.worldToScreen(0, spineY(this.screenToWorld(x + boxW / 2, 0).x)).y;
+        const y = lineY - 15;
         ctx.fillStyle = rgba(PALETTE.ink, 0.72);
         ctx.beginPath();
         ctx.roundRect(x, y - 8, boxW, 16, 8);
@@ -1856,7 +1942,7 @@ export class StageRenderer {
         ctx.strokeStyle = rgba(PALETTE.ivory, 0.45);
         ctx.beginPath();
         ctx.moveTo(x + boxW / 2, y + 8);
-        ctx.lineTo(x + boxW / 2, sy - 2);
+        ctx.lineTo(x + boxW / 2, lineY - 2);
         ctx.stroke();
         ctx.fillStyle = rgba(PALETTE.ivory, 0.92);
         let cx = x + padX;

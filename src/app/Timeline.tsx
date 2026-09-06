@@ -317,8 +317,26 @@ function paintBackdrop(
     ctx.fillStyle = 'rgba(230,225,214,0.14)';
     ctx.fillRect(x, line - 5, 1, 4);
     if (x - lastLabel > 46) {
+      // Kept inside the strip, on both axes.
+      //
+      // The baseline was a constant offset from the track, which is a bet on
+      // the font's ascent, and it was the wrong bet: at this strip's height
+      // the digits were taller than the gap above the line and every year was
+      // drawn with its top edge outside the canvas. Asking the context how
+      // tall this string actually is holds for whatever font the system
+      // substitutes and whatever height the strip is given.
+      //
+      // Horizontally the label goes to the left of its own tick when there is
+      // no room to the right of it — still unambiguously that tick's label,
+      // and the last year of a history is the one a viewer is most likely to
+      // be looking for.
+      const m = ctx.measureText(tick.label);
+      let labelX = x + 3;
+      if (labelX + m.width > w - 2) labelX = x - 3 - m.width;
+      labelX = Math.max(2, Math.min(labelX, w - 2 - m.width));
+      const ascent = m.actualBoundingBoxAscent || 7;
       ctx.fillStyle = 'rgba(230,225,214,0.34)';
-      ctx.fillText(tick.label, x + 3, line - 7);
+      ctx.fillText(tick.label, labelX, Math.max(ascent + 0.5, line - 5));
       lastLabel = x;
     }
   }

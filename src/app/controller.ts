@@ -1939,6 +1939,10 @@ export function installDebugHook() {
     get render() {
       return renderProfile;
     },
+    /** Where the MAIN nameplate is, and where it is being pushed toward. */
+    get spineLabel() {
+      return renderer?.spineLabel ?? null;
+    },
     get music() {
       const now = audio.nowPlaying;
       return now ? { title: now.title, artist: now.artist, playing: audio.playing } : null;
