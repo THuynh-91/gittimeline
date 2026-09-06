@@ -660,9 +660,39 @@ export class StageRenderer {
     // would retreat until they are hairlines.
     const scale = Math.min(Math.max(vertical, 0.45), 1.9);
     const winW = safeW / scale;
+    // Clear of the right border by this much, in screen pixels rather than a
+    // share of the frame, because it is the halo of one spark that has to fit
+    // and that is the same size at every zoom.
+    //
+    // Eighty rather than the fifty asked for, because the front is read one
+    // frame late: a body can travel a good twenty-five pixels between the
+    // draw that reports it and the frame that acts on it. At sixty the worst
+    // case measured 35px of clearance; at eighty the worst case is comfortably
+    // the other side of fifty and the median sits inside the range wanted.
+    const FRONT_MARGIN = 80;
+    const front = Math.max(b.maxX, Number.isFinite(this.frontPrev) ? this.frontPrev : -Infinity);
     const target = {
-      // The newest work sits four fifths of the way across, and the fifth in
-      // front of it is not spare room.
+      // Far enough left that the front of the work clears the right border.
+      //
+      // This used to place the newest *landed* commit four fifths of the way
+      // across and trust the remaining fifth to hold whatever was in flight in
+      // front of it. It did not: measured over forty frames of the landing,
+      // something was past the right border on twenty-six of them, by as much
+      // as 76px, and not one frame had so much as 50px of clearance. A shop
+      // window with the goods hanging out of it.
+      //
+      // So the front is measured rather than assumed — `frontWorldX`, the
+      // rightmost point any body was actually drawn at — and the camera is
+      // placed to leave it a fixed margin of real pixels. `b.maxX` stays in as
+      // the floor for the moment nothing is travelling at all.
+      //
+      // The rest of what was written here still holds and is why the margin is
+      // a margin and not a bigger fraction: ink by twelfth of the frame runs
+      // 4.9 5.2 5.5 5.7 6.1 6.2 6.4 5.6 4.7 3.9 2.7 1.7, which looks like a
+      // camera standing ahead of its subject and is not. Closing the gap to a
+      // twentieth raised the right third's coverage from 0.57 of the left's to
+      // 0.93 and put 99% of the travelling bodies off the edge. The right of
+      // this frame is meant to be sparse. It is where the work is arriving.
       //
       // It looks like spare room. Mean ink coverage by twelfth of the frame
       // runs 4.9 5.2 5.5 5.7 6.1 6.2 6.4 5.6 4.7 3.9 2.7 1.7 — a picture that
@@ -676,7 +706,7 @@ export class StageRenderer {
       // off the edge, up to 294px past it — the picture gets fuller and the
       // live half of it goes missing. The right of this frame is meant to be
       // sparse. It is where the work is arriving.
-      cx: b.maxX + winW * 0.2 - winW / 2,
+      cx: Math.max(b.maxX + winW * 0.2, front + FRONT_MARGIN / scale) - winW / 2,
       cy: (b.minY + b.maxY) / 2,
       scale,
     };
@@ -694,6 +724,17 @@ export class StageRenderer {
       cy: v.cy + (target.cy - v.cy) * k,
       scale: v.scale + (target.scale - v.scale) * k,
     };
+    // The margin is a floor, not a target.
+    //
+    // Aiming the smoothed follow at it was not enough: this follow is
+    // deliberately slow — a page being read cannot have the corner of its eye
+    // twitching — so the target moved and the view trailed, and the work got
+    // out anyway. Measured, 23 frames in 40 still had something past the
+    // border. So the drift stays gentle in the direction that does not matter
+    // and is overruled outright in the direction that does. The camera may lag
+    // behind the work; it may not let the work leave the frame.
+    const floorCx = front + FRONT_MARGIN / this.shopView.scale - safeW / this.shopView.scale / 2;
+    if (this.shopView.cx < floorCx) this.shopView.cx = floorCx;
     // No punch at all. A merge landing hard is the right instinct on a stage
     // being watched and the wrong one behind a form being read: the page moved
     // under the reader for a reason they could not see, which is the precise
@@ -882,6 +923,15 @@ export class StageRenderer {
     this.headNode = at >= 0 ? p.nodes[spine.nodeIdxs[at]!]! : null;
     return this.headNode;
   }
+  /**
+   * The rightmost point any body was drawn at last frame, in world units.
+   *
+   * Read one frame late on purpose: the framing needs to know where the front
+   * of the work is before it draws, and the only thing that knows is the draw.
+   * A frame of lag on a camera that is already smoothed is invisible.
+   */
+  private frontWorldX = -Infinity;
+  private frontPrev = -Infinity;
   private headIdx = -1;
   private headFrame = -1;
   private headAt = NaN;
@@ -947,6 +997,8 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
+    this.frontPrev = this.frontWorldX;
+    this.frontWorldX = -Infinity;
     const prof = renderProfile.enabled ? renderProfile : null;
     let mark = prof ? performance.now() : 0;
     const started = mark;
@@ -1692,6 +1744,13 @@ export class StageRenderer {
     const isPerformer = e.body === 'performer';
     const size = (isPerformer ? 4.6 : 3) * (e.kind === 'aggregate' ? 1.25 : 1);
     const pos = pointAt(e.pts, u, this.tmp);
+    // The furthest right anything is actually drawn, which is not the furthest
+    // right anything has landed. `recentBounds` measures commits; the comets
+    // travelling toward commits that have not landed are all in front of them,
+    // and on the landing page they are what runs off the edge. Recorded before
+    // the culling below, so a body already past the frame still counts — it is
+    // precisely the one the framing has to make room for.
+    if (pos.x > this.frontWorldX) this.frontWorldX = pos.x;
     // A live edge can cross the stage while the spark travelling it is still
     // far off the side. The edge earned its place by overlapping the view; the
     // body has to earn its own.
