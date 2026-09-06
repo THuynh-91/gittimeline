@@ -2,7 +2,6 @@ import type { AggregateSpan, CameraCue, ChoreographyEvent, CompiledPerformance, 
 import { sampleCamera } from '@/choreography/camera';
 import { describeAggregate } from '@/analysis/aggregate';
 import { pointAt, headingAt } from '@/layout/paths';
-import { spineY } from '@/layout/layout';
 import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
 import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
@@ -174,51 +173,17 @@ export class StageRenderer {
   /** The widest ribbon there is, which bounds how far back a visible one can start. */
   private aggWidestSpan = 0;
   /**
-   * Where the main line's nameplate currently sits, in *world* units.
+   * Where the main line's nameplate was drawn last frame, for measurement.
    *
-   * The head of the spine is a commit, so following it directly makes the
-   * label jump from one landing to the next — a step every time something
-   * lands, which on a busy history is a stutter and on a quiet one is a long
-   * freeze followed by a lurch. The line underneath it is moving continuously;
-   * the name on it should be too, so this is the label's own position, pushed
-   * toward the head a fraction of the remaining gap every frame.
-   *
-   * World units and not screen ones, which is the whole of why the first
-   * attempt at this did not work. Easing a screen position means easing away
-   * the camera's motion as well as the head's, so every pan the label is
-   * anchored to it fights — and the camera pans constantly. Measured, the
-   * screen-space target moved a median of 8.2px and a maximum of 410px per
-   * frame while its net travel over ten seconds was 43px: not a push, a
-   * shake. In world units the target only ever increases, because spine
-   * commits are laid out in order, so what is left to smooth is exactly the
-   * thing that is lumpy — the head hopping from one commit to the next — and
-   * the camera is applied afterwards, unsmoothed and exact.
+   * The plate cannot be photographed on a history of any size — the stage is a
+   * `desynchronized` canvas and screenshotting one above about forty thousand
+   * nodes hangs — so the way to check that it is holding still is to read the
+   * number it was drawn at.
    */
-  private mainLabelX: number | null = null;
-  /** Real seconds the clock advanced last frame; zero while paused. See `render`. */
-  private lastDtReal = 1 / 60;
-  /**
-   * Where the plate is and where it is heading, for measurement.
-   *
-   * The difference between a label that steps and one that is pushed is a few
-   * pixels a frame, which no screenshot settles and which cannot be read off a
-   * `desynchronized` canvas at all on a history of any size. This reports the
-   * two numbers directly.
-   */
-  get spineLabel(): { x: number; target: number; world: number; headWorld: number; camera: number } | null {
-    if (this.mainLabelX == null) return null;
-    return {
-      x: this.worldToScreen(this.mainLabelX, 0).x,
-      target: this.mainLabelTarget,
-      world: this.mainLabelX,
-      headWorld: this.mainLabelHeadWorld,
-      // A fixed world point's screen position, so the camera's own movement
-      // can be told apart from the label's.
-      camera: this.worldToScreen(0, 0).x,
-    };
+  private mainLabelAt: { x: number; y: number } | null = null;
+  get spineLabel(): { x: number; y: number } | null {
+    return this.mainLabelAt;
   }
-  private mainLabelTarget = 0;
-  private mainLabelHeadWorld = 0;
   /** How much of each spark's comet to draw this frame; see the body loop. */
   private bodyDetail = 1;
   /** How much of each thread's energy trail to draw this frame; see the body loop. */
@@ -390,7 +355,7 @@ export class StageRenderer {
     byX.sort((a, b) => p.nodes[a]!.x - p.nodes[b]!.x || a - b);
     this.nodesByX = byX;
     this.resetLanded();
-    this.mainLabelX = null;
+    this.mainLabelAt = null;
     this.shopView = null;
     const first = p.camera.length ? sampleCamera(p.camera,at) : null;
     if (first) {
@@ -762,14 +727,6 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
-    // Only while the performance is actually running.
-    //
-    // Anything eased across frames is a side effect, and a paused stage must
-    // not accumulate side effects: the clock stops but the frames do not, so
-    // an easing driven by wall time would keep creeping while the picture is
-    // supposed to be frozen. Driving it from whether `t` moved makes a pause a
-    // real pause and leaves seeking — where `t` jumps — to the snap below.
-    this.lastDtReal = t !== this.lastT && dtReal > 0 ? Math.min(0.1, dtReal) : 0;
     const prof = renderProfile.enabled ? renderProfile : null;
     let mark = prof ? performance.now() : 0;
     const started = mark;
@@ -1862,97 +1819,106 @@ export class StageRenderer {
     // everything else is described relative to it — so its name rides along
     // with it instead of being a fact stated at the beginning and forgotten.
     //
-    // It rides at the *head* of the line, not at the left edge.
+    // It is pinned to the right-hand edge of the frame and it stays there.
     //
-    // Pinning it left put the name at the oldest thing on screen — the end the
-    // history has already finished with — while the line it names grows away
-    // from it to the right. The label belongs where the work is: just ahead of
-    // the newest commit on the main line, pushed along as the line advances,
-    // so it reads as a nameplate the spine is carrying rather than a caption
-    // parked in a corner.
+    // Two earlier versions both moved it, and both were wrong in the same way.
+    // Printed once beside the spine's first commit it was gone within seconds
+    // and never came back. Following the head commit it went where the head
+    // went — which is off the right of the frame on any long history, so it
+    // spent most of its time clamped against the margin anyway, and the rest
+    // of its time being clipped back and forth across that clamp as the camera
+    // moved. Easing the clamped value only smeared the same problem out.
     //
-    // Clamped to the right margin when the head has run off the stage, which
-    // is the usual case on a long history: the camera frames the work and the
-    // spine continues past the edge, so the label sits at the frame's edge and
-    // keeps pointing the right way.
+    // The name of a line does not need to point at a particular commit on it.
+    // It needs to be findable. So it sits at one fixed place in the frame,
+    // against the right margin at the height of the line it names, and the
+    // history runs under it. Nothing about it is a function of the clock, so
+    // there is nothing for it to teleport between and nothing for a pause to
+    // freeze mid-glide.
     //
     // Drawn directly rather than through `place()`: this one never yields to
     // another label and never gets skipped for overlapping.
     const spine = p.threads[0];
-    if (spine && spine.label && labels !== 'minimal') {
-      // The newest spine commit that has landed, found rather than walked to.
+    const spineBegun = spine && spine.nodeIdxs.length > 0 && p.nodes[spine.nodeIdxs[0]!]!.impact <= t;
+    if (spine && spine.label && spineBegun && labels !== 'minimal') {
+      const text = spine.label.toUpperCase();
+      ctx.save();
+      ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.textBaseline = 'middle';
+      const w = ctx.measureText(text).width;
+      // Tracking has to be added by hand; canvas has no letter-spacing.
+      const track = 1.4;
+      const padX = 7;
+      const boxW = w + track * (text.length - 1) + padX * 2;
+      const x = this.width - this.settings.safe.right - boxW - 6;
+      // The height of the line directly beneath the plate, read off an actual
+      // commit on it.
+      //
+      // Not from `spineY`. That returns a constant 0 and describes the layout's
+      // intent — "the primary spine is a perfectly straight horizontal axis" —
+      // rather than the geometry the compiler emitted, and the two do not
+      // agree: measured on Kubernetes, `worldToScreen(0, spineY(x))` came out a
+      // flat 374px away from where the spine's own bodies were drawn, at every
+      // depth in the performance. A plate placed off that would name the main
+      // line from a third of a screen above it.
+      //
+      // So: the last spine commit at or before the plate's column, and no
+      // later than the one that has landed, because the height of a line that
+      // has not been drawn yet is not a thing to point at.
+      const wx = this.screenToWorld(x + boxW / 2, 0).x;
       let lo = 0;
       let hi = spine.nodeIdxs.length - 1;
-      let head = -1;
+      let at = 0;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
-          head = mid;
+        const nd = p.nodes[spine.nodeIdxs[mid]!]!;
+        if (nd.x <= wx && nd.impact <= t) {
+          at = mid;
           lo = mid + 1;
         } else hi = mid - 1;
       }
-      const headNode = head >= 0 ? p.nodes[spine.nodeIdxs[head]!]! : null;
-      // Pushed toward the head in world units. `lastDtReal` rather than a
-      // per-frame constant so the glide takes the same wall-clock time on a
-      // slow machine as on a fast one, and snapped rather than glided when the
-      // gap is enormous — a seek or a cut is not a push.
-      if (headNode) {
-        this.mainLabelHeadWorld = headNode.x;
-        const reach = Math.abs(this.screenToWorld(this.width, 0).x - this.screenToWorld(0, 0).x);
-        if (this.mainLabelX == null || Math.abs(headNode.x - this.mainLabelX) > reach) this.mainLabelX = headNode.x;
-        else this.mainLabelX += (headNode.x - this.mainLabelX) * Math.min(1, this.lastDtReal * 6);
-      }
-      const at = this.mainLabelX ?? this.view.cx;
-      const headScreen = headNode ? this.worldToScreen(at, spineY(at)) : null;
-      const sy = headScreen ? headScreen.y : this.worldToScreen(this.view.cx, spineY(this.view.cx)).y;
-      const top = this.settings.safe.top;
-      const bottom = this.height - this.settings.safe.bottom;
-      if (headNode && sy > top + 6 && sy < bottom - 6) {
-        const text = spine.label.toUpperCase();
-        ctx.save();
-        ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
-        ctx.textBaseline = 'middle';
-        const w = ctx.measureText(text).width;
-        // Tracking has to be added by hand; canvas has no letter-spacing.
-        const track = 1.4;
-        const padX = 7;
-        const boxW = w + track * (text.length - 1) + padX * 2;
-        // Ahead of the line's head, and never past the right margin. This
-        // clamp stays in screen units because it is about the frame's edge,
-        // not about the history: on a long one the spine runs off the right
-        // and the plate holds at the margin, still pointing the right way.
-        const rightLimit = this.width - this.settings.safe.right - boxW - 6;
-        this.mainLabelTarget = headScreen ? headScreen.x + 16 : 0;
-        const x = Math.max(this.settings.safe.left + 6, Math.min(rightLimit, this.mainLabelTarget));
-        // Read the line's height back at wherever the plate actually ended up.
-        // Taken at the unclamped position instead, the connector below would
-        // reach for the spine's height somewhere off the right of the frame
-        // and stop short of the line it is supposed to touch.
-        const lineY = this.worldToScreen(0, spineY(this.screenToWorld(x + boxW / 2, 0).x)).y;
-        const y = lineY - 15;
-        ctx.fillStyle = rgba(PALETTE.ink, 0.72);
-        ctx.beginPath();
-        ctx.roundRect(x, y - 8, boxW, 16, 8);
-        ctx.fill();
-        ctx.strokeStyle = rgba(PALETTE.ivory, 0.22);
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        // A short ivory tick joining the label to the line it names, so the
-        // pill is read as belonging to the spine and not floating over it.
+      const onLine = p.nodes[spine.nodeIdxs[at]!]!;
+      const lineY = this.worldToScreen(onLine.x, onLine.y).y;
+      // Kept on the canvas, not inside the safe area.
+      //
+      // The safe insets are a compositional margin for the *camera* — 150px at
+      // the bottom of a stage barely 550 tall — and clamping the plate into
+      // them detached it from the thing it names. Measured on Kubernetes the
+      // spine spends much of its time below that band, so the plate sat at the
+      // bottom of the safe area with its line 200px further down, and slammed
+      // between the two clamps: y swung across the full 320px range with
+      // single-frame jumps of the whole 320. That is the teleporting. The pill
+      // is 16px tall and belongs on its line; it only has to stay on the
+      // canvas.
+      const y = Math.max(14, Math.min(this.height - 14, lineY - 15));
+      const bottom = this.height;
+      ctx.fillStyle = rgba(PALETTE.ink, 0.72);
+      ctx.beginPath();
+      ctx.roundRect(x, y - 8, boxW, 16, 8);
+      ctx.fill();
+      ctx.strokeStyle = rgba(PALETTE.ivory, 0.22);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // A short ivory tick joining the label to the line it names, so the pill
+      // is read as belonging to the spine and not floating over it. Only when
+      // the line is actually below it; when the spine is off the band the tick
+      // would be a stroke pointing at nothing.
+      if (lineY > y + 10 && lineY < bottom) {
         ctx.strokeStyle = rgba(PALETTE.ivory, 0.45);
         ctx.beginPath();
         ctx.moveTo(x + boxW / 2, y + 8);
         ctx.lineTo(x + boxW / 2, lineY - 2);
         ctx.stroke();
-        ctx.fillStyle = rgba(PALETTE.ivory, 0.92);
-        let cx = x + padX;
-        for (const ch of text) {
-          ctx.fillText(ch, cx, y);
-          cx += ctx.measureText(ch).width + track;
-        }
-        ctx.restore();
       }
-    }
+      ctx.fillStyle = rgba(PALETTE.ivory, 0.92);
+      let cx = x + padX;
+      for (const ch of text) {
+        ctx.fillText(ch, cx, y);
+        cx += ctx.measureText(ch).width + track;
+      }
+      ctx.restore();
+      this.mainLabelAt = { x, y };
+    } else this.mainLabelAt = null;
     // how much converged, on the merges big enough to warrant saying so
     if (labels !== 'minimal') {
       // Backwards from the playhead. Age only increases going back, and the

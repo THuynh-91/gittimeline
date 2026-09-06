@@ -1939,7 +1939,7 @@ export function installDebugHook() {
     get render() {
       return renderProfile;
     },
-    /** Where the MAIN nameplate is, and where it is being pushed toward. */
+    /** Where the MAIN nameplate was drawn last frame. */
     get spineLabel() {
       return renderer?.spineLabel ?? null;
     },
