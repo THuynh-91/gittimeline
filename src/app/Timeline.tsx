@@ -22,24 +22,25 @@ export function Timeline() {
   // they follow the same switch as the captions drawn on the history itself.
   const showRail = store.settings.value.labels !== 'minimal';
   const loop = store.loopRange.value;
+  const win = store.spanSeconds.value;
   const focus = store.contributorFocus.value;
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
   const drag = useRef<{ start: number; shift: boolean } | null>(null);
 
   useEffect(() => {
     const canvas = ref.current;
-    if (canvas && perf) draw(canvas, perf, t, scale, loop, focus, hover?.t ?? null, showRail);
-  }, [perf, t, scale, loop, focus, hover]);
+    if (canvas && perf) draw(canvas, perf, t, scale, loop, win, focus, hover?.t ?? null, showRail);
+  }, [perf, t, scale, loop, win, focus, hover]);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const ro = new ResizeObserver(() => {
-      if (perf) draw(canvas, perf, store.time.peek(), scale, loop, focus, null, store.settings.peek().labels !== 'minimal');
+      if (perf) draw(canvas, perf, store.time.peek(), scale, loop, win, focus, null, store.settings.peek().labels !== 'minimal');
     });
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, [perf, scale, loop, focus]);
+  }, [perf, scale, loop, win, focus]);
 
   if (!perf) return null;
 
@@ -80,10 +81,10 @@ export function Timeline() {
       if (e.shiftKey) jumpLandmark(e.key === 'ArrowLeft' ? -1 : 1);
       else stepUnit(e.key === 'ArrowLeft' ? -1 : 1);
     } else if (e.key === 'Home') {
-      seek(0);
+      seek(win ? win.start : 0);
       e.preventDefault();
     } else if (e.key === 'End') {
-      seek(perf.duration);
+      seek(win ? win.end : perf.duration);
       e.preventDefault();
     } else if (e.key === 'PageUp' || e.key === 'PageDown') {
       seek(store.time.peek() + (e.key === 'PageUp' ? -5 : 5));
@@ -100,10 +101,15 @@ export function Timeline() {
         role="slider"
         tabIndex={0}
         aria-label="Performance timeline"
-        aria-valuemin={0}
-        aria-valuemax={Math.round(perf.duration)}
+        // All four against the same length. `aria-valuetext` wins when a
+        // screen reader has one, so a mismatch here is usually inaudible — but
+        // a slider reporting 250 of 540 while saying "00:12 of 01:20" is wrong
+        // for anything reading the numbers, and a percentage is what most of
+        // them compute from.
+        aria-valuemin={Math.round(win ? win.start : 0)}
+        aria-valuemax={Math.round(win ? win.end : perf.duration)}
         aria-valuenow={Math.round(t)}
-        aria-valuetext={`${fmtClock(t)} of ${fmtClock(perf.duration)}, ${fmtDate(hist)}`}
+        aria-valuetext={`${fmtClock(win ? t - win.start : t)} of ${fmtClock(win ? win.end - win.start : perf.duration)}, ${fmtDate(hist)}`}
         data-testid="timeline"
         onPointerDown={onDown}
         onPointerMove={onMove}
@@ -189,13 +195,14 @@ function backdropKey(
   perf: CompiledPerformance,
   scale: 'performance' | 'historical',
   loop: { start: number; end: number } | null,
+  win: { start: number; end: number } | null,
   focus: string | null,
   showCommitMarks: boolean,
   w: number,
   h: number,
   dpr: number,
 ): string {
-  return [perf.planHash, scale, loop ? `${loop.start}:${loop.end}` : '-', focus ?? '-', showCommitMarks ? 'm' : '.', w, h, dpr].join('|');
+  return [perf.planHash, scale, loop ? `${loop.start}:${loop.end}` : '-', win ? `${win.start}:${win.end}` : '-', focus ?? '-', showCommitMarks ? 'm' : '.', w, h, dpr].join('|');
 }
 
 function paintBackdrop(
@@ -205,11 +212,29 @@ function paintBackdrop(
   h: number,
   scale: 'performance' | 'historical',
   loop: { start: number; end: number } | null,
+  win: { start: number; end: number } | null,
   focus: string | null,
   showCommitMarks: boolean,
 ) {
   const xOf = (time: number) => timeToXFrac(perf, time, scale) * w;
   const line = Math.round(h * 0.42) + 0.5;
+
+  // The span being played, marked on the whole history.
+  //
+  // A span is a window on one plan, and this strip is the plan — so the
+  // playhead starts a third of the way along and stops two thirds of the way
+  // along, which without a mark on the track reads as a performance that
+  // began late and gave up early. With the years dimmed either side it reads
+  // as what it is: this stretch of that history, in its place.
+  if (win) {
+    const a = xOf(win.start);
+    const b = xOf(win.end);
+    ctx.fillStyle = 'rgba(7,8,12,0.55)';
+    ctx.fillRect(0, 0, Math.max(0, a), h);
+    ctx.fillRect(b, 0, Math.max(0, w - b), h);
+    ctx.fillStyle = 'rgba(230,225,214,0.06)';
+    ctx.fillRect(a, line - 9, Math.max(1, b - a), 18);
+  }
 
   // Era bands: a whisper of where the regimes change.
   for (const era of perf.eras) {
@@ -353,6 +378,7 @@ function draw(
   t: number,
   scale: 'performance' | 'historical',
   loop: { start: number; end: number } | null,
+  win: { start: number; end: number } | null,
   focus: string | null,
   hoverT: number | null,
   showCommitMarks: boolean,
@@ -369,7 +395,7 @@ function draw(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const key = backdropKey(perf, scale, loop, focus, showCommitMarks, w, h, dpr);
+  const key = backdropKey(perf, scale, loop, win, focus, showCommitMarks, w, h, dpr);
   if (!backdrop || backdrop.key !== key) {
     const off = backdrop?.canvas ?? document.createElement('canvas');
     off.width = Math.max(1, Math.round(w * dpr));
@@ -378,7 +404,7 @@ function draw(
     if (octx) {
       octx.setTransform(dpr, 0, 0, dpr, 0, 0);
       octx.clearRect(0, 0, w, h);
-      paintBackdrop(octx, perf, w, h, scale, loop, focus, showCommitMarks);
+      paintBackdrop(octx, perf, w, h, scale, loop, win, focus, showCommitMarks);
       backdrop = { key, canvas: off };
     }
   }
@@ -393,11 +419,11 @@ function draw(
   const playX = xOf(t);
   const line = Math.round(h * 0.42) + 0.5;
 
-  // The part already performed.
+  // The part already performed, from wherever this performance began.
   ctx.strokeStyle = PALETTE.ivory;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, line);
+  ctx.moveTo(win ? xOf(win.start) : 0, line);
   ctx.lineTo(playX, line);
   ctx.stroke();
 

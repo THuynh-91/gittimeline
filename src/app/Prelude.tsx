@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { store, isBusy } from './store';
+import { store, isBusy, phaseSpoken } from './store';
 import { cancel, retry, playCachedPartial, loadDemo } from './controller';
 import { formatReset } from '@/github/ratelimit';
 
@@ -142,7 +142,7 @@ export function Prelude() {
           Cancel
         </button>
       </div>
-      <span class="sr-only">{phase}</span>
+      <span class="sr-only">{phaseSpoken(phase)}</span>
     </div>
   );
 }

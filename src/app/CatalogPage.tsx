@@ -40,8 +40,16 @@ const FAMOUS: Array<{ slug: string; note: string }> = [
  * input with the demo playing behind it.
  */
 export function CatalogPage() {
-  const shelf = useCatalogEntries();
-  const missing = FAMOUS.filter((f) => !shelf?.some((e) => e.slug.toLowerCase() === f.slug.toLowerCase()));
+  const { entries: shelf } = useCatalogEntries();
+  // Only once the shelf has actually answered.
+  //
+  // This read `!shelf?.some(...)`, and `shelf` is null both while the fetch is
+  // in flight and when it fails. Optional chaining made that null mean "on the
+  // shelf: no" for every candidate, so the page opened by listing all of them
+  // under a heading that says they are not pre-fetched and need a token — a
+  // flash of the wrong answer on every visit, and the settled state whenever
+  // the host is down. Half of the ones named here are on the shelf.
+  const missing = shelf ? FAMOUS.filter((f) => !shelf.some((e) => e.slug.toLowerCase() === f.slug.toLowerCase())) : [];
   return (
     <div class="page" data-testid="catalog-page">
       <SiteBar page="catalog" />
@@ -52,7 +60,7 @@ export function CatalogPage() {
         <header class="page-head">
           <h1>Selection Ready to Watch</h1>
           <p class="page-lead">
-            These histories were fetched ahead of time and ship with the site, so opening one costs no GitHub token and no requests at all. Every card
+            These histories were fetched ahead of time, so opening one costs no GitHub token and no requests at all. Every card
             says how long its performance runs, because that is the thing you are choosing between — three minutes of a small tool and twelve hours of
             Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
             Pick one and it asks how much of it you want before it starts: the whole thing, the last few years, or a single year. Every answer is

@@ -50,6 +50,15 @@ export function claimTokenFromUrl(): boolean {
   if (!location.hash.includes('gh_token=') && !location.hash.includes('gh_error=')) return false;
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   const token = params.get('gh_token');
+  // Read before the delete, not after.
+  //
+  // The failure branch below re-read `gh_error` from `location.hash` and from
+  // `params` — but by then `replaceState` had stripped the fragment and both
+  // keys had been deleted, so it was always null and the banner could never
+  // appear. Which is exactly the silent failure the comment there says was
+  // fixed: the fragment vanished, no token arrived, and the page looked
+  // untouched.
+  const failed = params.get('gh_error');
   params.delete('gh_token');
   params.delete('gh_error');
   const rest = params.toString();
@@ -62,8 +71,7 @@ export function claimTokenFromUrl(): boolean {
   // token appeared, and the page looked exactly as it had before the round
   // trip. Somebody who has just authorised an application and been returned to
   // an unchanged screen has no way to tell whether it worked.
-  const err = new URLSearchParams(location.hash.replace(/^#/, '')).get('gh_error') ?? params.get('gh_error');
-  if (err !== null) {
+  if (failed !== null) {
     store.banner.value = {
       kind: 'rate-limited',
       message: 'GitHub sign-in did not complete. Public repositories still work at the anonymous rate, and the ready-made histories cost no requests at all.',

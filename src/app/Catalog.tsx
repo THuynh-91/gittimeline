@@ -549,32 +549,70 @@ function toEntry(raw: unknown): CatalogEntry | null {
  * the browser has already cached is not worth threading state through the app
  * to avoid.
  */
-export function useCatalogEntries(): CatalogEntry[] | null {
-  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
+export interface Shelf {
+  entries: CatalogEntry[] | null;
+  /**
+   * The shelf is hosted elsewhere and could not be read.
+   *
+   * Distinct from `entries === null`, which also covers "still asking" and
+   * "this build never had a shelf". Only the third state is worth saying out
+   * loud, and only one of the three used to be possible: while the catalog was
+   * published inside `dist`, a missing `index.json` meant the build shipped
+   * without one and silence was the whole of the correct behaviour.
+   *
+   * It is served from an object store on another origin now. A failure there —
+   * an outage, a DNS blip, a CORS rule edited by somebody — is not "this build
+   * has no shelf"; it is twelve histories that exist and cannot be reached
+   * this minute, and rendering nothing tells the visitor a landing page is
+   * simply missing its main attraction.
+   */
+  unreachable: boolean;
+}
+
+export function useCatalogEntries(): Shelf {
+  const [shelf, setShelf] = useState<Shelf>({ entries: null, unreachable: false });
   useEffect(() => {
     let live = true;
+    // `externalCatalog` and nothing else decides whether a failure is worth
+    // reporting, so a local build behaves exactly as it always did.
+    const miss = () => {
+      if (live && externalCatalog) setShelf({ entries: null, unreachable: true });
+    };
     fetch(catalogUrl('index.json'))
       .then((r) => (r.ok ? r.json() : null))
       .then((j: unknown) => {
         const list = j && typeof j === 'object' ? (j as { entries?: unknown }).entries : null;
-        if (!live || !Array.isArray(list)) return;
+        if (!live) return;
+        if (!Array.isArray(list)) return miss();
         const parsed = list.map(toEntry).filter((e): e is CatalogEntry => e !== null);
-        if (parsed.length) setEntries(parsed);
+        if (parsed.length) setShelf({ entries: parsed, unreachable: false });
+        else miss();
       })
-      .catch(() => {
-        /* no catalog built: the section simply does not appear */
-      });
+      .catch(miss);
     return () => {
       live = false;
     };
   }, []);
-  return entries;
+  return shelf;
 }
 
 export function Catalog() {
-  const entries = useCatalogEntries();
+  const { entries, unreachable } = useCatalogEntries();
 
-  if (!entries) return null;
+  if (!entries) {
+    if (!unreachable) return null;
+    return (
+      <section class="catalog-out" data-testid="catalog-unreachable" aria-label="Selection Ready to Watch">
+        <p>
+          The pre-fetched histories could not be reached just now. They are hosted separately from this page, so this is their
+          problem and not yours — everything else here works, and a repository you paste in is fetched from GitHub as usual.
+        </p>
+        <button type="button" class="btn" onClick={() => location.reload()}>
+          Try again
+        </button>
+      </section>
+    );
+  }
   const [first, ...rest] = entries;
 
   return (

@@ -23,6 +23,7 @@ export function DateBar() {
   // travelling the finished picture the clock is parked at the end, so those
   // two lines would sit under a 2017 heading insisting it is the present day.
   const travelling = travel != null;
+  const win = store.spanSeconds.value;
   const era = travelling ? undefined : perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
   const ev = travelling ? null : store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;
@@ -51,7 +52,12 @@ export function DateBar() {
         </span>
         <span class="clock" data-testid="clock">
           {partial && <span class="partial-flag">partial history</span>}
-          <b>{fmtClock(t)}</b> / {fmtClock(perf.duration)}
+          {/* Against the length of what is actually playing. A span is a
+              window on the plan, so the plan's own clock says a viewer who
+              chose three years of a nine-minute history is four minutes into
+              it before the first frame, and finished with three and a half
+              minutes left on the counter. */}
+          <b>{fmtClock(win ? t - win.start : t)}</b> / {fmtClock(win ? win.end - win.start : perf.duration)}
         </span>
       </div>
     </div>

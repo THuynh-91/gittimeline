@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { store, type CatalogQuestion } from './store';
 import { chooseScope, chooseCatalogSpan, dismissScope, cancel } from './controller';
 import { legibleSecondsFor, predictVisible } from '@/choreography/pace';
@@ -96,6 +96,59 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   // drag was about to replace, which flickers.
   const anchor = useRef<number | null>(null);
   const dragged = useRef(false);
+  const card = useRef<HTMLDivElement>(null);
+
+  /**
+   * Keyboard focus, held inside the dialog while it is open.
+   *
+   * `aria-modal` is a promise made to assistive technology and to nothing
+   * else: the browser still lets Tab walk straight out of the card and into
+   * the page behind it, which is dimmed, inert to the eye and fully reachable
+   * by the keyboard. Someone tabbing through this had to cross the whole
+   * landing page to reach the year they wanted, and could leave the dialog
+   * without ever knowing they had.
+   *
+   * Focus goes to the card rather than to a control, so a screen reader reads
+   * the title and the cost before the question, and it goes back where it came
+   * from on close — otherwise dismissing this drops focus onto `<body>` and
+   * the next Tab starts again from the top of the document.
+   */
+  useEffect(() => {
+    const root = card.current;
+    if (!root) return;
+    const previous = document.activeElement as HTMLElement | null;
+    root.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const stops = Array.from(root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(
+        (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
+      );
+      if (!stops.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = stops[0]!;
+      const last = stops[stops.length - 1]!;
+      const here = document.activeElement;
+      // Coming off the card itself, Tab has nowhere to have been, so it goes
+      // to the first control and Shift+Tab to the last.
+      if (here === root) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && here === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && here === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    root.addEventListener('keydown', onKey);
+    return () => {
+      root.removeEventListener('keydown', onKey);
+      previous?.focus?.();
+    };
+  }, []);
   const [dragging, setDragging] = useState(false);
   // Pointer capture sends every subsequent event to the track, so the year
   // under the pointer has to be found by hit-testing rather than read off the
@@ -143,7 +196,7 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
         if (e.target === e.currentTarget) dismissScope();
       }}
     >
-      <div class="error-card scope-card">
+      <div class="error-card scope-card" ref={card} tabIndex={-1}>
         <h2 id="scope-title">{q.label}</h2>
         <p>
           {/* What it costs to watch, and nothing about how it is built.

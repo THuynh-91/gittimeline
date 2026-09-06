@@ -556,6 +556,7 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   // to start and where to stop.
   spanWindow = opts.span ? spanWindowOf(perf, opts.span) : null;
   store.span.value = spanWindow && opts.span ? { from: opts.span.from, to: opts.span.to } : null;
+  store.spanSeconds.value = spanWindow ? { start: spanWindow.start, end: spanWindow.end } : null;
   player.load(perf, spanWindow ? spanWindow.start : (opts.startAt ?? 0));
   // Behind the form the performance is scenery, and scenery moves slowly. At
   // full pace the landing page is a scrolling wall of arrivals competing with
@@ -1977,6 +1978,32 @@ export function installDebugHook() {
       let lo = null, hi = null;
       if (xs && xs.length) { lo = xs[0]!.x; hi = xs[0]!.x; for (const n of xs) { if (n.x < lo) lo = n.x; if (n.x > hi) hi = n.x; } }
       return v ? { ...v, window: w ? { start: w.start, end: w.end, minX: w.minX, maxX: w.maxX } : null, geomMinX: lo, geomMaxX: hi } : null;
+    },
+    /**
+     * Where a catalog file actually lives, and whether that is off-site.
+     *
+     * The shelf used to be published with the site, so anything wanting it
+     * could assume `/catalog/`. It is served from an object store now, and a
+     * caller that still assumes the old path gets the SPA's `index.html` with
+     * a 200 on it — which fails as a parse error somewhere far away rather
+     * than as a missing file. Two end-to-end tests were doing exactly that.
+     */
+    catalogUrl: (file: string) => catalogUrl(file),
+    /**
+     * Whether the stage is waiting on a page of a streamed history.
+     *
+     * A seek into a part of a windowed plan that has not been fetched leaves
+     * `player.buffered` false, and the frame loop then skips `render` outright
+     * — so nothing is drawn, no frame is counted, and the clock does not move
+     * until the page lands. Roughly a second against the object store. The
+     * viewer is told ("Loading this part of history…"); a test counting drawn
+     * nodes after a fixed wait is not, and read the gap as a blank stage.
+     */
+    get buffering() {
+      return store.buffering.value;
+    },
+    get catalogIsRemote() {
+      return externalCatalog;
     },
     /** Where the MAIN nameplate was drawn last frame. */
     get spineLabel() {

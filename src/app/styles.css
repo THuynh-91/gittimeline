@@ -1200,7 +1200,12 @@ a {
 }
 
 .scope-card {
-  max-width: 680px;
+  /* Never wider than the window. At a flat 680px this rendered 628px wide on a
+     390px phone: the Close button sat entirely off-screen, the primary was
+     clipped mid-word, and Linux's first four years were at negative x with
+     nothing to scroll. A dialog you cannot close by its own button is not a
+     dialog. */
+  max-width: min(680px, calc(100vw - 24px));
 }
 
 /* The year track.
@@ -1221,6 +1226,13 @@ a {
   /* The track owns the gesture. Without this a drag scrolls the dialog on a
      touch screen instead of choosing years. */
   touch-action: none;
+  /* A long history is wider than a phone. Twenty-two years at the floor below
+     is 482px, which fits a desktop dialog with room left over to distribute by
+     weight, and does not fit a 390px one — so there it scrolls sideways rather
+     than putting years where nobody can reach them. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
 }
 
 .scope-track.dragging {
@@ -1234,8 +1246,12 @@ a {
 
 .scope-year {
   flex: 1 1 0;
-  /* Never narrower than its own two digits. */
-  min-width: 24px;
+  /* Never narrower than its own two digits.
+     Twenty was the largest floor that still leaves slack for `flex-grow` on the
+     longest history: at 24px, Linux's twenty-two years came to exactly the
+     track's content width, so every cell pinned to the floor and the weighting
+     -- the whole reason the track exists -- silently did nothing. */
+  min-width: 20px;
   padding: 0;
   display: flex;
   align-items: center;
@@ -3549,4 +3565,17 @@ kbd {
   height: 1px;
   margin-top: 3px;
   background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The shelf, when the shelf cannot be read. Sized like a card so the page
+   keeps its shape instead of collapsing around a sentence. */
+.catalog-out {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  max-width: 720px;
+  color: var(--text-dim);
+}
+.catalog-out p {
+  margin: 0 0 14px;
 }

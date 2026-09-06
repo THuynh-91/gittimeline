@@ -28,6 +28,38 @@ export type AppPhase =
   | 'ERROR_RECOVERABLE'
   | 'ERROR_FATAL';
 
+/**
+ * The phase, said out loud.
+ *
+ * `AppPhase` is a state name for code to switch on. It was also being put
+ * straight into the live region on the loading panel, so a screen reader
+ * announced "FETCHING_TOPOLOGY" and "DEGRADED_READY" — an identifier, read
+ * either as one mangled word or spelled out letter by letter, to the one
+ * viewer who has nothing else to go on. The panel's visible stage list says
+ * the same things in English; this is that list's equivalent for the people
+ * who cannot see it.
+ */
+export function phaseSpoken(phase: AppPhase): string {
+  switch (phase) {
+    case 'IDLE': return 'Ready for a repository';
+    case 'VALIDATING_URL': return 'Checking the address';
+    case 'FETCHING_METADATA': return 'Reading the repository';
+    case 'FETCHING_TOPOLOGY': return 'Mapping known commits';
+    case 'BUILDING_DAG': return 'Finding parallel threads';
+    case 'LAYING_OUT': return 'Laying out the history';
+    case 'CHOREOGRAPHING': return 'Composing the performance';
+    case 'READY': return 'Ready to play';
+    case 'PLAYING': return 'Playing';
+    case 'PAUSED': return 'Paused';
+    case 'DEGRADED_READY': return 'Ready to play, with part of the history';
+    case 'RATE_LIMITED': return "Stopped: GitHub's request limit was reached";
+    case 'OFFLINE_CACHED': return 'Playing a locally cached copy';
+    case 'CANCELLED': return 'Cancelled';
+    case 'ERROR_RECOVERABLE': return 'Something went wrong, and it can be retried';
+    case 'ERROR_FATAL': return 'Something went wrong';
+  }
+}
+
 export type PanelId = 'none' | 'inspector' | 'settings' | 'help';
 
 export interface Settings {
@@ -216,6 +248,17 @@ export const store = {
    * that happens to have been seeked into.
    */
   span: signal<{ from: number; to: number } | null>(null),
+  /**
+   * The same span as two performance times, for everything that shows a clock.
+   *
+   * `span` is the years, which is what the viewer chose. This is where those
+   * years land in the plan, which is what the readouts need — the clock was
+   * reading the whole plan's, so choosing 2015 to 2017 of a nine-minute
+   * history opened at `04:10 / 09:00`, ran, and stopped dead at `05:30` with
+   * the playhead a little past the middle of the scrubber. Nothing was wrong;
+   * it was being described against the wrong length.
+   */
+  spanSeconds: signal<{ start: number; end: number } | null>(null),
   /** Explicit duration from a share link, overriding the derived one. */
   durationOverride: signal<number | null>(null),
   scope: signal<ScopeQuestion | null>(null),
