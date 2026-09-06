@@ -213,6 +213,46 @@ jobs:
             "${{ matrix.repo }}" \
             --catalog public/catalog
 
+      - name: Package the plan into pages
+        # Why a plan gets cut into pages, and why this had to be here.
+        #
+        # A `.gtperf.gz` is read in one pass on the main thread. Linux is
+        # 152.7 MB on the wire and about 890 MB decoded, and measured against
+        # the built site that read takes 21-27 seconds during which the tab is
+        # not merely busy but blocked -- in growing chunks of 1.0s, 1.7s, 2.1s,
+        # 4.0s, and in one run a single 9.4s stall. Cancel took 1.2 seconds to
+        # answer. The loading panel cannot animate through that, so the one
+        # moving thing on screen is a compositor-driven sweep that keeps
+        # gliding while the app is dead.
+        #
+        # `catalogSource` already solves this: it fetches a window at a time in
+        # a worker, verified by SHA-256, and the stage opens on the first page
+        # while the rest arrives underneath. It is reachable only when a
+        # `.pages` package sits beside the plan, and `package-catalog.mjs`
+        # built one for exactly two entries -- React and mdBook, the two
+        # smallest on the shelf, the two that never needed it. The fast path
+        # existed and nothing that was slow could take it.
+        #
+        # Allowed to fail for the same reason compiling is: an entry without a
+        # package still opens the old way. Slow is not broken.
+        continue-on-error: true
+        run: |
+          PLAN="public/catalog/${{ matrix.stem }}.gtperf.gz"
+          if [ ! -f "$PLAN" ]; then
+            echo "no plan for ${{ matrix.repo }} — nothing to package"
+            exit 0
+          fi
+          # Below this the whole plan arrives faster than a package could be
+          # negotiated, and the package is the larger download of the two.
+          BYTES=$(stat -c%s "$PLAN")
+          if [ "$BYTES" -lt 3000000 ]; then
+            echo "plan is $((BYTES/1000000)) MB — small enough to open whole, not packaging"
+            exit 0
+          fi
+          echo "packaging ${{ matrix.repo }} ($((BYTES/1000000)) MB plan)"
+          node --max-old-space-size=${{ matrix.heap }} scripts/package-catalog.mjs "${{ matrix.repo }}"
+          du -sh "public/catalog/${{ matrix.stem }}.pages" || true
+
       - name: Report
         if: always()
         run: |
@@ -263,6 +303,7 @@ jobs:
             public/catalog/*.gtperf.gz
             public/catalog/*.meta.json
             public/catalog/*.perf.json
+            public/catalog/*.pages/**
           retention-days: 7
           if-no-files-found: error
           # Already gzipped. Asking the upload to deflate 233 MB of Chromium a

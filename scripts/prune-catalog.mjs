@@ -47,7 +47,25 @@ if (!match) {
 }
 const hydrateMax = Number(match[1].replace(/_/g, ''));
 
-const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'));
+// A build with no shelf is a valid build.
+//
+// The deploy fetches the catalog from the last successful `datasets.yml` run
+// and is `continue-on-error` on purpose: a repository that has never run that
+// workflow, or whose artifact has aged out, ships without a shelf rather than
+// failing. This step did not honour the same contract -- it threw ENOENT on
+// the missing `index.json` and took the whole deploy down with it, which is
+// how every deploy on a fresh checkout has failed. There is nothing to prune
+// when there is nothing there.
+const indexPath = join(dir, 'index.json');
+if (!existsSync(indexPath)) {
+  console.log(`No catalog at ${indexPath} — nothing to prune.`);
+  process.exit(0);
+}
+const index = JSON.parse(readFileSync(indexPath, 'utf8'));
+if (!Array.isArray(index.entries) || index.entries.length === 0) {
+  console.log('Catalog index lists no entries — nothing to prune.');
+  process.exit(0);
+}
 let kept = 0;
 let dropped = 0;
 const removals = [];
