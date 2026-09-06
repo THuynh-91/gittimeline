@@ -242,13 +242,9 @@ jobs:
             echo "no plan for ${{ matrix.repo }} — nothing to package"
             exit 0
           fi
-          # Below this the whole plan arrives faster than a package could be
-          # negotiated, and the package is the larger download of the two.
+          # The external catalog serves packages only, including small entries.
+          # Skipping them would make a future R2 publication incomplete.
           BYTES=$(stat -c%s "$PLAN")
-          if [ "$BYTES" -lt 3000000 ]; then
-            echo "plan is $((BYTES/1000000)) MB — small enough to open whole, not packaging"
-            exit 0
-          fi
           echo "packaging ${{ matrix.repo }} ($((BYTES/1000000)) MB plan)"
           node --max-old-space-size=${{ matrix.heap }} scripts/package-catalog.mjs "${{ matrix.repo }}"
           du -sh "public/catalog/${{ matrix.stem }}.pages" || true

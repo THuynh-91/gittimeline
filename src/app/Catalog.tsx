@@ -3,6 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { askCatalogScope } from './controller';
 import { trackCatalogOpen } from './analytics';
 import { hash01 } from '@/model/prng';
+import { catalogUrl, externalCatalog } from './catalogLocation';
 
 /**
  * Histories fetched ahead of time and shipped with the site.
@@ -388,7 +389,7 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
               // Decorative, so it is not described: the title below already
               // says which project this is, and an alt text here would make a
               // screen reader announce the name twice.
-              <img src={`${import.meta.env.BASE_URL}catalog/${e.logo}`} alt="" loading="lazy" decoding="async" />
+              <img src={catalogUrl(e.logo)} alt="" loading="lazy" decoding="async" />
             ) : (
               <b aria-hidden="true">{e.slug.slice(0, 1).toUpperCase()}</b>
             )}
@@ -417,7 +418,7 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
               minutes on one card that mean opposite things is worse than
               either alone. */}
           <span class={`catalog-cost${slowFor != null ? ' slow' : ''}`}>
-            {size(cost)}
+            {externalCatalog ? `Streamed · ${size(cost)} total` : size(cost)}
             {slowFor != null && ` · ~${waitShort(slowFor)} wait`}
           </span>
           {/* The affordance is on the picture, where the eye already is. */}
@@ -552,7 +553,7 @@ export function useCatalogEntries(): CatalogEntry[] | null {
   const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
   useEffect(() => {
     let live = true;
-    fetch(`${import.meta.env.BASE_URL}catalog/index.json`)
+    fetch(catalogUrl('index.json'))
       .then((r) => (r.ok ? r.json() : null))
       .then((j: unknown) => {
         const list = j && typeof j === 'object' ? (j as { entries?: unknown }).entries : null;

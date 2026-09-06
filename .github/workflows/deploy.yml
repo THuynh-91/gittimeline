@@ -33,6 +33,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: node --test scripts/catalog-release.test.mjs
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Smoke-test a root-path build
@@ -52,6 +53,7 @@ jobs:
         run: node scripts/build-music.mjs public/music
 
       - name: Collect the pre-fetched catalog
+        if: ${{ vars.VITE_CATALOG_BASE == '' }}
         # GitHub gives an anonymous visitor about 60 requests an hour, and a
         # large repository needs thousands. The answer is not to ship a token —
         # a browser has to send it as an Authorization header, so anyone can
@@ -92,15 +94,31 @@ jobs:
           # a `${{ }}` inside a shell block is textual substitution, which is
           # the shape every Actions script-injection advisory has.
           REPO_NAME: ${{ github.event.repository.name }}
+          VITE_CATALOG_BASE: ${{ vars.VITE_CATALOG_BASE }}
+          # Vite inlines `import.meta.env.VITE_*` at build time — it is a text
+          # substitution, not a lookup — so a variable set in the repository
+          # settings and never named here does not reach the bundle. That is
+          # exactly why sign-in has been dead on every deployment: the app read
+          # `VITE_AUTH_BASE`, the variable existed, and no build ever saw it.
+          # Empty is a valid value for both: analytics loads no script and asks
+          # nothing, and the sign-in button says it is not configured.
+          VITE_AUTH_BASE: ${{ vars.VITE_AUTH_BASE }}
+          VITE_GA_ID: ${{ vars.VITE_GA_ID }}
         run: |
           if [[ "$REPO_NAME" == *.github.io ]]; then VITE_BASE="/"; else VITE_BASE="/$REPO_NAME/"; fi
           export VITE_BASE
           echo "Building with VITE_BASE=$VITE_BASE"
           npm run build
+      - name: Verify the remote catalog release
+        if: ${{ vars.VITE_CATALOG_BASE != '' }}
+        env:
+          VITE_CATALOG_BASE: ${{ vars.VITE_CATALOG_BASE }}
+        run: node scripts/check-remote-catalog.mjs
       - name: SPA-friendly 404 (static hosting has no server routing)
         run: cp dist/index.html dist/404.html
 
       - name: Drop the catalog files nothing can ask for
+        if: ${{ vars.VITE_CATALOG_BASE == '' }}
         # An entry that ships a compiled plan is played from the plan; its
         # dataset is then read for one purpose only, filling commit subjects
         # back into the ledger — and that fill-in is refused above
@@ -126,14 +144,13 @@ jobs:
         #
         # Past the limit the deploy fails at the very end with nothing useful to
         # say, so the number and the breakdown behind it are printed here. The
-        # hard stop is set at a gibibyte because GitHub documents the limit as
-        # "1 GB" without saying which one, and refusing to deploy a site that
-        # would in fact have published is the worse of the two mistakes.
+        # hard stop uses decimal GB conservatively. A remote-catalog build
+        # excludes public/catalog entirely, independent of its working size.
         run: |
           BYTES=$(du -sb dist | cut -f1)
           echo "dist is $((BYTES / 1000000)) MB"
           du -h dist/catalog/* 2>/dev/null | sort -h | tail -25 || true
-          if [ "$BYTES" -gt 1073741824 ]; then
+          if [ "$BYTES" -gt 1000000000 ]; then
             echo "::error::dist is $((BYTES / 1000000)) MB and GitHub Pages will not publish a site over 1 GB. Drop the largest entries from SHIPPED in scripts/index-artifacts.mjs and from the matrix in datasets.yml, or host the catalog somewhere with room for it."
             exit 1
           fi

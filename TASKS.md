@@ -100,6 +100,17 @@ from the camera framing fewer lanes, or from C1.
 **B1. The shelf does not fit. — open, blocking the deploy**
 The finished catalog artifact is **1,742 MB** against a **1 GB** Pages ceiling.
 
+2026-09-06 migration update: the chosen solution is a separate public R2 bucket,
+`gitdance-catalog`, served at `gitdance-data.cruxpack.io`, while the app remains
+on GitHub Pages. HTTPS, browser CORS, byte-exact compressed files, and CDN cache
+HITs are verified. The remote-mode production build excludes the catalog and
+measures about **32.5 MB**, including music. Real R2 playback passed for mdBook
+and Kubernetes; Kubernetes started in **1.95 s** with **409 KB** transferred by
+startup on this connection. Full-shelf rebuild/publication is in progress, and
+the live Pages deployment is unchanged. See [hosting status](docs/catalog-hosting.md).
+This migration does **not** resolve A1's aggregation policy. The alternatives
+below predate the external-storage decision.
+
 | | MB |
 | --- | ---: |
 | torvalds/linux | 662 |

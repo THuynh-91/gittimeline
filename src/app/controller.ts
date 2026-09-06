@@ -25,6 +25,7 @@ import { trackPerformanceStart } from './analytics';
 import { CatalogSource } from '@/player/catalogSource';
 import { validateManifest, type CatalogManifest } from '@/export/catalogPackage';
 import { sampleCamera } from '@/choreography/camera';
+import { catalogUrl, externalCatalog } from './catalogLocation';
 
 /**
  * Orchestration: ingestion runs, compilation, the frame loop, keyboard,
@@ -1061,7 +1062,7 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
   });
   primeAudio();
   try {
-    const manifestUrl=new URL(`${import.meta.env.BASE_URL}catalog/${file.replace(/\.gittimeline\.gz$/,'.pages/manifest.json')}`,location.origin).href;
+    const manifestUrl=catalogUrl(file.replace(/\.gittimeline\.gz$/,'.pages/manifest.json'));
     const response=await fetch(manifestUrl,{signal:r.abort.signal});
     // A 200 is not enough to conclude there is a package here.
     //
@@ -1090,6 +1091,7 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
     }
     // Anything else that is not a plain absence is a real failure worth naming.
     if(!response.ok&&response.status!==404)throw new Error(`Catalog unavailable (${response.status}).`);
+    if (externalCatalog) throw new Error('This published history is missing its playback package. Please retry after the catalog is repaired.');
     const ready = await loadPrecompiledPlan(r, file);
     if (run?.id !== r.id) return;
     if (ready?.matches) {
@@ -1099,7 +1101,7 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
       void hydrateInspectorDataset(r, ready.dataset);
       return;
     }
-    const res = await fetch(`${import.meta.env.BASE_URL}catalog/${file}`, { signal: r.abort.signal });
+    const res = await fetch(catalogUrl(file), { signal: r.abort.signal });
     if (!res.ok) {
       // The dataset is gone and the plan is the wrong one. Play it anyway and
       // say so: the histories large enough to have had their dataset pruned
@@ -1157,7 +1159,7 @@ async function loadPrecompiledPlan(r: Run, file: string): Promise<{ perf: Compil
   if (typeof DecompressionStream === 'undefined') return null;
   let res: Response;
   try {
-    res = await fetch(`${import.meta.env.BASE_URL}catalog/${performanceFileFor(file)}`, { signal: r.abort.signal });
+    res = await fetch(catalogUrl(performanceFileFor(file)), { signal: r.abort.signal });
   } catch {
     return null;
   }
@@ -1217,7 +1219,7 @@ const HYDRATE_MAX_BYTES = 8_000_000;
 async function hydrateInspectorDataset(r: Run, ref: PerfDatasetRef | null) {
   if (!ref || ref.bytes > HYDRATE_MAX_BYTES) return;
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}catalog/${ref.file}`, { signal: r.abort.signal });
+    const res = await fetch(catalogUrl(ref.file), { signal: r.abort.signal });
     if (!res.ok) return;
     const { dataset } = await parseArtifact(await res.blob());
     // The run may have moved on several times while this was in flight, and a

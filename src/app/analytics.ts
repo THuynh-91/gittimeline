@@ -52,6 +52,8 @@
  *   to be measured, and nothing here is important enough to argue with one.
  */
 
+import { catalogUrl } from './catalogLocation';
+
 export type PageView = 'landing' | 'player' | 'catalog' | 'signin';
 
 /**
@@ -349,7 +351,7 @@ function send(planned: PlannedEvent): void {
 async function readCatalogAllowlist(): Promise<void> {
   const slugs: string[] = [];
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}catalog/index.json`);
+    const res = await fetch(catalogUrl('index.json'));
     if (res.ok) {
       const body: unknown = await res.json();
       const entries = body && typeof body === 'object' ? (body as { entries?: unknown }).entries : null;

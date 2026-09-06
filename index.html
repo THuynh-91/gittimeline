@@ -9,7 +9,9 @@
     <!--
       The policy is the site's promise written somewhere a browser enforces it:
       repository data is read from api.github.com and drawn here, and there is
-      nowhere else for it to go.
+      nowhere else for private repository data to go. When VITE_CATALOG_BASE
+      is configured, the build adds that exact origin for public curated
+      history files and logos. It never receives pasted repository data.
 
       Analytics widens that by exactly four hosts, and each one is here because
       gtag.js does not work without it:

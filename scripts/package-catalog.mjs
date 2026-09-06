@@ -1,9 +1,18 @@
-import { createReadStream, createWriteStream, mkdirSync, writeFileSync, readFileSync, statSync, renameSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip, createGunzip, gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { createServer } from 'vite';
+import { join, resolve } from 'node:path';
+
+const args = process.argv.slice(2);
+const flag = (name, fallback) => { const i=args.indexOf(`--${name}`); return i<0?fallback:args[i+1]; };
+const catalogDir=flag('catalog','public/catalog');
+const outputDir=flag('out',catalogDir);
+const slugs=[];
+for(let i=0;i<args.length;i++) { if(args[i]==='--catalog'||args[i]==='--out'){i++;continue;} slugs.push(args[i]); }
+if(!slugs.length) throw new Error('Specify repository slugs to package.');
 
 // Resources are gzip inside, but they are deliberately NOT named `.gz`.
 //
@@ -19,22 +28,31 @@ import { createServer } from 'vite';
 // integrity checking requires. Nothing is lost: the payload is already
 // compressed, so there was no second compression to gain. `gunzipIfNeeded`
 // recognises the content by its magic bytes, not by its name.
-const server=await createServer({server:{middlewareMode:true},appType:'custom',logLevel:'error'});
+// Only load TypeScript here; UI plugins and file watchers are not needed for
+// offline packaging and can contend with a concurrently running compiler.
+const server=await createServer({configFile:false,resolve:{alias:{'@':resolve('src')}},server:{middlewareMode:true,hmr:false,watch:null},appType:'custom',logLevel:'error'});
 try {
   const {readCompiledPerformance,streamCompiledPerformance}=await server.ssrLoadModule('/src/export/performance.ts');
   const {emptyPlan,geometryPage,highlightsOf,PACKAGE_VERSION,WINDOW_SECONDS}=await server.ssrLoadModule('/src/export/catalogPackage.ts');
   const {mapMonotone}=await server.ssrLoadModule('/src/choreography/clock.ts');
   const {characterOf,registerFor}=await server.ssrLoadModule('/src/audio/score.ts');
-  for(const slug of process.argv.slice(2)) {
+  for(const slug of slugs) {
     const stem=slug.replace('/','-');
-    const p=await readCompiledPerformance(Readable.toWeb(createReadStream(`public/catalog/${stem}.gtperf.gz`).pipe(createGunzip())));
-    const dir=`public/catalog/${stem}.pages`; mkdirSync(dir,{recursive:true});
+    const p=await readCompiledPerformance(Readable.toWeb(createReadStream(join(catalogDir,`${stem}.gtperf.gz`)).pipe(createGunzip())));
+    const dir=join(outputDir,`${stem}.pages`); mkdirSync(dir,{recursive:true});
     const resources=[]; let serial=0;
     const save=async(plan,kind,min,max)=>{
-      const file=`p${serial++}.gtperf.bin`, path=`${dir}/${file}`;
-      await pipeline(Readable.from(streamCompiledPerformance(plan)),createGzip(),createWriteStream(path));
-      const data=readFileSync(path), hash=createHash('sha256').update(data).digest('hex');
-      const stableFile=`${hash}.gtperf.bin`;renameSync(path,`${dir}/${stableFile}`);
+      serial++;
+      // A page is bounded, unlike the complete plan. Batch its small frames
+      // before compression instead of thousands of asynchronous tiny writes.
+      const frames=[];let rawBytes=0;
+      for(const frame of streamCompiledPerformance(plan)) {
+        const bytes=Buffer.from(frame);rawBytes+=bytes.length;
+        if(rawBytes>64*1024*1024)throw new Error('Split this page: encoded size exceeds 64 MiB.');
+        frames.push(bytes);
+      }
+      const data=gzipSync(Buffer.concat(frames,rawBytes)), hash=createHash('sha256').update(data).digest('hex');
+      const stableFile=`${hash}.gtperf.bin`;writeFileSync(`${dir}/${stableFile}`,data);
       // Payload identity is checked on every fetch; the immutable release directory is selected by its manifest.
       resources.push({file:stableFile,hash,bytes:data.length,decodedBytes:Buffer.byteLength(JSON.stringify({...plan,edges:plan.edges.map(e=>({...e,pts:[]}))}))*2+plan.edges.reduce((n,e)=>n+e.pts.byteLength,0),kind,min,max});
       if(serial%1000===0)console.log(`${slug}: ${serial} pages packaged`);

@@ -1,0 +1,59 @@
+name: Publish validated catalog to R2
+
+on:
+  # Straight off the back of the weekly dataset build.
+  #
+  # `datasets.yml` runs every Sunday and leaves a `catalog` artifact behind;
+  # without this the artifact sat there until somebody noticed and pasted its
+  # run id in by hand. Publishing to a fixed prefix is what makes that safe to
+  # automate: a rebuild uploads only the files whose contents changed, and the
+  # address the app was given never moves.
+  workflow_run:
+    workflows: ["Build pre-fetched histories"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dataset_run_id:
+        description: Successful datasets.yml run containing the complete catalog artifact. Leave empty to use the run that triggered this.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: catalog-r2-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A failed or cancelled dataset build has no complete catalog to publish.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test scripts/catalog-release.test.mjs
+      - name: Download complete build inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DATASET_RUN: ${{ inputs.dataset_run_id || github.event.workflow_run.id }}
+        run: |
+          [[ "$DATASET_RUN" =~ ^[0-9]+$ ]] || exit 1
+          gh run download "$DATASET_RUN" --repo "$GITHUB_REPOSITORY" --name catalog --dir public/catalog
+      - name: Validate and upload immutable release
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: gitdance-catalog
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CATALOG_PUBLIC_BASE: https://gitdance-data.cruxpack.io
+        run: node scripts/publish-catalog.mjs --upload
+      # Deliberately no automatic promotion: test the printed immutable release
+      # URL in the app, then set VITE_CATALOG_BASE and run the Pages deployment.

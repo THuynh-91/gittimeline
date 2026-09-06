@@ -13,6 +13,8 @@ debug-out.txt
 
 # Pre-fetched histories: a build product, rebuilt by CI on every deploy.
 public/catalog/
+.catalog-build/
+.catalog-release/
 
 # Soundtrack: fetched at build time, like the catalog.
 public/music/

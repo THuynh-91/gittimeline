@@ -281,12 +281,23 @@ async function writePerformance(path, perf, datasetRef) {
   gzip.pipe(sink);
   let uncompressed = 0;
   let binary = 0;
+  let batch = [], batchBytes = 0;
+  const flush = async () => {
+    if (!batchBytes) return;
+    const data = Buffer.concat(batch, batchBytes);
+    batch = []; batchBytes = 0;
+    if (!gzip.write(data)) await new Promise((r) => gzip.once('drain', r));
+  };
   for (const frame of streamCompiledPerformance(perf, datasetRef)) {
     const bytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
     uncompressed += bytes;
     if (typeof frame !== 'string') binary += bytes;
-    if (!gzip.write(frame)) await new Promise((r) => gzip.once('drain', r));
+    // Keep the same byte stream, but avoid one asynchronous zlib operation
+    // per tiny record. Memory remains bounded to roughly a 256 KiB batch.
+    batch.push(Buffer.from(frame)); batchBytes += bytes;
+    if (batchBytes >= 256 * 1024) await flush();
   }
+  await flush();
   gzip.end();
   await finished;
   return { uncompressed, binary };
