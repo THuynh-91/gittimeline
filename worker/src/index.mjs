@@ -28,7 +28,8 @@
  * Configuration (all through Worker secrets and vars, never in wrangler.toml):
  *   GITHUB_CLIENT_ID      from the OAuth App
  *   GITHUB_CLIENT_SECRET  from the OAuth App — `wrangler secret put`, never in code
- *   ALLOWED_ORIGINS       comma-separated exact origins allowed to receive a token
+ *   ALLOWED_ORIGINS       comma-separated origins, optionally with a path prefix,
+ *                         allowed to receive a token
  *   GITHUB_OAUTH_BASE     optional; where the OAuth dance happens
  */
 
@@ -52,7 +53,22 @@ function allowedOrigins(env) {
 
 /** Where the browser is sent afterwards, checked against the allowlist so this
  *  can never be used as an open redirect. An attacker who could pass their own
- *  site here would receive the visitor's token in their own address bar. */
+ *  site here would receive the visitor's token in their own address bar.
+ *
+ *  An entry may carry a path, and where it does the path is part of the check.
+ *  Matching on origin alone is exactly right for a site that owns its origin
+ *  and too coarse for one that does not: `thuynh-91.github.io` is a GitHub
+ *  Pages *user* origin, and every project published under that account is
+ *  served from it. A review demonstrated this Worker accepting
+ *  `?return=https://thuynh-91.github.io/tri-huynh-portfolio/?x=1` — a
+ *  neighbouring site, on the allowlist by accident of sharing a hostname, being
+ *  handed the visitor's token in its own address bar.
+ *
+ *  A prefix must end at a segment boundary, so `/gittimeline` admits
+ *  `/gittimeline` and `/gittimeline/…` and refuses `/gittimeline-something`.
+ *  An entry with no path still means the whole origin, so this is inert until
+ *  the allowlist is narrowed and a deployment of the code alone changes
+ *  nothing. */
 function safeReturn(raw, allowed) {
   if (!raw) return allowed[0] ?? null;
   let url;
@@ -62,7 +78,19 @@ function safeReturn(raw, allowed) {
     return null;
   }
   const origin = `${url.protocol}//${url.host}`;
-  if (!allowed.includes(origin)) return null;
+  const permitted = allowed.some((entry) => {
+    let a;
+    try {
+      a = new URL(entry);
+    } catch {
+      return false;
+    }
+    if (`${a.protocol}//${a.host}` !== origin) return false;
+    const prefix = a.pathname.replace(/\/+$/, '');
+    if (!prefix) return true;
+    return url.pathname === prefix || url.pathname.startsWith(`${prefix}/`);
+  });
+  if (!permitted) return null;
   // Drop any fragment the caller supplied: the token is appended as the
   // fragment later and a pre-existing one would either be overwritten silently
   // or, worse, concatenated into something the client parser misreads.

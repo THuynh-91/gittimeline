@@ -24,14 +24,21 @@ compatibility_date = "2025-09-01"
 enabled = false
 
 [vars]
-# The allowlist of origins that may receive a token. This is the single control
+# The allowlist of addresses that may receive a token. This is the single control
 # that stops the Worker being used to mint a token into somebody else's site,
 # so it lives in the repository where it is reviewable in a diff rather than in
 # a dashboard where a change leaves no trace.
 #
+# The path is part of it. `thuynh-91.github.io` is a GitHub Pages *user* origin
+# and every project under that account is served from it, so an origin-only
+# entry hands the token to any of them: a review demonstrated this Worker
+# accepting a return address pointing at a neighbouring site on the same host.
+# An entry without a path still means the whole origin, so the guard is inert
+# until it is narrowed here.
+#
 # A fork MUST change this. Leaving it means a fork's own site is refused a
 # token — which is the safe direction to fail, but it will look like a bug.
-ALLOWED_ORIGINS = "https://thuynh-91.github.io"
+ALLOWED_ORIGINS = "https://thuynh-91.github.io/gittimeline"
 
 # GITHUB_OAUTH_BASE is optional and unset here. Set it only for GitHub
 # Enterprise Server, where the OAuth endpoints live on the customer's domain.

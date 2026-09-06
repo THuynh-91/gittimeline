@@ -130,6 +130,49 @@ describe('/auth/start', () => {
     }
   });
 
+  /**
+   * The production allowlist pins a path, because the production origin is
+   * shared. `thuynh-91.github.io` is a GitHub Pages *user* origin and every
+   * project under that account is served from it, so an origin-only entry
+   * hands the token to any of them — a review demonstrated the live Worker
+   * accepting a return address pointing at a neighbouring site on the same
+   * host.
+   */
+  describe('an allowlist entry that carries a path', () => {
+    const PINNED = { ...ENV, ALLOWED_ORIGINS: `${SITE}/gittimeline` };
+
+    it('accepts the site it names', async () => {
+      for (const good of [`${SITE}/gittimeline`, `${SITE}/gittimeline/`, `${SITE}/gittimeline/?x=1`]) {
+        const res = await handleRequest(get(`/auth/start?return=${encodeURIComponent(good)}`), PINNED);
+        expect(res.status, good).toBe(302);
+      }
+    });
+
+    it('refuses a neighbour sharing the origin', async () => {
+      for (const bad of [
+        `${SITE}/tri-huynh-portfolio/`,
+        `${SITE}/`,
+        `${SITE}`,
+        // A path that merely starts with the same characters must not pass:
+        // the prefix has to end at a segment boundary.
+        `${SITE}/gittimeline-evil/`,
+        `${SITE}/gittimelineevil`,
+        // And traversal must not climb back out of it.
+        `${SITE}/gittimeline/../tri-huynh-portfolio/`,
+      ]) {
+        const res = await handleRequest(get(`/auth/start?return=${encodeURIComponent(bad)}`), PINNED);
+        expect(res.status, bad).toBe(400);
+        expect(res.headers.get('location'), bad).toBe(null);
+      }
+    });
+
+    it('an entry with no path still means the whole origin', async () => {
+      // So deploying the code without narrowing the allowlist changes nothing.
+      const res = await handleRequest(get(`/auth/start?return=${encodeURIComponent(`${SITE}/anything/`)}`), ENV);
+      expect(res.status).toBe(302);
+    });
+  });
+
   it('falls back to the first allowed origin when no return is given', async () => {
     const res = await handleRequest(get('/auth/start'), ENV);
     expect(res.status).toBe(302);

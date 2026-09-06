@@ -87,7 +87,17 @@ export function buildDataset(source: RepositorySource, raw: RawCommitRecord[], r
       presentationTime: when,
       messageSubject: subjectOf(r.message),
       messageBodyAvailable: typeof r.message === 'string' && r.message.includes('\n'),
-      githubUrl: safeGitHubUrl(r.url) ?? (source.provider === 'github' ? `${source.canonicalUrl}/commit/${sha}` : null),
+      // Both branches through the same guard, not just the first.
+      //
+      // `r.url` is checked and the fallback was not, and `canonicalUrl` is not
+      // trustworthy input: a `.gittimeline` artifact is a file somebody hands
+      // you, `validateArtifact` only length-caps this field, and `Panels.tsx`
+      // renders the result as an `href`. A forged artifact could put a
+      // `javascript:` URL behind the commit link — demonstrated end to end.
+      // The shipped CSP blocks the navigation, which makes this the second
+      // line of defence rather than the first, and `buildDataset` also runs
+      // under Node in the catalog builder where no CSP applies at all.
+      githubUrl: safeGitHubUrl(r.url) ?? (source.provider === 'github' ? safeGitHubUrl(`${source.canonicalUrl}/commit/${sha}`) : null),
       ...(r.stats ? { stats: { additions: clampInt(r.stats.additions), deletions: clampInt(r.stats.deletions), filesChanged: clampInt(r.stats.filesChanged) } } : {}),
       flags: {
         isMerge: parents.length > 1,
@@ -118,6 +128,15 @@ export function buildDataset(source: RepositorySource, raw: RawCommitRecord[], r
   const complete = boundaryCount === 0 && !hints.truncated;
   let summary: string;
   if (commits.length === 0) summary = 'No commits are known for this repository.';
+  // "from GitHub" only when it came from GitHub.
+  //
+  // This sentence is the canvas's alternative text, so it is the whole of what
+  // a screen-reader user is told the stage contains. The built-in demo is
+  // generated, the page beside it says so in as many words, and this told that
+  // one viewer it was "the full known history from GitHub" — 2,401 commits of
+  // a repository that does not exist.
+  else if (complete && source.provider !== 'github')
+    summary = `${commits.length.toLocaleString('en-US')} commits — a generated history, not a real repository.`;
   else if (complete) summary = `${commits.length.toLocaleString('en-US')} commits loaded — the full known history from GitHub.`;
   else summary = `${commits.length.toLocaleString('en-US')} recent commits loaded; earlier topology is not yet available${reported && reported > commits.length ? ` (GitHub reports about ${reported.toLocaleString('en-US')})` : ''}.`;
   if (!complete && commits.length) warnings.push('Partial history: commits whose parents were not loaded are shown as boundaries, never as roots.');
