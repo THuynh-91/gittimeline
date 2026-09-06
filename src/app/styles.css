@@ -2468,12 +2468,12 @@ kbd {
      the band grows, and cannot end up underneath the transport either — both
      of which happened while it was absolutely positioned against `--band`. */
   align-self: flex-start;
-  /* Ten pixels of air above it as well as below.
+  /* Air above it as well as below.
      `margin-bottom` alone pushed the rows *under* it further down and left
      this one still touching the band's own top edge, which is where the rule
      above it is drawn — so the gap that was asked for was the one that did
      not appear. */
-  margin-top: 10px;
+  margin-top: 5px;
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -2585,6 +2585,14 @@ kbd {
    far less height and must not paint a tall gradient over the stage. */
 .band.bare {
   height: auto;
+  /* Hugging its contents, not the floor.
+     `.band` carries `min-height: var(--band)` so the transport always has room
+     for its rows. With the controls hidden there are no such rows, but the
+     floor still held the band at 150px against about 103px of content — and
+     because the column is bottom-aligned, all 47px of the difference opened up
+     at the *top*, which is the edge the rule is drawn on. The band appeared to
+     float far above the two lines left in it. */
+  min-height: 0;
   padding-bottom: 10px;
   background: linear-gradient(to top, rgba(7, 8, 12, 0.9) 45%, rgba(7, 8, 12, 0));
 }

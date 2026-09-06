@@ -2104,8 +2104,15 @@ export class StageRenderer {
       // single-frame jumps of the whole 320. That is the teleporting. The pill
       // is 16px tall and belongs on its line; it only has to stay on the
       // canvas.
-      const y = Math.max(14, Math.min(this.height - 14, lineY - 15));
-      const bottom = this.height;
+      // Centred on the line, not floating above it.
+      //
+      // It used to sit 15px up with a tick dropped from its underside to the
+      // line, which is the right drawing for a label hovering *over* the thing
+      // it names. It does not hover over it any more — it stands past the end
+      // of it — so the tick pointed down into empty stage and the plate read
+      // as belonging to nothing. On the line's own axis it is simply the last
+      // thing on the line, which is what it is.
+      const y = Math.max(14, Math.min(this.height - 14, lineY));
       ctx.fillStyle = rgba(PALETTE.ink, 0.72);
       ctx.beginPath();
       ctx.roundRect(x, y - 8, boxW, 16, 8);
@@ -2113,17 +2120,6 @@ export class StageRenderer {
       ctx.strokeStyle = rgba(PALETTE.ivory, 0.22);
       ctx.lineWidth = 1;
       ctx.stroke();
-      // A short ivory tick joining the label to the line it names, so the pill
-      // is read as belonging to the spine and not floating over it. Only when
-      // the line is actually below it; when the spine is off the band the tick
-      // would be a stroke pointing at nothing.
-      if (lineY > y + 10 && lineY < bottom) {
-        ctx.strokeStyle = rgba(PALETTE.ivory, 0.45);
-        ctx.beginPath();
-        ctx.moveTo(x + boxW / 2, y + 8);
-        ctx.lineTo(x + boxW / 2, lineY - 2);
-        ctx.stroke();
-      }
       ctx.fillStyle = rgba(PALETTE.ivory, 0.92);
       let cx = x + padX;
       for (const ch of text) {
