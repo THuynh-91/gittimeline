@@ -43,7 +43,12 @@ const s3=new S3Client({region:'auto',endpoint:`https://${account}.r2.cloudflares
 const prefix=smokeRepo?`previews/${release.revision}/`:'catalog/';
 const upload=async(name,data,hash,mutable=false)=>{
   const Key=prefix+name;
-  const ContentType=name.endsWith('.json')?'application/json':name.endsWith('.png')?'image/png':name.endsWith('.jpg')?'image/jpeg':'application/octet-stream';
+  // `.svg` was missing and fell through to `application/octet-stream`, which a
+  // browser will not render as an image: the two vector marks on the shelf --
+  // one of them on the featured Linux card -- came back 200 with a
+  // `naturalWidth` of zero and drew as a broken-image glyph. No console error,
+  // no failed request, nothing to see but the hole.
+  const ContentType=name.endsWith('.json')?'application/json':name.endsWith('.png')?'image/png':name.endsWith('.jpg')?'image/jpeg':name.endsWith('.svg')?'image/svg+xml':'application/octet-stream';
   // The listing is the one object that has to change, and the only one that is
   // re-fetched. A minute of caching keeps a rebuild visible within a minute
   // while the 657 MB it points at stays cached for a year.

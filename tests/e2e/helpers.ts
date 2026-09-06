@@ -4,6 +4,10 @@ import { mockGitHub, type MockOptions, type MockRepo } from '../fixtures/mock-gi
 declare global {
   interface Window {
     __gittimeline: {
+      /** Where a catalog file actually lives — local path or remote release. */
+      catalogUrl: (file: string) => string;
+      catalogIsRemote: boolean;
+      buffering: boolean;
       time: number;
       playing: boolean;
       phase: string;
@@ -20,6 +24,8 @@ declare global {
       manualCamera: boolean;
       zoomLocked: boolean;
       viewport: { cx: number; cy: number; scale: number; worldW: number; worldH: number } | null;
+      /** The same viewport, plus the geometry it is looking at. */
+      view: { cx: number; cy: number; scale: number; worldW: number; worldH: number; geomMinX: number | null; geomMaxX: number | null } | null;
       nodeX: number[] | null;
       waveform: number[] | null;
       zoom(factor: number): void;
@@ -52,6 +58,30 @@ export async function routeGitHub(page: Page, repo: MockRepo | null, opts: MockO
     await route.fulfill({ status: spec.status, headers: spec.headers, body: spec.status === 304 ? '' : JSON.stringify(spec.body), contentType: 'application/json' });
   });
   return mock;
+}
+
+/**
+ * Wait for the shelf, and only then conclude there isn't one.
+ *
+ * Six places asked `isVisible()` the instant after clicking through to the
+ * catalog and skipped the test when the answer was no. That was sound while
+ * `index.json` was published inside `dist`: same origin, already in the
+ * browser's cache from the page load, painted in the same task. It is fetched
+ * across the network from an object store now, so the answer is *always* no
+ * for the first few hundred milliseconds — and every one of those tests had
+ * quietly stopped running, including both of the ones that check a pre-fetched
+ * history plays without asking GitHub for anything.
+ *
+ * A skip that fires on a timing race is worse than a failure: the suite stays
+ * green and says "2 skipped" on a line nobody reads.
+ */
+export async function shelfPresent(page: Page, timeout = 15_000): Promise<boolean> {
+  try {
+    await page.getByTestId('catalog').waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function waitForReady(page: Page, timeout = 30_000) {

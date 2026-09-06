@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { waitForReady } from './helpers';
+import { waitForReady, shelfPresent } from './helpers';
 
 /**
  * The catalog is the honest answer to "can I share my token so other people
@@ -20,7 +20,7 @@ test.describe('pre-fetched catalog', () => {
     await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
     // A build without a catalog simply has no shelf; nothing here is a failure.
-    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
 
     // The smallest history on the shelf, rather than a named one. The catalog
     // is rebuilt from whatever has been pre-fetched, and naming an entry here
@@ -36,7 +36,7 @@ test.describe('pre-fetched catalog', () => {
     // test is that a pre-fetched history plays having asked GitHub for nothing,
     // which the smallest artifact demonstrates exactly as well as the largest.
     const cheapest = await page.evaluate(async () => {
-      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; bytes: number }>;
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
       return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
     });
     await shelf.getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
@@ -61,10 +61,10 @@ test.describe('pre-fetched catalog', () => {
     await page.goto('/');
     await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
-    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
 
     const cheapest = await page.evaluate(async () => {
-      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; bytes: number }>;
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
       return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
     });
     // A card has one action, and it is a question rather than a start: which
@@ -77,7 +77,7 @@ test.describe('pre-fetched catalog', () => {
     const track = chooser.getByTestId('scope-track');
     // An entry whose plan predates spans covers one year or none, and offers no
     // range: there is then nothing here to test rather than something broken.
-    if (!(await track.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
+    if (!(await track.isVisible({ timeout: 10_000 }).catch(() => false))) test.skip(true, 'this build indexed no years');
     // Both ends to the same year, which is the narrowest thing a range can be
     // and the one whose label the badge has to match exactly. Two clicks on
     // the same year is how the track says that.
@@ -102,10 +102,15 @@ test.describe('pre-fetched catalog', () => {
 
   test('every catalog entry is real, reachable and honestly described', async ({ page }) => {
     await page.goto('/');
-    const index = await page.evaluate(async (base) => {
-      const r = await fetch(`${base}catalog/index.json`);
+    // Asked of wherever the shelf actually is. It used to be published with
+    // the site, so `/catalog/` was a safe assumption; it is served from an
+    // object store now, and that path returns the SPA's own `index.html` with
+    // a 200 on it — so this failed as a JSON parse error rather than as a
+    // missing file, which is a long way from the cause.
+    const index = await page.evaluate(async () => {
+      const r = await fetch(window.__gittimeline.catalogUrl('index.json'));
       return r.ok ? await r.json() : null;
-    }, '/');
+    });
     if (!index) test.skip(true, 'no catalog built into this bundle');
 
     // `HEAD`, and the variable has always said so. A `GET` here asked for the
@@ -115,10 +120,22 @@ test.describe('pre-fetched catalog', () => {
     // establish twelve status codes, and a minute is not long enough to do it
     // in. What is being asserted is that the file is there and served, and a
     // `HEAD` is that assertion with none of the download.
-    const fetched = (f: string) => page.evaluate(async (u) => (await fetch(`/catalog/${u}`, { method: 'HEAD' })).status, f);
+    const fetched = (f: string) => page.evaluate(async (u) => (await fetch(window.__gittimeline.catalogUrl(u), { method: 'HEAD' })).status, f);
 
     for (const e of index.entries) {
-      expect(await fetched(e.file), `${e.slug} artifact is served`).toBe(200);
+      // Whatever the click will actually ask for.
+      //
+      // `e.file` is the name of a whole compiled history, and for a *packaged*
+      // entry nothing ever downloads one: `loadCatalogEntry` turns that name
+      // into `<slug>.pages/manifest.json` and streams the pages the playhead
+      // reaches. So the publisher does not upload the monolith at all — it is
+      // 199 MB for Linux alone — and this asserted a 404 on all twelve entries
+      // while every one of them opens in milliseconds. The file was missing
+      // and the shelf was fine, which is the wrong way round for a test to be
+      // wrong: it reports a healthy shelf as broken and would say nothing at
+      // all if the manifests vanished.
+      const wanted = e.packaged ? e.file.replace(/\.gittimeline\.gz$/, '.pages/manifest.json') : e.file;
+      expect(await fetched(wanted), `${e.slug} is served what opening it asks for`).toBe(200);
       // A card with a broken image is worse than a card with none, so a
       // thumbnail that is *claimed* has to resolve. Claiming none is allowed:
       // capturing a frame means compiling the whole history in a browser, and

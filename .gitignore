@@ -29,3 +29,6 @@ gt-*.log
 gt-measure-results.json
 gt-*.ts
 scripts/_measure-server.mjs
+
+# One-off probe scripts and measurement harnesses, same reason as above.
+x/

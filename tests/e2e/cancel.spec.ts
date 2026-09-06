@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { shelfPresent } from './helpers';
 
 /**
  * Cancelling a load returns to the page it was started from.
@@ -13,7 +14,7 @@ test.describe('backing out', () => {
     await page.goto('/');
     await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
-    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
 
     // Hold the plan open so the load is reliably still running when Cancel is
     // pressed. Racing it stopped working once the renderer got faster: the
@@ -21,7 +22,17 @@ test.describe('backing out', () => {
     // finished underneath it — "element was detached from the DOM". The thing
     // under test is where cancelling *lands*, not whether a tester can out-run
     // a download, so the download is made to wait instead.
-    await page.route('**/*.gtperf.gz', async (route) => {
+    // What is actually downloaded, which is no longer a `.gtperf.gz`.
+    //
+    // A published entry is streamed now: `<slug>.pages/manifest.json` and then
+    // content-addressed `<sha256>.json.bin` pages, named `.bin` because a
+    // `Content-Encoding: gzip` would change the bytes the hash and the length
+    // are checked against. So this pattern matched nothing, the delay never
+    // applied, and the load finished in 0.9s while Playwright was mid-click —
+    // "element was detached from the DOM". The manifest is deliberately left
+    // alone: the load has to get far enough to put a Cancel button on screen
+    // before there is anything to cancel.
+    await page.route(/\.(bin|gtperf\.gz)$/, async (route) => {
       await new Promise((r) => setTimeout(r, 10_000));
       await route.continue();
     });
@@ -29,7 +40,7 @@ test.describe('backing out', () => {
     // The largest entry, because cancelling is only possible while a load is
     // still running and the small ones are open before a click can land.
     const biggest = await page.evaluate(async () => {
-      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; planBytes?: number; bytes: number }>;
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; planBytes?: number; bytes: number }>;
       return list.reduce((a, b) => ((b.planBytes ?? b.bytes) > (a.planBytes ?? a.bytes) ? b : a)).slug;
     });
     await shelf.getByTestId(`catalog-${biggest.replace('/', '-')}`).click();
@@ -46,9 +57,9 @@ test.describe('backing out', () => {
     await page.goto('/');
     await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
-    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
     const first = await page.evaluate(async () => {
-      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; bytes: number }>;
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
       return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
     });
     await shelf.getByTestId(`catalog-${first.replace('/', '-')}`).click();

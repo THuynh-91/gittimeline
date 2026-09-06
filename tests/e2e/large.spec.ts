@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { shelfPresent } from './helpers';
 
 /**
  * The largest history on the shelf, in its own file so the tracer can be
@@ -33,10 +34,10 @@ test.describe('the largest history', () => {
     await page.goto('/');
     await page.getByTestId('catalog-link').click();
     const shelf = page.getByTestId('catalog');
-    if (!(await shelf.isVisible().catch(() => false))) test.skip(true, 'no catalog built into this bundle');
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
 
     const longest = await page.evaluate(async () => {
-      const list = (await (await fetch('/catalog/index.json')).json()).entries as Array<{ slug: string; durationSeconds?: number }>;
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; durationSeconds?: number }>;
       return list.reduce((a, b) => ((b.durationSeconds ?? 0) > (a.durationSeconds ?? 0) ? b : a)).slug;
     });
     await shelf.getByTestId(`catalog-${longest.replace('/', '-')}`).click();
@@ -45,9 +46,20 @@ test.describe('the largest history', () => {
 
     const duration = await page.evaluate(() => window.__gittimeline.duration);
     for (const frac of [0.05, 0.4, 0.8]) {
-      const drawn = await page.evaluate(async (t) => {
+      // Seek first, and wait for the page to arrive before counting anything.
+      //
+      // This history is streamed: a seek lands in a part of the plan that is
+      // not in memory, `player.buffered` goes false, and the frame loop skips
+      // `render` entirely until the page is fetched — about a second from the
+      // object store. Seeking and then counting for a fixed 1,200 ms was
+      // therefore a race, and it lost: "torvalds/linux at 5% of 720 min drew 0
+      // nodes and 0 edges", with the stage perfectly healthy and the viewer
+      // looking at "Loading this part of history…". Measured after the wait:
+      // 900 nodes and 852 edges at the same point.
+      await page.evaluate((t) => window.__gittimeline.seek(t), duration * frac);
+      await page.waitForFunction(() => !window.__gittimeline.buffering, null, { timeout: 120_000 });
+      const drawn = await page.evaluate(async () => {
         const g = window.__gittimeline;
-        g.seek(t);
         const prof = g.render;
         prof.enabled = true;
         prof.counts.nodesDrawn = 0;
@@ -57,7 +69,7 @@ test.describe('the largest history', () => {
         g.pause();
         prof.enabled = false;
         return { nodes: prof.counts.nodesDrawn, edges: prof.counts.edgesDrawn };
-      }, duration * frac);
+      });
       expect(drawn.nodes + drawn.edges, `${longest} at ${Math.round(frac * 100)}% of ${(duration / 60).toFixed(0)} min drew ${drawn.nodes} nodes and ${drawn.edges} edges`).toBeGreaterThan(0);
     }
   });
