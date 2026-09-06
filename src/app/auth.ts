@@ -46,8 +46,10 @@ export function signInWithGitHub() {
  * address bar. The fragment is used precisely because browsers never send it
  * to a server, so the token cannot appear in an access log or a referrer.
  */
-export function claimTokenFromUrl(): boolean {
-  if (!location.hash.includes('gh_token=') && !location.hash.includes('gh_error=')) return false;
+export type SignInReturn = 'token' | 'failed' | null;
+
+export function claimTokenFromUrl(): SignInReturn {
+  if (!location.hash.includes('gh_token=') && !location.hash.includes('gh_error=')) return null;
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   const token = params.get('gh_token');
   // Read before the delete, not after.
@@ -65,17 +67,33 @@ export function claimTokenFromUrl(): boolean {
   history.replaceState(null, '', `${location.pathname}${location.search}${rest ? `#${rest}` : ''}`);
   if (token) {
     store.token.value = token;
-    return true;
+    return 'token';
   }
   // A failed sign-in used to vanish silently: the fragment was stripped, no
   // token appeared, and the page looked exactly as it had before the round
   // trip. Somebody who has just authorised an application and been returned to
   // an unchanged screen has no way to tell whether it worked.
-  if (failed !== null) {
-    store.banner.value = {
-      kind: 'rate-limited',
-      message: 'GitHub sign-in did not complete. Public repositories still work at the anonymous rate, and the ready-made histories cost no requests at all.',
-    };
-  }
-  return false;
+  //
+  // Reported, not painted. This set `store.banner` itself, and `boot` calls it
+  // on the line before `loadDemo` — which finishes by setting the banner to
+  // null, because a freshly loaded performance has nothing to say about the
+  // one before it. So the banner was assigned and wiped in the same tick and
+  // still never reached the screen, with the URL correctly cleaned up on the
+  // way past, which is what makes it look like it worked. The caller applies
+  // this once the stage is up.
+  return failed !== null ? 'failed' : null;
 }
+
+/**
+ * What to say when the round trip came back without a token.
+ *
+ * Said as a toast, which is where "Signed in with GitHub" is already said. It
+ * was a `store.banner`, and the banner is rendered under `showPlayer &&` — but
+ * `signInWithGitHub` sends GitHub a return address of origin + pathname, so
+ * everybody who authorises, or declines, arrives back on the *landing* page.
+ * The message was therefore being put on a surface that does not exist on the
+ * page it was written for. That is the third distinct reason this has been
+ * unable to appear, under two previous fixes, and it is why there is now a
+ * test in `history.spec.ts` rather than a fourth comment.
+ */
+export const SIGN_IN_FAILED = 'GitHub sign-in did not complete. Public repositories still work at the anonymous rate, and the ready-made histories cost no requests at all.';

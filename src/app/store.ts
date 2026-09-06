@@ -304,10 +304,13 @@ export function performanceEnded(): boolean {
   return store.time.value >= perf.duration - 0.05;
 }
 
-export function toast(message: string) {
+export function toast(message: string, ms = 2600) {
   store.toast.value = message;
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => (store.toast.value = null), 2600);
+  // Long enough to read what it says. 2.6 seconds is right for "Signed in" and
+  // wrong for a sentence explaining that something did not work and what still
+  // does, so the caller can ask for longer.
+  toastTimer = window.setTimeout(() => (store.toast.value = null), ms);
 }
 
 export function announce(message: string) {

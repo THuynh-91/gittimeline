@@ -27,6 +27,32 @@ test.describe('going back', () => {
     await expect(page.getByTestId('catalog-page')).toBeVisible();
   });
 
+  /**
+   * The one thing a viewer cannot check for themselves.
+   *
+   * Somebody comes back from GitHub having pressed Cancel, or having had the
+   * authorisation refused. The fragment carrying `gh_error` is stripped on
+   * arrival — correctly, it must not be re-shareable — and if nothing is said
+   * the page is identical to the one they left. They have no way to tell a
+   * refusal from a success.
+   *
+   * It has been written twice and been dead both times, for three separate
+   * reasons: it read the fragment back after `replaceState` had removed it; it
+   * set the banner on the line before `loadDemo`, which finishes by clearing
+   * it; and the banner is rendered only under `showPlayer`, while the return
+   * address is the landing page. Every one of those left the URL correctly
+   * cleaned up on the way past, which is exactly what makes the failure look
+   * like success. Hence a test, and not a fourth comment.
+   */
+  test('a sign-in that came back refused says so, and does not leave the error in the URL', async ({ page }) => {
+    // A real load, not a hash change: `boot` runs once per document, and
+    // navigating between two URLs that differ only in the fragment never
+    // reloads. That distinction is the whole of what is under test.
+    await page.goto('/#gh_error=access_denied');
+    await expect(page.locator('.toast')).toContainText('sign-in did not complete');
+    expect(await page.evaluate(() => location.hash), 'the failure must not be re-shareable').toBe('');
+  });
+
   test('a route survives being reloaded, because a static host never sees the hash', async ({ page }) => {
     // A real path would 404 on GitHub Pages, which has no /selection file —
     // a deep link that works only as long as nobody uses it as a link.

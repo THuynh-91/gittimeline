@@ -20,7 +20,7 @@ import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '
 import { gunzipIfNeeded, performanceFileFor, performanceMatchesRequest, readCompiledPerformance, type PerfDatasetRef } from '@/export/performance';
 import { fmtClock } from '@/choreography/events';
 import { mapMonotone } from '@/choreography/clock';
-import { claimTokenFromUrl } from './auth';
+import { claimTokenFromUrl, SIGN_IN_FAILED } from './auth';
 import { trackPerformanceStart } from './analytics';
 import { CatalogSource } from '@/player/catalogSource';
 import { validateManifest, type CatalogManifest } from '@/export/catalogPackage';
@@ -2082,6 +2082,14 @@ export async function boot() {
     return;
   }
   // Landing: the demo performs softly behind the form.
-  if (claimTokenFromUrl()) toast('Signed in with GitHub — about 5,000 requests an hour');
+  //
+  // The URL is cleaned up first — the token must not sit in the address bar
+  // for the length of a compile — but what it *says* waits until the demo is
+  // loaded, since loading one is entitled to clear whatever the last one left
+  // on screen. Announcing a sign-in before that is announcing it to the next
+  // line of code.
+  const signIn = claimTokenFromUrl();
   await loadDemo({ autoplay: true, landing: true });
+  if (signIn === 'token') toast('Signed in with GitHub — about 5,000 requests an hour');
+  else if (signIn === 'failed') toast(SIGN_IN_FAILED, 9000);
 }
