@@ -19,6 +19,8 @@ export type Quality = 'full' | 'reduced' | 'minimal';
 export interface RenderSettings {
   reducedMotion: boolean;
   noFlash: boolean;
+  /** Camera held still — no punch, no roll. See `Settings.noShake`. */
+  noShake: boolean;
   highContrast: boolean;
   quality: Quality;
   labels: 'minimal' | 'landmarks' | 'all';
@@ -310,6 +312,7 @@ export class StageRenderer {
   settings: RenderSettings = {
     reducedMotion: false,
     noFlash: false,
+    noShake: false,
     highContrast: false,
     quality: 'full',
     labels: 'landmarks',
@@ -905,7 +908,11 @@ export class StageRenderer {
     if (sound) this.rescueView = null;
     const cue = sound ? planned : this.rescueCue(planned, t, dtReal);
     if (renderProfile.enabled && !sound) renderProfile.counts.rescuedCues++;
-    const targetPunch = this.settings.reducedMotion ? 1 : cue.punch;
+    // The two things that make the camera lurch, and the one switch that
+    // holds both still. `punch` is the shove toward an arrival; `rotation` is
+    // the roll around it. Reduced motion already implies both.
+    const still = this.settings.reducedMotion || this.settings.noShake;
+    const targetPunch = still ? 1 : cue.punch;
     const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 14) : 1;
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
     if (this.shopWindow && this.applyShopWindow(t, dtReal)) return;
@@ -940,11 +947,67 @@ export class StageRenderer {
      * this shot, for exactly this reason. A tableau that cannot pull back is
      * the only thing that floor was ever protecting, and it was protecting it
      * from nothing.
+     *
+     * "Everything at once" is true of a plan held whole and false of a streamed
+     * one, and the difference is not small. A windowed history keeps only the
+     * pages around the playhead, and the scale floor below refuses to show more
+     * than is loaded — correctly, because the alternative is presenting empty
+     * stage as the shape of a repository. So the closing frame is 16,000 world
+     * units wide whatever the history is, which is the whole of the demo and a
+     * fraction of Linux:
+     *
+     *   mdBook        137,222 units    11.7% in frame   151 nodes, 204 edges
+     *   React         485,139           3.3%            154 nodes, 237 edges
+     *   kubernetes 13,461,479           0.1%            148 nodes, 364 edges
+     *   Linux      40,131,368           0.04%           136 nodes, 609 edges
+     *
+     * Which is a full frame in every case — it is a wide shot of the ending,
+     * not a wide shot of everything, and it is not the near-empty stage the
+     * clamp used to produce. Showing the real whole of a streamed history would
+     * mean packaging a decimated overview of it and drawing that instead, which
+     * is a different picture with a different claim attached, and a decision
+     * about what the ending *is* rather than a bug to be fixed.
      */
-    const bounds = cue.state === 'tableau' && this.zoomLock == null ? this.perf?.bounds ?? null : null;
-    const shotW = bounds ? Math.max(cue.w, (bounds.maxX - bounds.minX) * 1.06 + 80) : cue.w;
-    const shotH = bounds ? Math.max(cue.h, (bounds.maxY - bounds.minY) * 1.18 + 80) : cue.h;
-    const fit = Math.min(safeW / shotW, safeH / shotH);
+    /**
+     * Only take the whole-history framing if the frame can actually hold it.
+     *
+     * `perf.bounds` on a streamed plan describes the *whole* history — the
+     * summary carries it and `assembleWindow` keeps it — while the zoom floor
+     * a few lines down refuses any scale showing more than the 16,000 world
+     * units that are resident. Centring on the midpoint of bounds the frame
+     * cannot reach does not produce a wide shot of everything; it produces a
+     * 16,000-unit slice of the *middle*, with the last commit off screen and
+     * the head-band waiver removing the one rule that would have brought it
+     * back. On kubernetes the centre sat 7,014,201 units from the final
+     * commit — 0.11% of the history in frame, and none of it the ending.
+     *
+     * That is worse than the clamp it replaced, and it read as fixed because
+     * the frame is *full*: 151 nodes and 205 edges on mdBook, which is a
+     * healthy-looking picture of the wrong part of the repository. "Not blank"
+     * was the wrong test.
+     *
+     * So: compute the shot the bounds want, and keep it only if the floor
+     * permits it. Where it does not — every streamed entry — fall back to the
+     * cue and its head-band correction, which frames the ending, which is what
+     * the closing shot of a timelapse is for.
+     */
+    const whole = cue.state === 'tableau' && this.zoomLock == null ? this.perf?.bounds ?? null : null;
+    const floor = this.perf?.window ? safeW / 16000 : 0;
+    let bounds: typeof whole = null;
+    let fit: number;
+    if (whole) {
+      const w = Math.max(cue.w, (whole.maxX - whole.minX) * 1.06 + 80);
+      const h = Math.max(cue.h, (whole.maxY - whole.minY) * 1.18 + 80);
+      const wide = Math.min(safeW / w, safeH / h);
+      if (wide >= floor) {
+        bounds = whole;
+        fit = wide;
+      } else {
+        fit = Math.min(safeW / cue.w, safeH / cue.h);
+      }
+    } else {
+      fit = Math.min(safeW / cue.w, safeH / cue.h);
+    }
     // Never so far out that two lanes become one line.
     //
     // Branches sit `LANE_GAP` apart in world units, and the camera fits the
@@ -973,7 +1036,7 @@ export class StageRenderer {
       scale,
       ox: s.left + safeW / 2,
       oy: s.top + safeH / 2,
-      rotation: this.settings.reducedMotion ? 0 : cue.rotation,
+      rotation: still ? 0 : cue.rotation,
       // Centred on whatever is being framed. Widening the shot to the bounds
       // while still pointing at the cue's centre shows the whole width from
       // the wrong place, which is a different way of missing most of it.

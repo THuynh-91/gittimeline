@@ -32,8 +32,47 @@ async function page(r:Resource,base:string,signal:AbortSignal):Promise<CompiledP
   cache.set(r.file,{p,bytes:r.decodedBytes});resident+=r.decodedBytes;
   return p;
 }
-self.onmessage=async({data}:{data:{id:number;url:string;manifest:CatalogManifest;request:WindowRequest}})=>{
-  abort?.abort();const active=new AbortController();abort=active;
+/**
+ * A speculative fetch, running beside the live one instead of replacing it.
+ *
+ * Every message used to abort the message before it, which is right for a
+ * seek — the answer to the old question is worthless — and fatal for a
+ * prefetch, because warming the next window would cancel the window being
+ * played and vice versa. So a warm request carries its own controller, never
+ * touches `abort`, and posts nothing back. Its whole effect is the `page`
+ * cache it leaves behind, which the real request a few seconds later then hits
+ * instead of the network.
+ *
+ * Only one warm request at a time, and a new one supersedes it: the playhead
+ * only moves forward, so an older speculation is always the less useful one.
+ */
+let warmAbort: AbortController | null = null;
+
+self.onmessage=async({data}:{data:{id:number;url:string;manifest:CatalogManifest;request:WindowRequest;warm?:boolean}})=>{
+  const warm = data.warm === true;
+  let active: AbortController;
+  if (warm) {
+    warmAbort?.abort();
+    active = new AbortController();
+    warmAbort = active;
+  } else {
+    abort?.abort();
+    active = new AbortController();
+    abort = active;
+    // The speculation is deliberately left running.
+    //
+    // Cancelling it here was the first design and it defeated the whole
+    // mechanism: geometry is refetched as the camera travels, roughly every
+    // twenty-five seconds, and each of those killed the warm that had been
+    // started for the approaching page boundary — so the boundary then
+    // downloaded from cold anyway. Measured: a warm for t=30.0 issued at
+    // 23.6s, aborted by an ordinary refetch at 26.0s, and the real request for
+    // t=30.0 at 31.6s paying full price.
+    //
+    // They do not contend for much. Both are `fetch` against the same origin
+    // over one HTTP/2 connection, and the expensive half — gunzip and parse —
+    // is bounded by `MAX_RESIDENT` either way.
+  }
   const {id,url,manifest,request}=data;
   try {
     validateManifest(manifest);
@@ -58,11 +97,22 @@ self.onmessage=async({data}:{data:{id:number;url:string;manifest:CatalogManifest
     const pages=[...clocks];
     for(let i=0;i<geometry.length;i+=6)pages.push(...await Promise.all(geometry.slice(i,i+6).map(r=>page(r,base,active.signal))));
     if(active.signal.aborted)return;
+    // Warming stops here. The pages are decoded and in the cache, which is the
+    // entire point; assembling a plan nobody asked for and posting it back
+    // would cost a structured clone and be thrown away.
+    if(warm){self.postMessage({id,warmed:true});return;}
     const perf=assembleWindow(manifest.summary,pages);
     perf.window={key:`${id}:${manifest.summary.planHash}`,start:Math.min(...time.map(r=>r.min)),end:Math.max(...time.map(r=>r.max)),minX:min,maxX:max,residentBytes:resident+required,manifestUrl:url};
     // Transfer private copies. Cached resource buffers must remain valid for subsequent seeks.
     for(const e of perf.edges)e.pts=e.pts.slice();
     const buffers=perf.edges.map(e=>e.pts.buffer as ArrayBuffer);buffers.push(perf.waveform.buffer as ArrayBuffer);
     self.postMessage({id,perf},buffers);
-  }catch(error){if(!active.signal.aborted)self.postMessage({id,error:error instanceof Error?error.message:String(error)});}
+  }catch(error){
+    // A speculation that fails costs nothing and is not news: the real request
+    // will make the same attempt shortly and report it properly if it fails
+    // too. Reporting it here would put a banner in front of somebody for a
+    // download they did not ask for and are not waiting on.
+    if(warm){self.postMessage({id,warmed:false});return;}
+    if(!active.signal.aborted)self.postMessage({id,error:error instanceof Error?error.message:String(error)});
+  }
 };

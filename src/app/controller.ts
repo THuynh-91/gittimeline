@@ -23,7 +23,7 @@ import { mapMonotone } from '@/choreography/clock';
 import { claimTokenFromUrl, SIGN_IN_FAILED } from './auth';
 import { trackPerformanceStart } from './analytics';
 import { CatalogSource } from '@/player/catalogSource';
-import { validateManifest, type CatalogManifest } from '@/export/catalogPackage';
+import { MAX_VIEW_WIDTH, validateManifest, type CatalogManifest } from '@/export/catalogPackage';
 import { sampleCamera } from '@/choreography/camera';
 import { catalogUrl, externalCatalog } from './catalogLocation';
 
@@ -39,6 +39,37 @@ let canvasEl: HTMLCanvasElement | null = null;
 let catalogSource: CatalogSource | null = null;
 let windowGeneration = 0;
 let windowPending = false;
+/**
+ * How far ahead to fetch. Long enough that a 250 kbps connection finishes in
+ * time — the slowest page measured was under a second on a fast link and a few
+ * seconds throttled — and short enough that a viewer who seeks away has not
+ * paid for much they will not watch.
+ */
+const WARM_LEAD_SECONDS = 8;
+/**
+ * How much a time page holds either side of the range it is named for.
+ *
+ * `package-catalog.mjs` slices each page with `lo = start - 8, hi = end + 8`,
+ * so a page called 30..60 carries events, cues and clock marks from 22 to 68.
+ * The resource index records the *nominal* range, so the window reports 30..60
+ * and understates what it can actually draw by eight seconds at each end.
+ *
+ * That understatement is what forced a stop at every boundary: the moment the
+ * clock passed 60 the plan was declared not to cover it, when in fact it did.
+ */
+const PAGE_OVERLAP_SECONDS = 8;
+/**
+ * How early to fetch the next page, in performance seconds before the nominal
+ * boundary. Far enough inside the overlap that the swap lands while the old
+ * plan is still authoritative, so playback never waits for it.
+ */
+const PRE_SWAP_SECONDS = 3;
+/**
+ * The page boundary already warmed. Not reset when a window is prepared: a
+ * geometry refetch prepares a window without crossing a boundary, and clearing
+ * this there is what made the speculation repeat every couple of seconds.
+ */
+let warmedKey: string | null = null;
 let committingSeek = false;
 
 /**
@@ -58,18 +89,100 @@ let committingSeek = false;
 function intervalError(error: unknown): string {
   const raw = error instanceof Error ? error.message.trim() : '';
   const platform = /failed to fetch|networkerror|load failed|network ?request ?failed|fetch failed|^err_|the operation was aborted/i.test(raw);
-  if (!raw || platform) return 'That stretch of the history could not be downloaded. Check your connection and try again.';
+  // A bare HTTP status is no more written for a person than a `TypeError` is.
+  // The first pass at this caught the `fetch` rejection shape and left
+  // "History resource unavailable (404). Retry this interval." in place.
+  const status = /^[^a-z]*\b(\d{3})\b/i.test(raw) || /\((\d{3})\)/.test(raw);
+  if (!raw || platform || status) return 'That stretch of the history could not be downloaded. Check your connection and try again.';
   return raw;
 }
 
-async function prepareCatalogWindow(t: number, manual = false) {
+/**
+ * Where the geometry for a moment lives, and how much of it to ask for.
+ *
+ * `x = impact * xScale` and `impact` is performance time, so the x a given `t`
+ * needs is `t * xScale` — a property of the layout, knowable without asking
+ * the camera anything. That matters because the camera is not a reliable proxy
+ * for the playhead: the closing tableau's compiled cue points at the midpoint
+ * of the whole history, so aiming a fetch at it loaded geometry 20 million
+ * units from the end of Linux and left the final shot with nothing in it. The
+ * previous attempt at this used the live viewport instead, which is right
+ * during playback and wrong in exactly the same place, because in the tableau
+ * the viewport is parked somewhere unrelated to `t`.
+ *
+ * Manual camera is the one case where the viewer, not the clock, decides what
+ * is on screen — so there, and only there, the viewport is the authority.
+ *
+ * Biased forward because time runs one way: the band is `[x - width, x +
+ * width]`, and centring it on the playhead spends half of it on history the
+ * camera will never revisit.
+ */
+function windowRequest(t: number, view: { cx: number; worldW: number } | null): { t: number; x?: number; width?: number } {
+  const p = player.perf;
+  if (view) {
+    const lead = Math.min(6000, Math.max(2000, view.worldW));
+    return { t, x: view.cx + lead, width: Math.max(view.worldW, 12000) };
+  }
+  if (!p || !(p.duration > 0) || !Number.isFinite(p.bounds?.maxX)) return { t };
+  const xScale = p.bounds.maxX / p.duration;
+  if (!Number.isFinite(xScale) || xScale <= 0) return { t };
+  // Wide, and mostly ahead.
+  //
+  // The band is `[x - width, x + width]`. Time pages are thirty performance
+  // seconds, so the goal is a band that outlasts one: if geometry runs out
+  // before the clock does, the two take turns interrupting playback and the
+  // viewer gets two stalls per page instead of none. At the maximum width the
+  // worker will accept, and biased so roughly a sixth sits behind the
+  // playhead, this carries about thirty-five seconds of travel on Kubernetes
+  // against a thirty-second page — so the clock is always the thing that runs
+  // out first, and the clock is the thing being warmed.
+  //
+  // The part behind is not spare: the frame holds the head at 60-70% across,
+  // so a few thousand units of already-performed history are on screen to the
+  // left of it and have to be drawable.
+  const width = MAX_VIEW_WIDTH;
+  return { t, x: t * xScale + width * 0.66, width };
+}
+
+async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: boolean } = {}) {
   const source = catalogSource;
   if (!source) return;
   const generation = ++windowGeneration;
   windowPending = true;
-  player.buffered = false;
-  store.buffering.value = true;
-  syncAudioToPlayback();
+  /**
+   * Stop the show only if the show cannot go on.
+   *
+   * This froze playback for the whole of every window preparation, and most
+   * preparations do not need it: the clock pages are thirty seconds and the
+   * geometry band is refetched as the camera travels, so the common case is a
+   * plan that already covers the playhead being replaced by a wider one. There
+   * is nothing to wait for there — the frame that is on screen is correct and
+   * stays correct until the new plan lands.
+   *
+   * Measured on Kubernetes at 120 seconds of playback: seven stops, one every
+   * seventeen seconds, each 43-99ms. The prefetch had already taken the
+   * download out of them — a warmed page answers in 100ms against 100ms cold —
+   * because what is left is assembling the plan and structured-cloning it back
+   * across the worker boundary, which no amount of fetching ahead removes.
+   *
+   * So the remaining stalls are not waits for data; they are waits for a swap
+   * that did not need to be waited for. What genuinely needs the freeze is a
+   * seek into an interval nobody has loaded, where continuing would draw a
+   * moment the plan cannot describe.
+   */
+  const held = player.perf;
+  // Judged on where the clock *is*, not on what is being asked for. A
+  // pre-swap asks for a moment a few seconds ahead precisely so that it can
+  // be fetched while the playhead is still somewhere the current plan
+  // describes; testing the requested time instead would call every one of
+  // those uncovered and reintroduce the stop it exists to avoid.
+  const w = held?.window;
+  const covered = !!w && player.t >= w.start - PAGE_OVERLAP_SECONDS && player.t < w.end + PAGE_OVERLAP_SECONDS;
+  if (!covered) {
+    player.buffered = false;
+    store.buffering.value = true;
+    syncAudioToPlayback();
+  }
   /**
    * Load around what the renderer is actually looking at.
    *
@@ -97,10 +210,32 @@ async function prepareCatalogWindow(t: number, manual = false) {
    * the history and then need a second fetch to undo it, so both fall back to
    * the cue, which is at least an estimate *of the requested time*.
    */
-  const near = Math.abs(t - player.t) < 2 && !!player.perf?.window;
-  const view = manual || near ? renderer?.viewport() : null;
+  const live = renderer?.viewport() ?? null;
+  const view = manual ? live : null;
   try {
-    const perf = await source.prepare({ t, ...(view ? { x:view.cx,width:view.worldW } : {}) });
+    /**
+     * Aimed ahead of the camera, not centred on it.
+     *
+     * The worker loads `[x - width, x + width]`, so centring on the camera
+     * spends half the band on history already behind the playhead, which the
+     * camera will never return to. Measured on Kubernetes: about 2,600 units
+     * of runway, a refetch every three or four seconds, and twenty-five short
+     * stalls in ninety seconds of playback — which is the stuttering that was
+     * reported. Only one of those was a change of *time* page; the rest were
+     * geometry being fetched again for a camera that had merely moved.
+     *
+     * Time only runs one way here and `x = impact * xScale`, so the camera
+     * only ever travels right. Biasing the band forward by most of its own
+     * width turns 2,600 units of runway into roughly 14,000 — about seventeen
+     * seconds of performance, which is the same order as the thirty-second
+     * time page, so geometry and clock now tend to be refetched together
+     * rather than in alternation.
+     *
+     * `width` is per side and the worker clamps it to [6000, 16000], so this
+     * asks for 24,000 units in total against a 96 MB resident budget, and the
+     * budget still refuses anything it cannot hold.
+     */
+    const perf = await source.prepare(windowRequest(t, view));
     if (source !== catalogSource || generation !== windowGeneration) return;
     const selected = player.perf?.nodes[store.selectedNode.value ?? -1]?.sha;
     const thread = player.perf?.threads[store.selectedThread.value ?? -1]?.id;
@@ -117,9 +252,14 @@ async function prepareCatalogWindow(t: number, manual = false) {
     syncRendererSettings();
     captionPtr = perf.events.findIndex(e=>e.performanceImpact>t);
     if(captionPtr<0)captionPtr=perf.events.length;
-    committingSeek = true;
-    if(Math.abs(player.t-t)>.001) player.seek(t);
-    committingSeek = false;
+    // A pre-swap is a change of plan, not a change of time: the clock is
+    // mid-page and must stay there. Only a request made *for* a moment moves
+    // the playhead to it.
+    if (opts.seek !== false) {
+      committingSeek = true;
+      if(Math.abs(player.t-t)>.001) player.seek(t);
+      committingSeek = false;
+    }
     player.buffered = true;
     store.banner.value = null;
   } catch(error) {
@@ -127,7 +267,12 @@ async function prepareCatalogWindow(t: number, manual = false) {
     player.pause();
     store.banner.value={kind:'info',message:intervalError(error),action:{label:'Retry',run:()=>void prepareCatalogWindow(t,manual)}};
   } finally {
-    if(source===catalogSource&&generation===windowGeneration){windowPending=false;store.buffering.value=false;syncAudioToPlayback();}
+    if(source===catalogSource&&generation===windowGeneration){
+      windowPending=false;
+      // `buffered` is set true by the success path; this only has to take the
+      // notice down, and only if it was put up.
+      if(!covered){store.buffering.value=false;syncAudioToPlayback();}
+    }
   }
 }
 player.beforeSeek = (t) => {
@@ -335,6 +480,7 @@ function syncRendererSettings() {
     ...renderer.settings,
     reducedMotion: s.reducedMotion,
     noFlash: s.noFlash,
+    noShake: s.noShake,
     highContrast: s.highContrast,
     quality: s.quality,
     // No text on the stage behind the form. The renderer writes branch names,
@@ -388,8 +534,51 @@ function frame(now: number) {
     // there is still geometry either side, rather than once the gap is
     // already on screen.
     const x=v?v.cx:sampleCamera(perf.camera,t).x;
+    // A little more than half the frame, so the fetch starts while there is
+    // still geometry either side rather than once a gap is already on screen.
     const half=v?Math.min(16000,v.worldW)/2+1500:3000;
-    if(t>=perf.window.end&&t<perf.duration||t<perf.window.start||x-half<perf.window.minX||x+half>perf.window.maxX)void prepareCatalogWindow(t,manual);
+    // The clock has genuinely left what this plan can draw. `PAGE_OVERLAP` on
+    // the low side because a page carries eight seconds before its nominal
+    // start, and after a pre-swap the playhead is legitimately sitting there.
+    const outside=t>=perf.window.end+PAGE_OVERLAP_SECONDS&&t<perf.duration
+      ||t<perf.window.start-PAGE_OVERLAP_SECONDS;
+    const starved=x-half<perf.window.minX||x+half>perf.window.maxX;
+    if(outside||starved)void prepareCatalogWindow(t,manual);
+    // Swap to the next page before the clock reaches it.
+    //
+    // Arriving at the boundary and *then* asking is what produced the last
+    // three stops in two minutes — 47ms each, at 30s, 60s and 90s exactly.
+    // Asking three seconds early puts the request inside the overlap, where
+    // the old plan still describes the playhead, so the swap is silent and
+    // the clock never waits. `seek: false` because this is a change of plan,
+    // not a jump.
+    else if(player.playing&&t>=perf.window.end-PRE_SWAP_SECONDS&&perf.window.end<perf.duration){
+      const key=`swap:${perf.window.end}`;
+      if(key!==warmedKey){
+        warmedKey=key;
+        void prepareCatalogWindow(Math.min(perf.duration,perf.window.end+1),manual,{seek:false});
+      }
+    }
+    // Otherwise, get ahead of the next one.
+    //
+    // A window that is *needed* is a window being waited for, and waiting is
+    // the stutter. This asks for the same thing several seconds early, on a
+    // channel that does not stop playback and does not cancel the request the
+    // stage is using; by the time the playhead arrives the pages are decoded
+    // and the real call is a cache hit. Once per target, so a steady state
+    // does not re-ask every frame.
+    else if(player.playing){
+      const ahead=Math.min(perf.duration,t+WARM_LEAD_SECONDS);
+      // Keyed on the boundary being approached, so this happens once per page
+      // however many times geometry is refetched on the way to it. Keying it
+      // on a time bucket instead re-issued the same speculation every couple
+      // of seconds, because an ordinary refetch reset the marker.
+      const key=`warm:${perf.window.end}`;
+      if(ahead>=perf.window.end&&t<perf.window.end&&key!==warmedKey){
+        warmedKey=key;
+        void catalogSource.warm?.(windowRequest(ahead,manual&&v?v:null));
+      }
+    }
   }
   player.advance(dt);
   // A span ends where it said it would. `player.loop` would wrap here, which
@@ -1612,6 +1801,11 @@ function exploreRange(worldW: number): { lo: number; hi: number; span: number } 
  * The second number is what lets the control show the size of your window on
  * the history the way a scrollbar does.
  */
+/** Whether the viewer is holding the camera rather than the director. */
+export function cameraIsManual(): boolean {
+  return !!renderer?.manual;
+}
+
 export function exploreState(): { at: number; visible: number } | null {
   if (!renderer) return null;
   const vp = renderer.viewport();
