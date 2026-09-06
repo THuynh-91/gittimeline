@@ -59,62 +59,108 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   // reads as a typo in the one place the dialog is being precise.
   const chosen = lo == null || hi == null ? '' : lo === hi ? String(lo) : `${lo}–${hi}`;
 
-  const pace = q.durationSeconds > 0 ? q.nodes / q.durationSeconds : 0;
   const size = q.bytes >= 1e7 ? `${Math.round(q.bytes / 1e6)} MB` : `${(q.bytes / 1e6).toFixed(1)} MB`;
+  const secondsOf = (y: number) => q.years.find(([yy]) => yy === y)?.[1] ?? 0;
 
-  // What fraction of the history is drawn as its own arrival rather than
-  // gathered into a ribbon. Null when the entry does not say.
-  const drawn = q.nodes ?? null;
-  const drawnShare = drawn != null && q.commits ? drawn / q.commits : null;
-  const commitsLabel = q.commits >= 1e6 ? `${(q.commits / 1e6).toFixed(1)} million` : q.commits.toLocaleString();
+  // Click one year, then another. Two clicks, no menus.
+  //
+  // This was two `<select>`s. A native menu of twenty-two years is a scroll
+  // through a list to answer a question that is really "which part of this",
+  // and it threw away the one thing the dialog knows that the viewer does
+  // not: the years are wildly uneven. Two of Linux's twenty-one hold as much
+  // of the running time as eight others put together, and a menu renders them
+  // all the same height. The track below is the same choice made by pointing
+  // at it, with each year as wide as the share of the show it actually is.
+  const [pending, setPending] = useState(false);
+  const pick = (y: number) => {
+    if (!pending) {
+      setFrom(y);
+      setTo(y);
+      setPending(true);
+      return;
+    }
+    setTo(y);
+    setPending(false);
+  };
   return (
-    <div class="prelude" role="dialog" aria-labelledby="scope-title" data-testid="scope-chooser">
+    <div
+      class="prelude"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scope-title"
+      data-testid="scope-chooser"
+      // Dismissed by the backdrop as well as by Escape and the button. A dim
+      // overlay that swallows the click is a dead end, and it was one: this
+      // was the only modal in the app with no way out but a specific button.
+      // `mousedown` and a target check rather than `click`, so a drag that
+      // starts on the card and ends on the backdrop does not dismiss it.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) dismissScope();
+      }}
+    >
       <div class="error-card scope-card">
         <h2 id="scope-title">{q.label}</h2>
         <p>
-          {/* "Every one of them gets its own beat" is true of most of the
-              shelf and wildly untrue of the top of it. Chromium draws 923
-              arrivals out of 1,817,062 commits and LLVM 894 out of 595,778 —
-              0.05% and 0.15% — because the compiler collapses dense stretches
-              into aggregate ribbons rather than drawing every commit. That is
-              a good decision and the sentence describing it was not: it told
-              someone about to spend three minutes that they were about to
-              watch 1.8 million commits arrive one at a time. So the claim is
-              made only when it holds, and the rest of the time the ribbons are
-              named for what they are. */}
-          The whole history runs {runtime(q.durationSeconds)} and lands {pace.toFixed(1)} arrivals a second
-          {drawnShare == null || drawnShare >= 0.5
-            ? ' — every commit gets its own beat, so nothing here is going faster than it can be followed. It is simply that long.'
-            : `, gathering ${commitsLabel} commits into them. Long runs of steady work arrive as one broad stroke rather than a commit at a time, which is the only way a history this size is watchable at all.`}{' '}
-          {years.length > 1 && <>Any stretch of it costs the same {size} download, played from a different place to a different place.{' '}</>}
-          {q.openSeconds != null && q.openSeconds >= 5 && <>Either way it is about {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
+          {/* What it costs to watch, and nothing about how it is built.
+              This used to open with the arrival rate — "lands 7.7 arrivals a
+              second, gathering 1.5 million commits into them" — which is a
+              fact about the compiler, offered to somebody deciding how to
+              spend an evening. How long, how big, how soon: that is the whole
+              question at this point. */}
+          {runtime(q.durationSeconds)} long, {size} to download.
+          {years.length > 1 && <> Any stretch of it costs the same download.</>}
+          {q.openSeconds != null && q.openSeconds >= 5 && <> About {Math.round(q.openSeconds)} seconds from here to the first frame.</>}
         </p>
 
         {years.length > 1 && lo != null && hi != null && (
           <div class="scope-range">
-            <label>
-              <span>From</span>
-              <select value={String(from)} onChange={(e) => setFrom(Number((e.target as HTMLSelectElement).value))} data-testid="scope-from">
-                {years.map((y) => (
-                  <option key={y} value={String(y)}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>To</span>
-              <select value={String(to)} onChange={(e) => setTo(Number((e.target as HTMLSelectElement).value))} data-testid="scope-to">
-                {years.map((y) => (
-                  <option key={y} value={String(y)}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p class="scope-range-out" data-testid="scope-range-runtime">
-              {whole ? 'the whole history' : chosen} · <b>{runtime(chosenSecs)}</b>
-            </p>
+            <div class="scope-track" role="group" aria-label="Choose a range of years" data-testid="scope-track">
+              {years.map((y) => {
+                const inside = y >= lo && y <= hi;
+                return (
+                  <button
+                    key={y}
+                    type="button"
+                    class={`scope-year${inside ? ' in' : ''}${y === lo || y === hi ? ' edge' : ''}`}
+                    // Wider for the years that hold more of the show, but by
+                    // the square root of it rather than in proportion. Raw
+                    // proportion is honest and unusable: Linux's 2005 is a
+                    // rounding error beside its 2015, so the first four years
+                    // collapsed to slivers too narrow to hold their own digits
+                    // and the track looked broken. The root keeps the ordering
+                    // and the sense of shape while leaving every year legible.
+                    style={{ flexGrow: Math.max(0.6, Math.sqrt(secondsOf(y))) }}
+                    aria-pressed={inside}
+                    aria-label={`${y}, ${runtime(secondsOf(y))}`}
+                    title={`${y} · ${runtime(secondsOf(y))}`}
+                    onClick={() => pick(y)}
+                    data-testid={`scope-year-${y}`}
+                  >
+                    <span>{String(y).slice(2)}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div class="scope-ends">
+              <span>{first}</span>
+              <p class="scope-range-out" data-testid="scope-range-runtime">
+                {whole ? 'the whole history' : chosen} · <b>{runtime(chosenSecs)}</b>
+                {!whole && (
+                  <button
+                    type="button"
+                    class="scope-reset"
+                    onClick={() => {
+                      setFrom(first);
+                      setTo(last);
+                      setPending(false);
+                    }}
+                  >
+                    all of it
+                  </button>
+                )}
+              </p>
+              <span>{last}</span>
+            </div>
           </div>
         )}
 

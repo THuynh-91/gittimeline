@@ -74,15 +74,17 @@ test.describe('pre-fetched catalog', () => {
     await expect(chooser).toBeVisible();
     await expect(page.getByTestId('scope-full'), 'the whole history is the primary offer').toBeVisible();
 
-    const from = chooser.getByTestId('scope-from');
+    const track = chooser.getByTestId('scope-track');
     // An entry whose plan predates spans covers one year or none, and offers no
     // range: there is then nothing here to test rather than something broken.
-    if (!(await from.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
+    if (!(await track.isVisible().catch(() => false))) test.skip(true, 'this build indexed no years');
     // Both ends to the same year, which is the narrowest thing a range can be
-    // and the one whose label the badge has to match exactly.
-    const year = (await from.locator('option').first().textContent())!.trim();
-    await from.selectOption(year);
-    await chooser.getByTestId('scope-to').selectOption(year);
+    // and the one whose label the badge has to match exactly. Two clicks on
+    // the same year is how the track says that.
+    const first = track.locator('button').first();
+    const year = (await first.getAttribute('data-testid'))!.replace('scope-year-', '');
+    await first.click();
+    await first.click();
     await expect(chooser.getByTestId('scope-range-runtime')).toContainText(year);
     await chooser.getByTestId('scope-full').click();
     await waitForReady(page);

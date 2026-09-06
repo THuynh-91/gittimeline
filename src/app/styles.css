@@ -1200,7 +1200,115 @@ a {
 }
 
 .scope-card {
-  max-width: 620px;
+  max-width: 680px;
+}
+
+/* The year track.
+
+   Two `<select>`s were a scroll through a list of twenty-two identical rows,
+   and they hid the one thing this dialog knows that the viewer does not: the
+   years are wildly uneven. Each year here is as wide as the share of the
+   running time it actually holds, so the shape of the project is legible
+   before anything is chosen — the quiet beginning, the years it took off. */
+.scope-range {
+  margin: 4px 0 18px;
+}
+
+.scope-track {
+  display: flex;
+  gap: 2px;
+  height: 38px;
+}
+
+.scope-year {
+  flex: 1 1 0;
+  /* Never narrower than its own two digits. */
+  min-width: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(13, 15, 22, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font: 500 10.5px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background 140ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 140ms cubic-bezier(0.32, 0.72, 0, 1),
+    color 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.scope-year:first-child {
+  border-radius: 8px 3px 3px 8px;
+}
+
+.scope-year:last-child {
+  border-radius: 3px 8px 8px 3px;
+}
+
+.scope-year:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.scope-year.in {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--ivory);
+}
+
+.scope-year.edge {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  color: var(--ivory);
+}
+
+/* A narrow year has no room for its digits; it is still a target, and the
+   readout under the track says what is selected. */
+.scope-year span {
+  pointer-events: none;
+}
+
+.scope-ends {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font: 500 11px/1 var(--mono);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-range-out {
+  margin: 0;
+  flex: 1;
+  text-align: center;
+  font-family: var(--font);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.scope-range-out b {
+  color: var(--ivory);
+  font-weight: 600;
+}
+
+.scope-reset {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .scope-years {
