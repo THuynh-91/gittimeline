@@ -4,6 +4,7 @@ import { describeAggregate } from '@/analysis/aggregate';
 import { pointAt, headingAt } from '@/layout/paths';
 import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
+import { LANE_GAP } from '@/layout/layout';
 import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
 
 /**
@@ -129,6 +130,15 @@ function volumeScale(volume: number): number {
  * two loops quietly disagreeing about how many stars there are.
  */
 const DUST_COUNT = 90;
+/**
+ * The least room two neighbouring branches may be given on screen.
+ *
+ * Twenty-six, because each line carries a glow a few pixels wide on both
+ * sides; below about twenty they stop reading as two lines and start reading
+ * as one thick one.
+ */
+const MIN_LANE_PX = 26;
+
 
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -824,7 +834,30 @@ export class StageRenderer {
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
     if (this.shopWindow && this.applyShopWindow(t, dtReal)) return;
     const fit = Math.min(safeW / cue.w, safeH / cue.h);
-    const scale = Math.max(this.perf?.window?safeW/16000:0,(this.zoomLock ?? fit) * this.smoothedPunch);
+    // Never so far out that two lanes become one line.
+    //
+    // Branches sit `LANE_GAP` apart in world units, and the camera fits the
+    // box the work occupies — so the more branches are open, the further it
+    // pulls back and the fewer screen pixels that gap becomes. Measured on
+    // Kubernetes at the same moment: 34.6px between lanes in a 1920x1080
+    // window, 27.4px at 1440x900, and **16.4px** in a 1855x620 one. Add each
+    // line's glow to that and neighbouring lanes fuse into a single bright
+    // band — which is what a viewer reported twice, once as branches drawn on
+    // the main line and once as branches running past it. Neither was true;
+    // nothing is drawn at the spine's height beyond its tip. They were its
+    // neighbours, too close to tell apart.
+    //
+    // Note that widening `LANE_GAP` cannot fix this: a wider gap makes a
+    // proportionally taller box, `fit` shrinks by the same factor, and the
+    // picture comes out pixel-for-pixel identical. The only lever is the zoom,
+    // so this is a floor on it — past this point the camera stops widening and
+    // simply shows fewer lanes, which is the same trade the horizontal floor
+    // already makes for length.
+    //
+    // A tableau is exempt. That shot exists to show the whole shape at once
+    // and is the one place a hairline picture is the point.
+    const laneFloor = cue.state === 'tableau' ? 0 : MIN_LANE_PX / LANE_GAP;
+    const scale = Math.max(this.perf?.window?safeW/16000:0,(this.zoomLock ?? fit) * this.smoothedPunch, this.zoomLock != null ? 0 : laneFloor);
     this.view = {
       scale,
       ox: s.left + safeW / 2,
