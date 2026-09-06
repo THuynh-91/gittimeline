@@ -2468,10 +2468,12 @@ kbd {
      the band grows, and cannot end up underneath the transport either — both
      of which happened while it was absolutely positioned against `--band`. */
   align-self: flex-start;
-  /* Lifted ten pixels clear of the row beneath it. It is the band's own first
-     row — the commits and controls toggles and the volume slider — and it sat
-     hard against the date line under it, so three unrelated controls read as
-     one block. */
+  /* Ten pixels of air above it as well as below.
+     `margin-bottom` alone pushed the rows *under* it further down and left
+     this one still touching the band's own top edge, which is where the rule
+     above it is drawn — so the gap that was asked for was the one that did
+     not appear. */
+  margin-top: 10px;
   margin-bottom: 12px;
   display: flex;
   align-items: center;

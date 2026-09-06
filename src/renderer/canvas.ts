@@ -806,7 +806,7 @@ export class StageRenderer {
     // to bring it back to the near edge. Applied after the cue so the shot's
     // scale, rotation and vertical framing are untouched — this is a
     // horizontal correction and nothing else.
-    const head = this.spineHead(t);
+    const head = this.spineTip(t);
     if (head && this.view.scale > 0) {
       const lo = this.width * 0.6;
       const hi = this.width * 0.7;
@@ -814,6 +814,46 @@ export class StageRenderer {
       if (sx < lo || sx > hi) this.view.cx += (sx - (sx < lo ? lo : hi)) / this.view.scale;
     }
   }
+
+  /**
+   * The far end of the main line *as drawn*, which is not the last commit on it.
+   *
+   * An edge is revealed up to `travelU`, so at any moment the spine is drawn
+   * some way past the newest commit that has landed — it is mid-stroke toward
+   * the next one. Placing the nameplate against the last landed commit
+   * therefore put it behind the visible end of the line, by however far the
+   * current stroke had got: it reads as the label trailing the line rather
+   * than leading it, and on a fast history the gap is most of the distance
+   * between two commits.
+   *
+   * So this interpolates between the head and the commit after it by how much
+   * of that stroke has been drawn. The spine is laid out flat and evenly in x,
+   * so the eased reveal and the linear interpolation differ by a pixel or two
+   * at most — far less than the tens of pixels of error being corrected.
+   */
+  private spineTip(t: number): { x: number; y: number } | null {
+    const p = this.perf;
+    const spine = p?.threads[0];
+    const head = this.spineHead(t);
+    if (!p || !spine || !head) return null;
+    if (this.tipFrame === this.frameCounter && this.tipAt === t) return this.tipPos;
+    let next: NodeGeom | null = null;
+    if (this.headIdx >= 0 && this.headIdx + 1 < spine.nodeIdxs.length) next = p.nodes[spine.nodeIdxs[this.headIdx + 1]!]!;
+    let x = head.x;
+    let y = head.y;
+    if (next && next.impact > head.impact) {
+      const f = Math.max(0, Math.min(1, (t - head.impact) / (next.impact - head.impact)));
+      x = head.x + (next.x - head.x) * f;
+      y = head.y + (next.y - head.y) * f;
+    }
+    this.tipFrame = this.frameCounter;
+    this.tipAt = t;
+    this.tipPos = { x, y };
+    return this.tipPos;
+  }
+  private tipFrame = -1;
+  private tipAt = NaN;
+  private tipPos: { x: number; y: number } | null = null;
 
   /**
    * The newest commit on the main line that has landed.
@@ -838,9 +878,11 @@ export class StageRenderer {
     }
     this.headFrame = this.frameCounter;
     this.headAt = t;
+    this.headIdx = at;
     this.headNode = at >= 0 ? p.nodes[spine.nodeIdxs[at]!]! : null;
     return this.headNode;
   }
+  private headIdx = -1;
   private headFrame = -1;
   private headAt = NaN;
   private headNode: NodeGeom | null = null;
@@ -2035,9 +2077,10 @@ export class StageRenderer {
       const track = 1.4;
       const padX = 7;
       const boxW = w + track * (text.length - 1) + padX * 2;
-      // The same head the camera framed, so the plate cannot disagree with the
-      // shot it is standing in.
-      const onLine = this.spineHead(t) ?? p.nodes[spine.nodeIdxs[0]!]!;
+      // The same tip the camera framed, so the plate cannot disagree with the
+      // shot it is standing in — and the *drawn* end of the line rather than
+      // the last commit on it, or it sits behind the stroke still travelling.
+      const onLine = this.spineTip(t) ?? p.nodes[spine.nodeIdxs[0]!]!;
       const head = this.worldToScreen(onLine.x, onLine.y);
       // Its height is read off that commit, not from `spineY`: that returns a
       // constant 0 and describes the layout's intent — "the primary spine is a
