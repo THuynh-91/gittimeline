@@ -96,6 +96,8 @@ export const renderProfile = {
     nodesDrawn: 0,
     cacheRedraws: 0,
     rescuedCues: 0,
+    /** Times the stage gave up a resolution the device could not sustain. */
+    dprSteppedDown: 0,
   },
   /** The last frame's world window, so a surprising count can be explained. */
   view: { scale: 0, x0: 0, x1: 0, y0: 0, y1: 0 },
@@ -189,6 +191,38 @@ export class StageRenderer {
   private width = 1;
   private height = 1;
   private dpr = 1;
+  /**
+   * A ceiling on `dpr` that this device has actually earned.
+   *
+   * `chooseQuality` picks the cap from `hardwareConcurrency` and
+   * `deviceMemory`, before a single frame has been drawn — and neither of
+   * those says anything about whether canvas compositing is accelerated. On a
+   * machine with plenty of both but a software rasteriser the guess comes back
+   * "full", the stage is sized at twice the device pixels in each direction,
+   * and four times the fill lands on a CPU.
+   *
+   * That is not merely a soft picture. `dt` in the frame loop is clamped to
+   * 0.1s, so below ten frames a second the performance clock advances slower
+   * than the wall clock and the whole show runs in slow motion — while the
+   * soundtrack, three recordings playing on their own clock, does not.
+   * Measured on this build at 1280x720 with the same demo:
+   *
+   *     chromium  dpr 1   59.8 fps   1.00x     dpr 2   59.6 fps   1.00x
+   *     webkit    dpr 1   15.0 fps   0.99x     dpr 2    4.2 fps   0.41x
+   *     firefox   dpr 1   17.0 fps   0.99x     dpr 2    5.0 fps   0.49x
+   *
+   * Those are headless engines without GPU access and not a claim about Safari
+   * or Firefox on a real machine — but the shape is the point: the same guess
+   * is right for one of them and three times too ambitious for the others, and
+   * only a drawn frame can tell them apart. So this measures, and steps down.
+   *
+   * Downwards only, and once. Coming back up when the average recovers is how
+   * an adaptive setting starts oscillating — the cheaper resolution is what
+   * made it fast, so recovery is evidence for the step, not against it.
+   */
+  private dprEarned = Infinity;
+  private slowFrames = 0;
+  private frameEma = 0;
   private view: ViewTransform = { scale: 1, ox: 0, oy: 0, rotation: 0, cx: 0, cy: 0 };
   private smoothedPunch = 1;
   private lastT = -1;
@@ -485,10 +519,52 @@ export class StageRenderer {
     }
   }
 
+  /** Hold a spine segment for the pass after the bloom, reusing the slot. */
+  private keepSpine(pts: Float32Array, u: number, alpha: number) {
+    const slot = this.spineRedraw[this.spineCount];
+    if (slot) {
+      slot.pts = pts;
+      slot.u = u;
+      slot.alpha = alpha;
+    } else {
+      this.spineRedraw.push({ pts, u, alpha });
+    }
+    this.spineCount++;
+  }
+
+  /**
+   * Step the resolution down if the frames say the device cannot hold this one.
+   *
+   * `dtReal` is the frame loop's own delta, already clamped to 0.1s — which is
+   * why the test is a count of clamped frames rather than a rate: at the cap,
+   * one frame arriving late and one frame arriving very late are the same
+   * number, and the count is the honest reading of "we are at the ceiling".
+   *
+   * Two seconds' worth in a row before anything changes. A seek, a first
+   * paint, a compile finishing on the same thread and a tab coming back from
+   * the background are all several slow frames together and none of them mean
+   * the device is slow — the run has to be sustained to be about the device.
+   * The EMA is kept alongside so a run of merely mediocre frames does not
+   * accumulate towards the same conclusion as a run of terrible ones.
+   */
+  private watchFrameRate(dtReal: number) {
+    if (this.dpr <= 1 || dtReal <= 0) return;
+    this.frameEma = this.frameEma ? this.frameEma * 0.9 + dtReal * 0.1 : dtReal;
+    // 0.1 is the clamp itself, so `>=` and not `>`.
+    if (dtReal >= 0.0999) this.slowFrames++;
+    else this.slowFrames = 0;
+    if (this.slowFrames >= 20 && this.frameEma >= 0.06) {
+      this.dprEarned = 1;
+      this.slowFrames = 0;
+      renderProfile.counts.dprSteppedDown++;
+      this.resize();
+    }
+  }
+
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     const dprCap = this.settings.quality === 'full' ? 2 : this.settings.quality === 'reduced' ? 1.5 : 1;
-    this.dpr = Math.min(dprCap, window.devicePixelRatio || 1);
+    this.dpr = Math.min(dprCap, this.dprEarned, window.devicePixelRatio || 1);
     this.width = Math.max(1, Math.round(rect.width));
     this.height = Math.max(1, Math.round(rect.height));
     this.canvas.width = Math.round(this.width * this.dpr);
@@ -833,7 +909,42 @@ export class StageRenderer {
     const k = dtReal > 0 ? 1 - Math.exp(-dtReal * 14) : 1;
     this.smoothedPunch += (targetPunch - this.smoothedPunch) * k;
     if (this.shopWindow && this.applyShopWindow(t, dtReal)) return;
-    const fit = Math.min(safeW / cue.w, safeH / cue.h);
+    /**
+     * The closing tableau, framed from the plan's own bounds.
+     *
+     * `camera.ts` already means this: in the tail it sets the target frame to
+     * the whole bounding box and says so — "the one moment worth showing
+     * everything at once". Then the next few lines clamp the integrator's
+     * state to `MAX_FRAME_W`, which is 2,600 world units and exists to stop a
+     * logarithmic spring exponentiating an overshoot into a frame a thousand
+     * times the maximum. It is a stability guard, and it was being applied to
+     * a target that needs no stabilising: the tail's width is read straight
+     * off finite bounds and never integrated towards.
+     *
+     * So every history wider than 2,600 units has always ended on a shot of a
+     * small piece of itself. Measured on mdBook, whose geometry is 137,626
+     * units across: the tableau framed 5,714 of them — four per cent — and
+     * drew twelve nodes and eight edges a frame. The stage was not blank, but
+     * it was near enough to empty that it was reported as blank, and what the
+     * comment promises never happened once.
+     *
+     * Here rather than in `camera.ts` on purpose. The camera is compiled into
+     * the plan, and twelve plans are published and immutable; changing how
+     * cues are written fixes nothing already on the shelf and would need a
+     * `choreographyVersion` bump, which is a promise that every one of them is
+     * recompiled and republished before it can be played again. This reads the
+     * same bounds at draw time and fixes the shot for plans that already
+     * exist — including the ones nobody is going to recompile tonight.
+     *
+     * The precedent is two lines down: the lane floor is already waived for
+     * this shot, for exactly this reason. A tableau that cannot pull back is
+     * the only thing that floor was ever protecting, and it was protecting it
+     * from nothing.
+     */
+    const bounds = cue.state === 'tableau' && this.zoomLock == null ? this.perf?.bounds ?? null : null;
+    const shotW = bounds ? Math.max(cue.w, (bounds.maxX - bounds.minX) * 1.06 + 80) : cue.w;
+    const shotH = bounds ? Math.max(cue.h, (bounds.maxY - bounds.minY) * 1.18 + 80) : cue.h;
+    const fit = Math.min(safeW / shotW, safeH / shotH);
     // Never so far out that two lanes become one line.
     //
     // Branches sit `LANE_GAP` apart in world units, and the camera fits the
@@ -863,8 +974,11 @@ export class StageRenderer {
       ox: s.left + safeW / 2,
       oy: s.top + safeH / 2,
       rotation: this.settings.reducedMotion ? 0 : cue.rotation,
-      cx: cue.x,
-      cy: cue.y,
+      // Centred on whatever is being framed. Widening the shot to the bounds
+      // while still pointing at the cue's centre shows the whole width from
+      // the wrong place, which is a different way of missing most of it.
+      cx: bounds ? (bounds.minX + bounds.maxX) / 2 : cue.x,
+      cy: bounds ? (bounds.minY + bounds.maxY) / 2 : cue.y,
     };
     // The head of the main line is kept between three fifths and seven tenths
     // of the way across.
@@ -882,7 +996,13 @@ export class StageRenderer {
     // to bring it back to the near edge. Applied after the cue so the shot's
     // scale, rotation and vertical framing are untouched — this is a
     // horizontal correction and nothing else.
-    const head = this.spineTip(t);
+    //
+    // Not during the closing tableau. That shot is the whole picture, so the
+    // head is in it by construction — sitting at the right-hand end, where the
+    // last commit is, which is exactly where a band that insists on seven
+    // tenths across would drag the camera away from. Two rules composing into
+    // a shot neither of them asked for.
+    const head = bounds ? null : this.spineTip(t);
     if (head && this.view.scale > 0) {
       const lo = this.width * 0.6;
       const hi = this.width * 0.7;
@@ -921,17 +1041,24 @@ export class StageRenderer {
       const f = Math.max(0, Math.min(1, (t - head.impact) / (next.impact - head.impact)));
       // Eased the way the edge itself is revealed, not straight in time.
       //
-      // `travelU` does not run linearly: an ordinary stroke goes as `f^1.6`
-      // and a merge accelerates into its landing. Interpolating linearly here
-      // put the tip ahead of the ink for most of every commit, so the plate
-      // sat further off the line than it was asked to and the line appeared to
-      // chase it and catch up at each arrival. Same curve, same place.
-      const merge = next.mergeVolume > 0;
-      const u = this.settings.reducedMotion
-        ? f
-        : merge
-          ? f * f * (3 - 2 * f) * 0.6 + 0.4 * Math.pow(f, 1.7)
-          : Math.pow(f, 1.6);
+      // `travelU` does not run linearly — an ordinary stroke goes as `f^1.6` —
+      // and interpolating linearly here put the tip ahead of the ink for most
+      // of every commit, so the plate sat further off the line than it was
+      // asked to and the line appeared to chase it and catch up at each
+      // arrival.
+      //
+      // `f^1.6` for every step, with no merge case. There was one, keyed on
+      // `next.mergeVolume > 0` — but that asks whether the *commit* is a
+      // merge, and `travelU` asks whether the *edge* is. Along the spine they
+      // are never the same question: `compile.ts` gives a thread its own
+      // consecutive edges as `thread` or `aggregate`, and writes a `merge`
+      // edge only from a branch's last node into the merge commit, on a slot
+      // above zero. So the spine's own approach to a merge commit is a thread
+      // edge revealed as `f^1.6`, and the merge curve here was answering for
+      // an edge drawn somewhere else. The two differ by up to 0.093 of a
+      // commit gap around the middle of the stroke, on 41% of Kubernetes's
+      // commits.
+      const u = this.settings.reducedMotion ? f : Math.pow(f, 1.6);
       x = head.x + (next.x - head.x) * u;
       y = head.y + (next.y - head.y) * u;
     }
@@ -1004,6 +1131,20 @@ export class StageRenderer {
    * changes when it lands and not what it is.
    */
   private spineRedraw: Array<{ pts: Float32Array; u: number; alpha: number }> = [];
+  /**
+   * How many entries of `spineRedraw` are this frame's. The array is a pool.
+   *
+   * Pushing a fresh object per visible spine edge per frame was a few hundred
+   * short-lived allocations a second where the pass it replaced allocated
+   * nothing, and it showed up where garbage collection always shows up — not
+   * in the mean but in the worst frame. CPython, four interleaved rounds:
+   * worst frame 29.4/29.5/30.3/27.1 ms before, 48.9/34.8/54.7/61.5 ms after,
+   * with the mean *improving* over the same rounds. Reusing the slots costs a
+   * counter.
+   */
+  private spineCount = 0;
+  /** The distinct alphas on this frame's spine. Reused, like the pool above. */
+  private spineAlphas: number[] = [];
   private frontWorldX = -Infinity;
   private frontPrev = -Infinity;
   private headIdx = -1;
@@ -1071,7 +1212,8 @@ export class StageRenderer {
     const ctx = this.ctx;
     const p = this.perf;
     this.frameCounter++;
-    this.spineRedraw.length = 0;
+    this.watchFrameRate(dtReal);
+    this.spineCount = 0;
     this.frontPrev = this.frontWorldX;
     this.frontWorldX = -Infinity;
     const prof = renderProfile.enabled ? renderProfile : null;
@@ -1286,7 +1428,14 @@ export class StageRenderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'lighter';
       ctx.filter = 'blur(6px)';
-      ctx.globalAlpha = (this.settings.noFlash ? 0.55 : 0.85) * this.energy;
+      // Not `* this.energy`. The strokes that fill this buffer are already
+      // scaled by it, so scaling the composite too made the blurred light go
+      // as energy squared — 24/n, not sqrt(24/n) — which is a total bloom that
+      // does not grow with the history at all. Measured against the previous
+      // build on public-apis at 66 live edges: the brightest branch band fell
+      // 32%, the stage mean 15%, and lit pixels from 6.13% to 4.01%. The taper
+      // was doing roughly twice the job it was asked to do.
+      ctx.globalAlpha = this.settings.noFlash ? 0.55 : 0.85;
       ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
       if (this.shopWindow) {
         // A second, wider pass of the same light, so the picture reads as one
@@ -1313,7 +1462,7 @@ export class StageRenderer {
     // The ink casing arrives with density and is absent without it. On a quiet
     // history there is nothing for the main line to be separated *from*, and a
     // dark rim around it there is an outline drawn for its own sake.
-    if (this.spineRedraw.length) {
+    if (this.spineCount) {
       const casing = 0.7 * (1 - this.energy);
       const heft = 1 - this.energy;
       ctx.save();
@@ -1339,22 +1488,77 @@ export class StageRenderer {
       // rasterised once per stroke, so the overlaps cost nothing and show
       // nothing — and it is three strokes a frame rather than three per edge.
       //
-      // The alpha of the settled spine is uniform, so one value covers the
-      // whole run; the in-flight edge carries its own and is the last piece.
-      const alpha = this.spineRedraw[0]!.alpha;
-      ctx.beginPath();
-      for (const seg of this.spineRedraw) this.drawPolyline(ctx, seg.pts, seg.u, false);
+      // World units, floored in screen pixels — not fixed in screen pixels.
+      //
+      // The edge pass sets these widths inside the world transform, so they
+      // scale with the zoom. Dividing by `v.scale` pinned them to CSS pixels
+      // instead, which is not a smaller change than it sounds: at the usual
+      // framing, scale about 0.52, the halo went from 3.6 CSS px to 7.0 and
+      // the core from 1.3 to 2.6 — and the pass lands after the node pass, so
+      // that doubled core drew a grey band across the middle of every commit
+      // dot on the main line. Above scale 1 it inverted and the line came out
+      // thinner than before (React at 1.32: 4.0 px to 2.0).
+      //
+      // What actually needed fixing was only the bottom end, where the line
+      // thinned to a sub-pixel hairline as the camera pulled back. So: the
+      // world width it always had, and a floor underneath it. Above the floor
+      // the arithmetic is the old arithmetic; below it the line stops
+      // disappearing. The floor is in CSS pixels because that is the unit the
+      // problem is in.
+      const px = 1 / v.scale;
+      const wCase = Math.max(9 + 2 * heft, 6 * px);
+      const wHalo = Math.max(7 + 1.6 * heft, 4.6 * px);
+      const wCore = Math.max(2.6 + 0.8 * heft, 1.7 * px);
+
+      // The casing is one value for the whole line, so it is one path.
       if (casing > 0.02) {
+        ctx.beginPath();
+        for (let i = 0; i < this.spineCount; i++) {
+          const seg = this.spineRedraw[i]!;
+          this.drawPolyline(ctx, seg.pts, seg.u, false);
+        }
         ctx.strokeStyle = rgba(PALETTE.ink, casing);
-        ctx.lineWidth = (9 + 2 * heft) / v.scale;
+        ctx.lineWidth = wCase;
         ctx.stroke();
       }
-      ctx.strokeStyle = rgba(PALETTE.ivory, alpha * (0.22 + 0.06 * heft));
-      ctx.lineWidth = (7 + 1.6 * heft) / v.scale;
-      ctx.stroke();
-      ctx.strokeStyle = rgba(PALETTE.ivory, alpha);
-      ctx.lineWidth = (2.6 + 0.8 * heft) / v.scale;
-      ctx.stroke();
+
+      // The ivory is not.
+      //
+      // This took `spineRedraw[0].alpha` and painted the whole line with it.
+      // The settled spine *is* uniform — until somebody focuses a contributor,
+      // and then each edge is either full strength or multiplied by 0.28
+      // depending on who wrote it. One value for all of them threw that away:
+      // measured on public-apis with an author focused, the spine's peak
+      // luminance went from 65/110/200 at p10/p50/p90 to a flat 80/80/122 —
+      // p10 equal to p50 is a line with no variation left in it, and the
+      // commits by the person being focused on were no longer lit at all.
+      //
+      // Grouped by value, not by consecutive run. `settledAlpha` returns a
+      // flat 0.95 for a spine edge, so the whole set is that, 0.285 when
+      // somebody else is focused, 0.85 when the focused author wrote it, and
+      // whatever the in-flight edge carries — four values at the very most,
+      // however many hundred segments are visible. Grouping by run instead
+      // would have meant one path per edge the moment two contributors
+      // alternated along the line, which is the per-edge stroking that made it
+      // read as fifty joined pieces in the first place.
+      this.spineAlphas.length = 0;
+      for (let i = 0; i < this.spineCount; i++) {
+        const a = this.spineRedraw[i]!.alpha;
+        if (!this.spineAlphas.includes(a)) this.spineAlphas.push(a);
+      }
+      for (const alpha of this.spineAlphas) {
+        ctx.beginPath();
+        for (let i = 0; i < this.spineCount; i++) {
+          const seg = this.spineRedraw[i]!;
+          if (seg.alpha === alpha) this.drawPolyline(ctx, seg.pts, seg.u, false);
+        }
+        ctx.strokeStyle = rgba(PALETTE.ivory, alpha * (0.22 + 0.06 * heft));
+        ctx.lineWidth = wHalo;
+        ctx.stroke();
+        ctx.strokeStyle = rgba(PALETTE.ivory, alpha);
+        ctx.lineWidth = wCore;
+        ctx.stroke();
+      }
       ctx.restore();
     }
     lap('glow');
@@ -1544,7 +1748,7 @@ export class StageRenderer {
       return;
     }
     if (spine) {
-      this.spineRedraw.push({ pts: e.pts, u: 1, alpha });
+      this.keepSpine(e.pts, 1, alpha);
       // A slow light runs back along everything already built, so the finished
       // structure keeps breathing instead of turning into wallpaper.
       if (!this.settings.reducedMotion && this.sweepX > -Infinity) {
@@ -1625,7 +1829,7 @@ export class StageRenderer {
     const width = e.kind === 'aggregate' ? 8 : spine ? 2.8 : e.kind === 'secondary' ? 1.2 : 1.9;
     // revealed structural path
     if (spine) {
-      this.spineRedraw.push({ pts: e.pts, u, alpha: 0.95 * dim });
+      this.keepSpine(e.pts, u, 0.95 * dim);
     } else {
       ctx.strokeStyle = rgba(structural, 0.85 * dim);
       ctx.lineWidth = width;

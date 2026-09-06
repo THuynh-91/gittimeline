@@ -81,6 +81,22 @@ test.describe('fallbacks, accessibility and layouts', () => {
     const cam = await page.evaluate(() => window.__gittimeline.camera);
     expect(cam!.state).toBe('tableau');
     await expect(page.getByTestId('caption')).toContainText('Present day');
+
+    // And it is actually the whole picture, not merely labelled one.
+    //
+    // Reaching the state was the whole of this check, and the state was the
+    // one part that worked: `camera.ts` writes the tail's frame from the
+    // plan's bounds and the next few lines clamp it to `MAX_FRAME_W`, 2,600
+    // world units, so the closing shot of a 15,936-unit demo was sixteen per
+    // cent of it and the closing shot of mdBook was four. A test that asks
+    // only for the name of the shot cannot tell those apart from the real
+    // thing, which is why this went unnoticed through every run of this file.
+    const shot = await page.evaluate(() => {
+      const v = window.__gittimeline.view!;
+      return { worldW: v.worldW, span: (v.geomMaxX ?? 0) - (v.geomMinX ?? 0) };
+    });
+    expect(shot.span, 'the demo has width to frame').toBeGreaterThan(1000);
+    expect(shot.worldW / shot.span, 'the closing tableau frames the whole history').toBeGreaterThan(0.95);
   });
 
   test('gallery mode hides the chrome and loops', async ({ page }) => {
@@ -90,7 +106,30 @@ test.describe('fallbacks, accessibility and layouts', () => {
     expect(await page.evaluate(() => window.__gittimeline.playing)).toBe(true);
   });
 
-  test('no console errors during a full run', async ({ page }) => {
+  test('no console errors during a full run', async ({ page }, testInfo) => {
+    // Long enough for an engine that composites in software.
+    //
+    // This waits for a thirty-second performance to finish, so it needs thirty
+    // seconds of wall clock plus however far the engine is from real time —
+    // and `dt` in the frame loop is clamped at 0.1s, so an engine under ten
+    // frames a second advances the performance clock slower than the wall
+    // clock and the show takes proportionally longer. Measured here at 1280x720,
+    // deviceScaleFactor 2, after the renderer steps its resolution down:
+    //
+    //     chromium  60.1 fps  1.00x     webkit  5.5 fps  0.55x     firefox  15.3 fps  0.98x
+    //
+    // Chromium is given a GPU through ANGLE; the other two rasterise and
+    // composite on the CPU in this harness, which a browser on a real machine
+    // does not. So 0.55x is a fact about headless WebKit on a build server,
+    // not about Safari — but it is a fact this test has to survive, and at the
+    // default sixty seconds it did not: the run needed about fifty-five plus
+    // load and timed out a few seconds short.
+    //
+    // The assertion is unchanged. What is under test is that a whole
+    // performance plays without putting an error in the console, and that is
+    // worth waiting for on the two engines whose console nothing else here
+    // ever reads.
+    if (testInfo.project.name !== 'chromium') testInfo.setTimeout(180_000);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
     page.on('console', (m) => {
@@ -98,7 +137,7 @@ test.describe('fallbacks, accessibility and layouts', () => {
     });
     await page.goto('/#demo=1&autoplay=1&dur=30');
     await waitForReady(page);
-    await page.waitForFunction(() => !window.__gittimeline.playing && window.__gittimeline.time > 5, null, { timeout: 60_000 });
+    await page.waitForFunction(() => !window.__gittimeline.playing && window.__gittimeline.time > 5, null, { timeout: 150_000 });
     expect(errors).toEqual([]);
   });
 
