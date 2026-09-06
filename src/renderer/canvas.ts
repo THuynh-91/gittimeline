@@ -116,6 +116,19 @@ function volumeScale(volume: number): number {
   return 0.42 + Math.min(2.3, Math.log2(1 + Math.max(0, volume)) * 0.44);
 }
 
+/**
+ * Stars in the backdrop.
+ *
+ * Ninety, which is what has always been drawn. The field was allocated for 280
+ * on the theory that "a starfield is mostly faint" and that depth comes from
+ * most points being barely there — but only the first ninety were ever given a
+ * position, so that idea has never actually been on screen. Raising this to
+ * 280 would implement it; it would also be a change to the picture, and this
+ * constant exists so the decision is made once and in the open rather than by
+ * two loops quietly disagreeing about how many stars there are.
+ */
+const DUST_COUNT = 90;
+
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
   private glow: HTMLCanvasElement;
@@ -125,6 +138,31 @@ export class StageRenderer {
   private edgeBuckets: number[][] = [];
   private edgeBucketOrigin = 0;
   private longEdges: number[] = [];
+  /**
+   * The long edges, grouped by how long they are.
+   *
+   * `longEdges` is the exact fallback for edges too wide to bucket, and it was
+   * scanned in full on every frame. That is a fixed cost that has nothing to
+   * do with what is on screen, and it showed: measured on Linux it took
+   * 1.9-2.6 ms a frame and did not move between one minute and eleven hours in,
+   * while the number of edges it selected stayed at fourteen to eighteen. It
+   * was the largest single pass at every depth sampled.
+   *
+   * An edge overlaps the view only if its left end is no further right than
+   * the view's right edge, and its right end no further left than the view's
+   * left edge. The second condition is the awkward one, because an edge can
+   * start arbitrarily far to the left and still reach into view — so a list
+   * sorted by left end cannot be entered at `x0`. Grouping by span fixes that:
+   * within a group nothing is wider than `maxSpan`, so nothing starting before
+   * `x0 - maxSpan` can reach `x0`, and each group can be entered by binary
+   * search and walked until its left ends pass `x1`.
+   *
+   * Groups are powers of two, so there are about thirty of them however large
+   * the history is, and the widest branch in the repository no longer decides
+   * where the scan for a short one begins. The candidate set is identical --
+   * this is the same bounds test, reached sooner.
+   */
+  private longLevels: Array<{ idx: Int32Array; minX: Float64Array; maxSpan: number }> = [];
   private edgeSeen = new Uint32Array(0);
   private edgeGeneration = 0;
   private edgeCandidates: number[] = [];
@@ -247,11 +285,20 @@ export class StageRenderer {
     this.ctx = ctx;
     this.glow = document.createElement('canvas');
     this.glowCtx = this.glow.getContext('2d')!;
-    // Three times as many, because a starfield is mostly faint. Ninety points
-    // at one uniform brightness read as dust on a lens; the depth comes from
-    // most of them being barely there and a handful being sharp.
-    this.dust = new Float32Array(280 * 3);
-    for (let i = 0; i < 90; i++) {
+    // One count, used by both the allocation and the loop that fills it.
+    //
+    // They disagreed. The array was sized for 280 stars, 90 were filled, and
+    // the draw loop ran all 280 — so 190 times a frame it read a size of zero,
+    // computed a negative alpha, built the string "rgba(206,216,236,-0.020)"
+    // for the canvas to parse and discard, and filled a rectangle of no area.
+    // Pure waste, and about 11,400 dead strings a second of it, on the one
+    // pass that runs whatever else is on screen.
+    //
+    // Held at what is actually drawn today rather than what the comment below
+    // wanted, because the two are not the same picture and which one to ship
+    // is not a performance question. See the note in TASKS.md.
+    this.dust = new Float32Array(DUST_COUNT * 3);
+    for (let i = 0; i < DUST_COUNT; i++) {
       this.dust[i * 3] = hash01(`dust:x:${i}`);
       this.dust[i * 3 + 1] = hash01(`dust:y:${i}`);
       // Cubed, so the distribution is heavily weighted to the small end: a few
@@ -276,6 +323,7 @@ export class StageRenderer {
     this.nodesByX = new Int32Array(0);
     this.edgeBuckets = [];
     this.longEdges = [];
+    this.longLevels = [];
     this.edgeSeen = new Uint32Array(0);
     this.edgeCandidates.length = 0;
     if (!p) return;
@@ -330,6 +378,32 @@ export class StageRenderer {
       if (lastBucket - firstBucket > MAX_EDGE_BUCKET_SPAN) this.longEdges.push(i);
       else for (let bucket = firstBucket; bucket <= lastBucket; bucket++) this.edgeBuckets[bucket]!.push(i);
     });
+    // Long edges by span, then by left end. Same placement requirement as the
+    // ribbon index below: `edgeBounds` has to be full before any of it is read.
+    this.longLevels = [];
+    if (this.longEdges.length) {
+      const byLevel = new Map<number, number[]>();
+      for (const edge of this.longEdges) {
+        const b4 = edge * 4;
+        const span = this.edgeBounds[b4 + 2]! - this.edgeBounds[b4]!;
+        const level = Math.ceil(Math.log2(Math.max(1, span)));
+        const list = byLevel.get(level);
+        if (list) list.push(edge);
+        else byLevel.set(level, [edge]);
+      }
+      for (const list of byLevel.values()) {
+        list.sort((m, n) => this.edgeBounds[m * 4]! - this.edgeBounds[n * 4]!);
+        let maxSpan = 0;
+        for (const edge of list) {
+          const b4 = edge * 4;
+          const span = this.edgeBounds[b4 + 2]! - this.edgeBounds[b4]!;
+          if (span > maxSpan) maxSpan = span;
+        }
+        // The real widest in this group, not the power of two that named it:
+        // 2^L would start every walk further left than it has to.
+        this.longLevels.push({ idx: Int32Array.from(list), minX: Float64Array.from(list, (e) => this.edgeBounds[e * 4]!), maxSpan });
+      }
+    }
     // Ribbons by world x, built once. It has to come after the loop that fills
     // `edgeBounds`, not before it — built too early every span reads zero, the
     // search finds nothing, and the captions quietly stop appearing.
@@ -706,11 +780,27 @@ export class StageRenderer {
     // and expensive to run: Linux has about 109,000 of them, so every frame
     // built a 109,000-entry array and then *sorted* it, to draw thirteen
     // edges. Rejecting them here changes nothing about what is drawn.
-    for (const edge of this.longEdges) {
-      const b = edge * 4;
-      if (this.edgeBounds[b + 2]! < x0 || this.edgeBounds[b]! > x1) continue;
-      this.edgeSeen[edge] = mark;
-      candidates.push(edge);
+    //
+    // Reached through `longLevels` rather than scanned. Each group holds
+    // nothing wider than its own `maxSpan`, so the first edge that can reach
+    // `x0` is the first whose left end is at or past `x0 - maxSpan`, and the
+    // walk ends as soon as left ends pass `x1`. Same test, same survivors.
+    for (const level of this.longLevels) {
+      const minX = level.minX;
+      const lo0 = x0 - level.maxSpan;
+      let lo = 0;
+      let hi = minX.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (minX[mid]! < lo0) lo = mid + 1;
+        else hi = mid;
+      }
+      for (let i = lo; i < minX.length && minX[i]! <= x1; i++) {
+        const edge = level.idx[i]!;
+        if (this.edgeBounds[edge * 4 + 2]! < x0) continue;
+        this.edgeSeen[edge] = mark;
+        candidates.push(edge);
+      }
     }
     for (let bucket = first; bucket <= last; bucket++) {
       for (const edge of this.edgeBuckets[bucket]!) {
@@ -1008,7 +1098,7 @@ export class StageRenderer {
     // Stars. Deterministic, and slow enough that the drift is felt rather than
     // watched — anything faster reads as snow falling past the history.
     const drift = this.settings.reducedMotion ? 0 : t * 0.004;
-    for (let i = 0; i < 280; i++) {
+    for (let i = 0; i < DUST_COUNT; i++) {
       const s = this.dust[i * 3 + 2]!;
       const x = ((this.dust[i * 3]! + drift * s * 0.4) % 1) * w;
       const y = ((this.dust[i * 3 + 1]! + drift * 0.22) % 1) * h;
