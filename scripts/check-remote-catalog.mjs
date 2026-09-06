@@ -7,7 +7,10 @@ import { resolve } from 'node:path';
 const base=new URL(process.env.VITE_CATALOG_BASE);
 assert.equal(base.protocol,'https:');
 assert.ok(!base.username&&!base.password&&!base.search&&!base.hash);
-assert.match(base.pathname,/\/releases\/[a-f0-9]{64}\/$/);
+// The fixed release prefix, or a revisioned one from before releases moved to
+// a single address. Both are real releases; what this rejects is a preview
+// path, a bucket root, or anything with a query or a credential on it.
+assert.match(base.pathname,/^\/(catalog|releases\/[a-f0-9]{64})\/$/,'Not a release path');
 assert.ok(!existsSync('dist/catalog'),'Remote build still contains a local catalog');
 const get=async(file)=>{
   const r=await fetch(new URL(file,base),{headers:{Origin:'https://thuynh-91.github.io'},signal:AbortSignal.timeout(15000)});
