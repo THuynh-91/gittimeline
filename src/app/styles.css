@@ -756,7 +756,11 @@ a {
 }
 
 .url-input::placeholder {
-  color: var(--text-faint);
+  /* `--text-faint` is 0.34 alpha, which measures 2.60:1 against the field it
+     sits in -- a fail in all 24 frames sampled, and this is the one piece of
+     text on the page that says what to type. Faint is a decoration a
+     placeholder cannot afford. */
+  color: rgba(230, 225, 214, 0.55);
 }
 
 /* The focus ring belongs to the pair, drawn by `.url-row:focus-within`; a
@@ -2719,7 +2723,12 @@ kbd {
   font-size: 10px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: rgba(240, 235, 224, 0.5);
+  /* Measured at 4.20:1 against pure black at 0.5 alpha -- so it failed 4.5:1
+     with nothing behind it at all, before the performance was even considered,
+     and 1.03:1 at its worst over a bright ribbon. Ten pixels, letterspaced,
+     uppercase: every one of those makes it harder to read, and the alpha was
+     doing the rest. */
+  color: rgba(240, 235, 224, 0.72);
   margin-right: 2px;
 }
 
