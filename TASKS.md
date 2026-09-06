@@ -33,6 +33,148 @@ saying how. Where a number is given it is evidence, not a target to hard-code.
 
 ---
 
+## 0.5 The plan from here — no deadline, refine then deploy
+
+Nothing is shipping today. The order below exists because of one fact:
+
+> **Only changes to the *compiled plan* cost a rebuild.** Layout, spacing,
+> pacing and density force a fresh ~3 h catalog build. Drawing and UI changes
+> cost nothing. So finish every plan-affecting change, fire **one** rebuild,
+> and do the drawing work while it runs.
+
+### A. Before the rebuild — plan-affecting
+
+**A1. Chromium, LLVM and Node are duds, and two of them are the headline
+entries. — open, highest value**
+
+| repo | commits | drawn as arrivals | runtime |
+| --- | ---: | ---: | ---: |
+| chromium/chromium | 1,817,062 | **923** (0.05%) | 3 min |
+| llvm/llvm-project | 595,778 | **894** (0.15%) | 3 min |
+| nodejs/node | 48,272 | **1,013** (2.1%) | 2 min |
+| torvalds/linux | 1,481,850 | 332,279 (22%) | 12 h |
+| kubernetes/kubernetes | 140,858 | 125,973 (89%) | 273 min |
+
+Linux shows 22% of itself over twelve hours; Chromium is a *larger* repository
+and shows 0.05% over three. That is not aggregation scaling smoothly — three
+histories are collapsing almost entirely and the others are not. A visitor
+clicking "nearly two million commits" gets three minutes of ribbons.
+
+Find out why before rebuilding. Suspect the aggregate pass and the merge-ratio
+input to it: `mergeRatio` decides how much can be gathered without hiding
+topology, and a linear history collapses where a pull-request one does not.
+
+**A2. Lane spacing — done, needs the rebuild to reach the shelf.**
+Lanes counted from zero put every lane-0 branch at `side * bulge` — twelve
+pixels off the spine at most, and exactly zero at each end of the thread. They
+were drawn *along* the main line. Counted from one now; nearest branch on the
+demo went from ~0 to 91px. `layoutVersion` 4 → 5, which is what invalidates the
+catalog built on 2026-09-06.
+
+### B. Independent of the rebuild — deploy configuration
+
+**B1. The shelf does not fit. — open, blocking the deploy**
+The finished catalog artifact is **1,742 MB** against a **1 GB** Pages ceiling.
+
+| | MB |
+| --- | ---: |
+| torvalds/linux | 662 |
+| chromium/chromium | 311 |
+| rust-lang/rust | 302 |
+| kubernetes/kubernetes | 142 |
+| llvm/llvm-project | 106 |
+| tensorflow, vscode, cpython, node, react, public-apis, mdBook | 213 |
+
+Page packaging roughly doubled the large entries, which is what bought the
+freeze fix. Recommended lever: an entry that ships a `.pages` package plays
+from it, so its monolithic `.gtperf.gz` is only a fallback — drop that for
+packaged entries and recover ~350 MB. The cost is real and should be written
+down: a package that fails its hash check then has nothing to fall back to and
+that entry will not open.
+
+Alternatives, both worse: do not package Linux and Chromium (keeps the
+fallbacks, keeps their 21–27 s and 9 s freezes), or stop publishing the raw
+datasets for the biggest repos (the ledger loses real commit subjects there).
+
+### C. While the rebuild runs — renderer and UI only
+
+**C1. The stage is nearly empty. — open, biggest single visual gain**
+Measured ink coverage of the canvas: **0.61–1.61%** on desktop, **0.3%** on a
+phone, where the graph is a 500×70 sliver in a 1170×1560 stage. The camera
+never fills the frame. Everything else on this list is polish on a picture that
+is mostly black.
+
+**C2. Delete `src/app/experience.css`.** 86 lines of an abandoned green
+redesign. Its `:root` override loses to `styles.css` in both dev and build, so
+it is smaller than it looks — but it still forces Georgia onto catalog titles
+and `#293c35` green hairlines onto a `#07080c` blue-black stage, and 17 of its
+19 class families match nothing.
+
+**C3. Accessibility, from the audit.** The scope chooser traps no focus (19
+tabbable elements remain behind it); cancel and "Not this one" dump focus to
+`<body>`; a 12 h performance reads as `720:00` because `fmtClock` has no hours
+branch; screen readers are read the raw phase enum `FETCHING_TOPOLOGY`.
+
+**C4. Design system.** 24 distinct font sizes (thirteen of them inside a 6px
+range), 13 border radii, 9 spellings of near-white, `--radius` declared and
+never used. One scale each.
+
+**C5. The nav overflow reported on 2026-09-06** — "Connect GitHub" running off
+the right. Not reproduced at any width from 390 to 1920 on either server;
+`scrollWidth` never exceeds the viewport. Needs the reporter's window width or
+browser zoom before it can be chased.
+
+### D. After the deploy
+
+**D1. Private repositories.** Designed in full, blocked on registering a GitHub
+App and deploying the Worker. The two privacy holes that had to close first —
+response bodies to IndexedDB, and the repo slug appearing as a landing-page
+suggestion chip — are closed, with tests.
+
+---
+
+## 0.6 The main line and the threads around it
+
+Two complaints have repeatedly been reported as one. They are not.
+
+### Threads drawn *on* the main line — a defect, fixed
+
+See A2. Lane 0 evaluated to the spine's own height, so those branches were
+drawn along it rather than beside it.
+
+### Threads drawn *past* the main line — not a defect, and not fixable
+
+`layoutGraph` sets `x = impact * xScale`. Horizontal position **is** the clock.
+So a line further right is a commit that happened later, and main advances only
+when a pull request merges — between merges every open branch keeps committing.
+On Kubernetes, with 284 branches open at once, main is temporally behind
+something essentially always.
+
+This was attempted and reverted. Framing the camera on the newest commit on any
+thread, rather than on main:
+
+| | bodies in frame | furthest body vs the right border |
+| --- | ---: | ---: |
+| main held at 60–70% (current) | **87–94%** | 571–602px clear |
+| newest commit held near the right | **0%** | 2,591–3,560px clear |
+
+Long-lived branches have bodies spread across months of x, so chasing the front
+drags the camera to the extreme right of the work and empties the screen. The
+current framing already lets nothing escape the right border — 0 of 30 frames
+at the reported timestamp.
+
+What would genuinely help is not framing but **emphasis**: main is ivory
+against coloured branches, which reads at five threads and disappears at fifty.
+Thickening the main stroke and dimming distant branches is the open proposal.
+It changes what every repository looks like, so it is not being done unasked.
+
+Worth knowing: no common Git tool shows this, because gitk, `git log --graph`,
+GitKraken and GitHub's network graph all lay out by **topological order**, where
+main is the trunk by construction and cannot trail. A time axis is the honest
+choice and this is its one uncomfortable consequence.
+
+---
+
 ## 1. Blocked on you
 
 | | Task | Why you |
