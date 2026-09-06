@@ -42,7 +42,14 @@ self.onmessage=async({data}:{data:{id:number;url:string;manifest:CatalogManifest
     const time=index.filter(r=>r.kind==='time'&&r.min<=request.t&&r.max>=request.t);
     if(!time.length)throw new Error('This interval is missing from the catalog.');
     const clocks=await Promise.all(time.map(r=>page(r,base,active.signal)));
-    const camera=sampleCamera(clocks.flatMap(p=>p.camera).sort((a,b)=>a.time-b.time),request.t);
+    // Deduped by time before sampling. Time pages overlap by eight seconds so
+    // that a seek near a boundary still finds its neighbours, which means two
+    // pages can carry the same cue — and `sampleCamera` reads its grid step
+    // from the first two entries, so a repeated timestamp makes that step zero
+    // and every lookup lands on the last cue in the array. `assembleWindow`
+    // already dedupes for the plan it hands back; this is the same guard for
+    // the one sample taken here.
+    const camera=sampleCamera([...new Map(clocks.flatMap(p=>p.camera).map(c=>[c.time,c])).values()].sort((a,b)=>a.time-b.time),request.t);
     const width=Math.min(MAX_VIEW_WIDTH,Math.max(6000,request.width??6000));
     const x=request.x??camera.x, min=x-width, max=x+width;
     const geometry=index.filter(r=>r.kind==='geometry'&&r.max>=min&&r.min<=max);

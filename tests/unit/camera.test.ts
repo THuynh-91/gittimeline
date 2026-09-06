@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planCamera, CAMERA_STEP } from '@/choreography/camera';
+import { planCamera, sampleCamera, CAMERA_STEP } from '@/choreography/camera';
 import type { EdgeGeom, NodeGeom } from '@/model/types';
 
 /**
@@ -86,4 +86,43 @@ describe('camera planning', () => {
     // the camera is wrong.
     30_000,
   );
+});
+
+/**
+ * A streamed history hands the sampler only the cues around the playhead, so
+ * the array it is given routinely starts thousands of seconds into the show.
+ */
+describe('sampling a cue track that does not start at zero', () => {
+  const cue = (time: number, x: number) => ({ time, x, y: 0, w: 900, h: 480, rotation: 0, punch: 1, reasonEventId: null, state: 'overview' as const });
+  // One page of a long plan: forty seconds of cues a quarter-second apart,
+  // beginning at t=90, with x sweeping the way a dolly does.
+  const page = Array.from({ length: 160 }, (_, i) => cue(90 + i * 0.25, 100_000 + i * 160));
+
+  it('reads the cue for the time asked for, not the last one in the array', () => {
+    // Dead centre of the page. Indexed from zero this lands past the end and
+    // clamps, which is what froze the camera for a whole page at a time.
+    const mid = sampleCamera(page, 110);
+    expect(mid.x).toBeCloseTo(100_000 + 80 * 160, 0);
+    const early = sampleCamera(page, 92);
+    expect(early.x).toBeCloseTo(100_000 + 8 * 160, 0);
+    expect(mid.x).toBeGreaterThan(early.x);
+  });
+
+  it('keeps moving across the page instead of stepping once at its edge', () => {
+    const xs = [95, 100, 105, 110, 115, 120, 125].map((t) => sampleCamera(page, t).x);
+    for (let i = 1; i < xs.length; i++) expect(xs[i]!).toBeGreaterThan(xs[i - 1]!);
+    // Distinct at every sample — the failure mode was one constant per page.
+    expect(new Set(xs).size).toBe(xs.length);
+  });
+
+  it('still clamps outside its own range rather than extrapolating', () => {
+    expect(sampleCamera(page, 0).x).toBeCloseTo(page[0]!.x, 0);
+    expect(sampleCamera(page, 10_000).x).toBeCloseTo(page[page.length - 1]!.x, 0);
+  });
+
+  it('is unchanged for a whole plan, whose cues do start at zero', () => {
+    const whole = Array.from({ length: 200 }, (_, i) => cue(i * CAMERA_STEP, i * 37));
+    expect(sampleCamera(whole, 0).x).toBeCloseTo(0, 0);
+    expect(sampleCamera(whole, 10 * CAMERA_STEP).x).toBeCloseTo(370, 0);
+  });
 });

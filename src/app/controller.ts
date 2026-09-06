@@ -49,7 +49,35 @@ async function prepareCatalogWindow(t: number, manual = false) {
   player.buffered = false;
   store.buffering.value = true;
   syncAudioToPlayback();
-  const view = manual ? renderer?.viewport() : null;
+  /**
+   * Load around what the renderer is actually looking at.
+   *
+   * This asked for the viewport only when the viewer had taken the camera,
+   * and left the worker to fall back on `sampleCamera(camera, t).x` otherwise.
+   * That was the same position the renderer used, until the auto camera
+   * started correcting the shot to keep the head of the main line between
+   * three fifths and seven tenths across — after which the two disagree by
+   * however far that correction reaches.
+   *
+   * On a windowed plan they disagree enormously, because the camera track in
+   * a streamed assembly is nearly flat: measured on Kubernetes, the cue read a
+   * constant 83,226 for the whole of one thirty-second page, then 109,012 for
+   * the next, while the renderer swept smoothly from 69,471 to 100,829 across
+   * the same stretch. So geometry was fetched centred up to 33,000 world units
+   * from the frame, and the frame was left with three of the plan's 1,053
+   * nodes in it. That is the reported "missing a lot of nodes", "missing
+   * connections", and a main line with holes in it — one cause, not three.
+   *
+   * Only where the viewport is evidence about the moment being asked for:
+   * during playback, and wherever the viewer is holding the camera. On the
+   * first fetch of an entry there is no window yet and the renderer is still
+   * showing whatever came before; on a jump to an unrelated time it is showing
+   * the place being jumped away from. Both would aim this at the wrong part of
+   * the history and then need a second fetch to undo it, so both fall back to
+   * the cue, which is at least an estimate *of the requested time*.
+   */
+  const near = Math.abs(t - player.t) < 2 && !!player.perf?.window;
+  const view = manual || near ? renderer?.viewport() : null;
   try {
     const perf = await source.prepare({ t, ...(view ? { x:view.cx,width:view.worldW } : {}) });
     if (source !== catalogSource || generation !== windowGeneration) return;
@@ -334,8 +362,12 @@ function frame(now: number) {
     const t=Math.min(perf.duration,player.t+(player.playing?dt*player.rate:0));
     const v=renderer?.viewport();
     const manual=!!renderer?.manual;
-    const x=manual&&v?v.cx:sampleCamera(perf.camera,t).x;
-    const half=manual&&v?Math.min(16000,v.worldW)/2:3000;
+    // Both from the live viewport, for the reason above: the cue is not where
+    // the camera is. `half` carries a margin so the refetch is started while
+    // there is still geometry either side, rather than once the gap is
+    // already on screen.
+    const x=v?v.cx:sampleCamera(perf.camera,t).x;
+    const half=v?Math.min(16000,v.worldW)/2+1500:3000;
     if(t>=perf.window.end&&t<perf.duration||t<perf.window.start||x-half<perf.window.minX||x+half>perf.window.maxX)void prepareCatalogWindow(t,manual);
   }
   player.advance(dt);

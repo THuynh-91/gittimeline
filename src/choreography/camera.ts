@@ -397,7 +397,25 @@ export function sampleCamera(cues: CameraCue[], t: number): CameraCue {
   // nominal constant would then read the wrong cue — the camera would race
   // through its plan and stop moving partway.
   const step = cues.length > 1 ? cues[1]!.time - cues[0]!.time : CAMERA_STEP;
-  const f = Math.max(0, Math.min(cues.length - 1, t / Math.max(1e-6, step)));
+  // Indexed from the array's own first cue, not from zero.
+  //
+  // `t / step` assumes these cues start at the beginning of the performance
+  // and cover all of it, which is true of a whole plan and false of a
+  // streamed one: a windowed assembly holds only the cues for the page around
+  // the playhead, so an array beginning at t=82 was being indexed as though it
+  // began at t=0. Every `t` past the first few seconds of a page therefore
+  // clamped to `cues.length - 1` and returned the *last* cue in it.
+  //
+  // Measured on Kubernetes before the fix: the sampled cue read a constant
+  // 83,226 for the whole of one thirty-second page, then a constant 109,012
+  // for the next, stepping at page boundaries and never moving in between —
+  // the entire compiled camera choreography of every streamed entry, replaced
+  // by one frozen position per page. It also aimed the geometry prefetch,
+  // which is how a frame ended up with three of the plan's 1,053 nodes in it.
+  //
+  // `cues[0].time` is 0 for a whole plan, so nothing about those changes.
+  const t0 = cues[0]!.time;
+  const f = Math.max(0, Math.min(cues.length - 1, (t - t0) / Math.max(1e-6, step)));
   const i = Math.floor(f);
   const a = cues[i]!;
   const b = cues[Math.min(cues.length - 1, i + 1)]!;
