@@ -113,11 +113,41 @@ five more that a review found while checking them.
    5.65 fps. Nothing stalls and nothing drifts, but nobody would call it an
    animation. The only lever left is drawing at a fraction of the CSS
    resolution and upscaling, which no setting currently permits.
-5. **Contributor selection is imprecise.** Reported by the user, still
-   unexplained. The hit test is a flat 14px screen radius scanned over every
-   node with no preference for the main line or for what is already focused. A
-   deferral fix was built, A/B'd (13,191 vs 13,327 lit pixels — noise) and
-   reverted, so the cause is something else and I do not yet know what.
+5. **Following a contributor: diagnosed, improved, and the improvement is
+   unverified.** Reported as "select a contributor isn't too accurate to
+   follow". The Help panel offers a list under "select one to follow their work
+   through the structure", and focusing one dims the stage to 28% and keeps
+   that person's work bright — except that it only ever tested a node's own
+   `contributorIdx`, and nearly all commits are inside aggregated runs. The
+   arithmetic, from the published manifests:
+
+   | entry | commits | individually drawn | contributors | drawn per contributor |
+   |---|---|---|---|---|
+   | chromium | 1,817,062 | 923 | 15,832 | **0.058** |
+   | llvm-llvm-project | 595,778 | 894 | 9,746 | **0.092** |
+   | nodejs/node | 48,272 | 1,013 | 4,727 | **0.214** |
+   | kubernetes | 140,858 | 125,973 | 6,048 | 20.8 |
+   | rust-lang/mdBook | 3,293 | 1,220 | 405 | 3.0 |
+
+   So on the three biggest entries most contributors cannot have a single node
+   of their own on the stage. `AggregateSpan.contributorIds` has always listed
+   everyone inside a run and was never consulted for focus, so their work was
+   in the picture and only missing from the attribution. Focus now keeps the
+   runs holding their commits bright, which needs no rebuild — the data is in
+   the published plans.
+
+   **What is not established is that this is what the complaint was about.**
+   Three attempts to measure the visual effect all passed with the fix
+   reverted and so tested nothing: lit-pixel counts cannot work because focus
+   dims rather than removes; bright-pixel counts at a downsampled resolution
+   cannot work because averaging destroys one-pixel lines; and bright-pixel
+   counts at native resolution on a real entry cannot work either, because the
+   ivory main line is never dimmed by contributor focus and puts a large floor
+   under the count. Closing it needs the ability to pick a contributor who
+   appears in some aggregate's `contributorIds` and on no node's own
+   `contributorIdx`, which is not on the test surface today. The other two
+   candidates from the original report — the 14-pixel hit test on landed dots,
+   and moving sparks not being selectable at all — remain untested.
 
 ---
 

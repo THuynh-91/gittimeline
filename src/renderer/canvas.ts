@@ -270,6 +270,27 @@ export class StageRenderer {
    * an adaptive setting starts oscillating — the cheaper resolution is what
    * made it fast, so recovery is evidence for the step, not against it.
    */
+  /**
+   * The aggregated runs that hold the focused contributor's work, by index.
+   *
+   * Contributor focus dimmed everything to 28% and lit only the nodes whose
+   * own `contributorIdx` matched. On a large history that is almost nothing:
+   * 98 to 99.9% of commits are inside aggregated runs, and the arithmetic is
+   * brutal — Chromium has 923 individually-drawn nodes for 15,832
+   * contributors, or 0.058 each; LLVM 0.092; Node 0.214. So selecting almost
+   * anybody from a list captioned "select one to follow their work through the
+   * structure" dimmed the stage and lit nothing at all. That is the reported
+   * complaint, arithmetically: it is not imprecise, it is empty.
+   *
+   * Their work is not missing from the picture, only from the attribution:
+   * `AggregateSpan.contributorIds` has always listed everyone inside a run,
+   * and it is in the published plans already, so this needs no rebuild.
+   *
+   * A flag array rather than a `Set` because it is read once per node per
+   * frame, and rebuilt only when the focus or the plan changes.
+   */
+  private focusRuns = new Uint8Array(0);
+  private focusRunsKey = '\u0000';
   private dprEarned = Infinity;
   /**
    * A ceiling on `quality` that this device has actually earned — the same
@@ -1184,6 +1205,30 @@ export class StageRenderer {
     return box;
   }
 
+  /** See `focusRuns`. Rebuilt only when the focus or the plan changes. */
+  private markFocusRuns(focus: string | null) {
+    const p = this.perf;
+    const key = `${p?.planHash ?? ''}:${focus ?? ''}`;
+    if (this.focusRunsKey === key) return;
+    this.focusRunsKey = key;
+    const n = p?.aggregates.length ?? 0;
+    this.focusRuns = new Uint8Array(n);
+    if (!p || !focus) return;
+    for (let i = 0; i < n; i++) if (p.aggregates[i]!.contributorIds.includes(focus)) this.focusRuns[i] = 1;
+  }
+
+  /**
+   * Is this node part of what the focused contributor did?
+   *
+   * Either it is theirs, or it is a run that holds some of their commits —
+   * which on a large history is where nearly all of anybody's work is.
+   */
+  private inFocus(nd: NodeGeom, focusIdx: number): boolean {
+    if (focusIdx < 0) return true;
+    if (nd.contributorIdx === focusIdx) return true;
+    return nd.aggregateIdx != null && this.focusRuns[nd.aggregateIdx] === 1;
+  }
+
   private applyCamera(planned: CameraCue, dtReal: number, t: number) {
     const s = this.settings.safe;
     const safeW = Math.max(80, this.width - s.left - s.right);
@@ -1706,6 +1751,7 @@ export class StageRenderer {
     const focus = this.settings.contributorFocus;
     const focusIdx = focus ? p.contributors.findIndex((c) => c.id === focus) : -1;
     const dimForFocus = focusIdx >= 0 ? 0.28 : 1;
+    this.markFocusRuns(focus);
     const hc = this.settings.highContrast;
     const ivory = hc ? PALETTE.highContrast.ivory : PALETTE.ivory;
     const slate = hc ? PALETTE.highContrast.slate : PALETTE.slate;
@@ -2377,7 +2423,7 @@ export class StageRenderer {
     const pop = this.settings.reducedMotion ? 1 : 1 + 1.3 * Math.exp(-age * 6) * Math.sin(Math.min(age, 0.8) * 9);
     const contributor = p.contributors[nd.contributorIdx];
     const color = contributor?.color ?? PALETTE.accent;
-    const focused = focusIdx < 0 || nd.contributorIdx === focusIdx;
+    const focused = this.inFocus(nd, focusIdx);
     const dim = focused ? 1 : 0.3;
     const selected = this.settings.selectedNode === nd.idx || this.settings.hoverNode === nd.idx;
     const threadSel = this.settings.selectedThread != null && nd.threadIdx === this.settings.selectedThread;
@@ -2457,7 +2503,13 @@ export class StageRenderer {
     if (age > 0.05 && !this.shopWindow) {
       ctx.beginPath();
       ctx.arc(x, y, r + 1.6, 0, Math.PI * 2);
-      ctx.strokeStyle = rgba(color, (focusIdx === nd.contributorIdx ? 0.9 : 0.38) * dim);
+      // `focusIdx >= 0 &&`, because `inFocus` answers true when nothing is
+      // focused — it is asking "should this be drawn at full strength", and
+      // with no focus everything should. This site is asking the narrower
+      // question "is this the focused contributor's", and reading the wider
+      // answer here would have lit every cap on the stage at 0.9 instead of
+      // 0.38 whenever no contributor was selected, which is most of the time.
+      ctx.strokeStyle = rgba(color, (focusIdx >= 0 && this.inFocus(nd, focusIdx) ? 0.9 : 0.38) * dim);
       ctx.lineWidth = 1;
       ctx.stroke();
     }
