@@ -155,7 +155,7 @@ export function SignIn() {
                 <b>That somewhere is a function, not a server.</b> <code>worker/</code> holds a Cloudflare Worker of about two kilobytes which does that single call and nothing else — no database, no idle process, nothing retained.
               </li>
               <li>
-                <b>It is written and tested, not deployed.</b> Twenty-four unit tests, and twenty-one end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
+                <b>It is written and tested, not deployed.</b> Twenty-seven unit tests, run in CI on every change since they turned out not to be, and end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
               </li>
               <li>
                 <b>Two things need an account nobody but the owner has.</b> A GitHub OAuth application — which has no API, so it cannot be scripted — and a Cloudflare deploy. <code>worker/README.md</code> has the steps.
@@ -206,7 +206,10 @@ export function SignIn() {
           </p>
           <ul>
             <li>
-              <b>Nothing is uploaded. Ever.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else.
+              <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else — not the commits, not the messages, not the names, not the shape of the graph.
+            </li>
+            <li>
+              <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google Analytics: a page view, and an event when a performance starts. For one of the ready-made histories that event carries the repository's name, because it is already public and on the shelf. For anything you open yourself it carries a bucket of the commit count and nothing identifying, and <b>for a private repository it carries the four words "a private repository" and nothing else</b> — no name, no size, no count, because a coarse number attached to a repository somebody chose not to publish is a fingerprint of it. Switch it off with Do Not Track or any blocker and the site works exactly the same.
             </li>
             <li>
               <b>We have nothing to save it on.</b> This is a static site — HTML, JavaScript and pre-built data files. There is no backend, no database, no analytics of your repository contents, and no log that could contain them. Not "we choose not to store it": there is nowhere to store it.

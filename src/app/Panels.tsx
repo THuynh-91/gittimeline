@@ -438,9 +438,26 @@ function StoredOnDevice() {
  * few thousand commits. A free read-only token raises that to about 5,000 and
  * lifts the page budget from 40 to 400, which is what a large open-source
  * project needs.
+ *
+ * ## Why this field never shows the credential it set
+ *
+ * It used to be `type="text"` seeded from `store.token.value`. So after a
+ * GitHub sign-in — which sets the same signal — opening Settings painted the
+ * live access token in cleartext, into the accessibility tree, and into any
+ * screenshot, screen share or recording of this panel. Two lines below it the
+ * page says the token is "never stored, logged or put in a shared link", all
+ * of which was true and none of which is about being displayed.
+ *
+ * So: `type="password"`, and when a token is already active the field starts
+ * empty and says so in its placeholder rather than handing the value back.
+ * Nothing needs to read it out — the only thing anyone does here is replace it
+ * or clear it, and Disconnect is the honest way to clear one.
+ *
+ * The value is still held in component state while being typed, which is
+ * unavoidable for a controlled input, and is gone on unmount.
  */
 function TokenField() {
-  const [value, setValue] = useState(store.token.value ?? '');
+  const [value, setValue] = useState('');
   const active = !!store.token.value;
   return (
     <div>
@@ -448,13 +465,20 @@ function TokenField() {
         <label for="token">GitHub token</label>
         <input
           id="token"
-          type="text"
+          type="password"
           autoComplete="off"
           spellcheck={false}
           value={value}
-          placeholder="optional"
+          placeholder={active ? 'connected — type to replace' : 'optional'}
           onInput={(e) => setValue((e.target as HTMLInputElement).value)}
-          onChange={() => (store.token.value = value.trim() || null)}
+          onChange={() => {
+            const next = value.trim();
+            // An empty field means "leave it alone" once one is active, not
+            // "disconnect". Blurring an untouched field would otherwise sign
+            // somebody out for looking at Settings.
+            if (next) store.token.value = next;
+            else if (!active) store.token.value = null;
+          }}
         />
       </div>
       <p>
@@ -598,7 +622,7 @@ function HelpPanel() {
   return (
     <div>
       <p>
-        GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Nothing is uploaded anywhere.
+        GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Your repository never leaves the browser — see Connect GitHub for the one thing that does, which is a visit count.
       </p>
 
       <h3>Sound</h3>

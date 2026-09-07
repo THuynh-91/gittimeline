@@ -10,6 +10,59 @@ time anyone read it again.
 
 ---
 
+## 0c. OPEN: the caption disagrees with the date above it, on every streamed scrub — 2026-09-07
+
+**Not fixed. Three attempts, each of which fixed something real and none of
+which changed the symptom.** Found by a review of the live build.
+
+Reproduce with `x/caption-lag.mjs kubernetes/kubernetes --live` (reads the
+caption **once** per seek; reading twice is what hid this). Live at 35% of
+Kubernetes: hero `JUNE 2017`, caption dated `2014-06-28`. At 75%: hero
+`NOVEMBER 2021`, caption `2017-06-21`. Linux at t=42336: hero `MAY 2026` over a
+caption dated `2005-05-08` — twenty-one years apart, in the two lines a viewer
+reads together. Ten consecutive scrubs, every one carrying the date of the
+scrub before.
+
+What is ruled out, with the measurement:
+
+- **Not a race.** `x/caption-when.mjs` polls at 0, 100, 300, 700, 1200 and
+  2500 ms after the seek: the caption is identical at every one. The hero on
+  the same line corrects within 300 ms.
+- **Not the plan.** `x/caption-which.mjs` at 35%: the last eligible event is
+  `DIVERGENCE @5733.2`, dated 2017-06-14, matching the hero, and **twelve**
+  eligible events sit within two performance-seconds of the clock. The right
+  answer is present and available.
+- **Not the rendering.** `DateBar.tsx:28` is `ev = store.caption.value`, a
+  plain signal read, and the hero beside it updates from the same render.
+
+So `store.caption` is holding an old value while `t` is correct, which means
+`updateCaption` is either not running on this path or returning early on a
+branch not yet identified. A sixth mechanism, after the five below.
+
+Three fixes were made along the way. Each addresses a defect confirmed by
+reading the code or the data, each is covered by the suites, and **none of them
+resolves the above** — they are committed on their own merits, not as a fix for
+this:
+
+1. `MIN_CAPTION_MS` was not reset on a seek, so a scrub within 900 ms of the
+   last caption could be suppressed and leave the previous sentence up.
+2. The salience contest was unbounded in time. `captionPtr` rewinds to 0 on a
+   backward seek, so the walk offered *the entire history up to t* as one batch
+   and the loudest event anywhere in it took the line. Now bounded by
+   `CAPTION_RECENCY` (2 performance-seconds) with the newest crossed event as
+   the fallback.
+3. The streamed window swap set `captionPtr` to the first event **past** `t`,
+   which is right for a refetch and wrong for a seek: the walk is also the only
+   thing that chooses a caption, so starting it past the playhead meant nothing
+   was ever chosen for the moment requested.
+
+Related and probably the same root: **the era label is stuck too.** Kubernetes
+reads `formation` at 5, 15, 25, 35, 45, 55, 65, 75 and 85% of its run — through
+October 2023 — switching only at 95%. `era` is computed from `t` directly
+(`DateBar.tsx:27`), *not* from `store.caption`, so if both halves of that line
+are stale the cause may be in `perf.eras`' boundaries rather than in the
+caption walk at all. That is the thread to pull next.
+
 ## 0b. The closing sentence was never reaching the screen — 2026-09-07
 
 Found by the first full Chromium e2e run against today's work, which is the

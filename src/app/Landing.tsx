@@ -163,7 +163,7 @@ export function Landing() {
             </button>
           </div>
           <div id="url-hint" class={`form-hint${err ? '' : ' ok'}`} aria-live="polite">
-            {err ? err : parsed && parsed.ok ? `Reads ${parsed.repo.slug} from GitHub, renders on your device.` : 'Fetched from GitHub, rendered on your device. Nothing is uploaded.'}
+            {err ? err : parsed && parsed.ok ? `Reads ${parsed.repo.slug} from GitHub, renders on your device.` : 'Fetched from GitHub, rendered on your device. Your repository never leaves the browser.'}
           </div>
         </form>
 

@@ -33,6 +33,15 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # The sign-in Worker, again — `baf0001` added this to `ci.yml`, which is
+      # `branches-ignore: [main, master]`, so it never ran on the branch that
+      # actually ships. This job is the one that gates publishing, so the guard
+      # on `ALLOWED_ORIGINS` belongs here too. `worker/` has its own vitest
+      # config and needs no install of its own; vitest resolves from the root
+      # tree by Node's parent lookup, and `npm ci` above has run.
+      - name: Sign-in Worker tests
+        working-directory: worker
+        run: npm test
       - run: node --test scripts/catalog-release.test.mjs
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium

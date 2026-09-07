@@ -2858,10 +2858,33 @@ export class StageRenderer {
     const bot = contributor?.isBot;
 
     if (this.settings.reducedMotion) {
-      // Steady marker at the arrival node instead of a traveling comet.
-      const end = pointAt(e.pts, 1, this.tmp2);
+      /**
+       * A ring around the marker, and *not* around where it is going.
+       *
+       * This drew at `pointAt(e.pts, 1)` — the arrival node — from `f = 0`,
+       * so for the whole flight there was a lit ring on a commit that had not
+       * happened. Measured on the shipped demo: 749 world units past the
+       * playhead, 8.7 seconds of a 45-second show; 1,192 units on
+       * `12-merge-storm`. It went through neither `drawPolyline` nor the node
+       * guard, so nothing added in `48a24bb` or `5a24f91` touched it.
+       *
+       * Three things I asserted today were wrong because of it: that "the
+       * rightmost ink is the present", which was the argument for switching
+       * the NOW rule off; that the only lit things past the rule were the
+       * word NOW and MASTER's plate; and the note in `reveal.test.ts` that
+       * reduced motion "was the only one drawing the truth". It was the only
+       * mode drawing the *easing* truthfully. It was also the only mode
+       * drawing a commit before it existed — in the accessibility path, which
+       * is the worst place to have it and the one neither new test covers.
+       *
+       * Drawn at `pos` now, which is where the glyph on the next line already
+       * is, so this adds no motion that was not already there: the marker
+       * moves in this mode regardless, and `pos` is bounded by the playhead.
+       * What reduced motion removes is the comet, the trail and the shake, not
+       * the fact that something is travelling.
+       */
       ctx.beginPath();
-      ctx.arc(end.x, end.y, size + 3, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, size + 3, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(color, (0.3 + 0.5 * f) * dim);
       ctx.lineWidth = 1.5;
       ctx.stroke();

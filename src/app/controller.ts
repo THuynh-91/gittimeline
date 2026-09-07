@@ -307,8 +307,36 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
     });
     renderer?.setPerformance(perf,t);
     syncRendererSettings();
-    captionPtr = perf.events.findIndex(e=>e.performanceImpact>t);
-    if(captionPtr<0)captionPtr=perf.events.length;
+    /**
+     * Where the caption walk resumes in the newly assembled window.
+     *
+     * Past `t` for an ordinary refetch: a change of plan is not a change of
+     * time, and the walk must not re-announce history the viewer has already
+     * been told about.
+     *
+     * But **at the start for a seek**, because the walk is also the only thing
+     * that chooses a caption, and starting it past `t` means nothing is ever
+     * chosen for the moment just requested. That is what a visitor saw on
+     * every streamed scrub: the caption from before the seek stayed on screen
+     * beside a hero date that had moved years. Measured on the live build at
+     * 35% of Kubernetes — hero June 2017, twelve eligible events within two
+     * seconds of the clock, caption dated 2014-06-28, and stable at 2.5 s, so
+     * not a race. At 75%: hero November 2021, caption 2017-06-21.
+     *
+     * Re-walking is cheap — 727 events on Kubernetes — and `updateCaption`
+     * bounds the contest by `CAPTION_RECENCY` and falls back to the newest
+     * crossed event, so what it settles on describes the new moment rather
+     * than the loudest thing in the history.
+     */
+    const seeking = opts.seek !== false && !player.playing;
+    if (seeking) captionPtr = 0;
+    else {
+      captionPtr = perf.events.findIndex(e=>e.performanceImpact>t);
+      if(captionPtr<0)captionPtr=perf.events.length;
+    }
+    // The events array is a different array now, so anything held from the
+    // previous window is a pointer into a plan that no longer exists.
+    resetCaptionQueue();
     // A pre-swap is a change of plan, not a change of time: the clock is
     // mid-page and must stay there. Only a request made *for* a moment moves
     // the playhead to it.
@@ -783,6 +811,39 @@ function frame(now: number) {
 const MIN_CAPTION_MS = 900;
 
 /**
+ * How far back, in performance-seconds, an event may be and still be described.
+ *
+ * The salience contest below is meant to settle a *single frame's* worth of
+ * crossings: several caption-worthy events land in one frame whenever the clock
+ * outruns the plan's spacing, and a frame at four frames a second covers a
+ * quarter-second of runtime. It was not bounded, and `captionPtr` rewinds to 0
+ * on any backward seek — so after a seek the walk offered the *entire history
+ * up to t* as one batch and the most salient event anywhere in it took the
+ * line.
+ *
+ * That is what a viewer saw. Measured on the live build, ten consecutive
+ * scrubs of Kubernetes: every caption carried the date of the scrub *before* —
+ * 25% read "September 2016" over a caption dated 2015-12-15, 35% read "June
+ * 2017" over 2016-09-18, and so on for all ten. Linux at t=42336 showed MAY
+ * 2026 over a caption dated 2005-05-08: twenty-one years of disagreement
+ * between the two lines a viewer reads together. Left long enough the caption
+ * did not advance at all, because a salient early event holds the line until
+ * something later matches it.
+ *
+ * Two performance-seconds is generous for the case the contest exists for —
+ * Node crosses eleven calendar years in 0.077 s of runtime, and the slowest
+ * frame worth planning for covers 0.25 s — and small against any history on
+ * the shelf, the shortest of which runs 136 s. Anything older than this is not
+ * a description of now, so the newest crossed event is used instead.
+ *
+ * `751b7de` introduced the contest and this bound with it; `8f7743e` rewrote
+ * the ranking and did not add it. Before either, the walk kept the *last*
+ * crossed event, which was arbitrary within a frame but did at least always
+ * describe roughly the present.
+ */
+const CAPTION_RECENCY = 2;
+
+/**
  * How much authority a caption has over the line, above its salience.
  *
  * Salience alone is the wrong measure twice, and `751b7de` — which introduced
@@ -819,14 +880,49 @@ function captionRank(e: ChoreographyEvent): number {
 function outranks(ev: ChoreographyEvent, from: ChoreographyEvent): boolean {
   const a = captionRank(ev);
   const b = captionRank(from);
-  // `>=` on salience within a rank keeps the old tie-break: of equals, the
-  // later one, which is the order the walk visits them in.
-  return a > b || (a === b && ev.salience >= from.salience);
+  if (a !== b) return a > b;
+  // Within rank 1 the later one wins outright, on position rather than on
+  // salience.
+  //
+  // Both of them explain a *discontinuity*, and the relevant one is whichever
+  // the clock just crossed — but `QUIET_GAP` carries salience 0.3 and
+  // `UNKNOWN_SPAN` 0.4, so a salience test meant a quiet span could never take
+  // the line from an unloaded span, ever. The code this replaced used an
+  // unconditional override for exactly this pair, so the later one won by
+  // position, and the rewrite in `8f7743e` claimed to preserve that. It
+  // preserved it at rank 0 and lost it here.
+  //
+  // It bites hardest after a seek, where `captionPtr` rewinds and the whole
+  // history competes as one batch: in any truncated history — a `since` scope,
+  // a page cap, a streamed window — every seek was captioned "History before
+  // <sha> is not loaded" instead of the discontinuity nearest the playhead.
+  if (a === 1) return true;
+  // And within rank 0, of equals the later one, which is the order the walk
+  // visits them in.
+  return ev.salience >= from.salience;
 }
 
 let captionAt = 0;
-/** A caption waiting for the line to come free. */
+/**
+ * A caption waiting for the line to come free.
+ *
+ * Module scope, so it has to be cleared when the performance under it is
+ * replaced. It was not: `loadPerformance` clears `store.caption` and
+ * `captionPtr` but left this, and `Player.load` emits `'load'`, not `'seek'`,
+ * so the `seek` handler that clears it never ran. One history could leave a
+ * floored caption here, the visitor could open another, and the first frame of
+ * the new one was captioned — and announced to a screen reader — with a
+ * sentence about the previous repository. The streaming path had the same hole,
+ * re-pointing `captionPtr` into a freshly assembled window without clearing
+ * this.
+ */
 let pending: ChoreographyEvent | null = null;
+
+/** Forget any queued caption; see `pending`. */
+export function resetCaptionQueue() {
+  pending = null;
+  captionAt = 0;
+}
 
 function updateCaption(t: number) {
   const perf = player.perf;
@@ -835,9 +931,14 @@ function updateCaption(t: number) {
   if (captionPtr >= events.length || (captionPtr > 0 && events[captionPtr - 1]!.performanceImpact > t)) captionPtr = 0;
   const held = store.caption.peek();
   let current = held;
+  /** The newest eligible event crossed, whatever won the contest. */
+  let newest: ChoreographyEvent | null = null;
   while (captionPtr < events.length && events[captionPtr]!.performanceImpact <= t) {
     const ev = events[captionPtr++]!;
     if (ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') {
+      newest = ev;
+      // Only what is near the clock may compete; see `CAPTION_RECENCY`.
+      if (ev.performanceImpact < t - CAPTION_RECENCY) continue;
       /**
        * Whichever of the ones crossed has most claim on the line, not the last
        * of them.
@@ -851,6 +952,9 @@ function updateCaption(t: number) {
       if (current === held || outranks(ev, current!)) current = ev;
     }
   }
+  // A seek can cross hours in one walk, and then nothing it crossed is recent.
+  // The newest thing that happened is the honest answer to "where am I".
+  if (current === held && newest) current = newest;
   /**
    * Queued, not dropped.
    *
@@ -952,7 +1056,20 @@ player.on('pause', () => {
 player.on('seek', () => {
   audio.reset();
   captionPtr = 0;
-  pending = null;
+  // The 900 ms floor is for continuous playback, where it stops a caption
+  // flickering past unread. Across a seek it did the opposite: `captionAt` was
+  // left where it was, so a scrub within 900 ms of the last caption hit
+  // `now - captionAt < MIN_CAPTION_MS`, the new sentence lost the salience
+  // test, and the *previous* one stayed on screen beside a hero date that had
+  // jumped years. Measured on the live build: ten consecutive scrubs of
+  // Kubernetes each captioned with the date of the scrub before, and Linux at
+  // t=42336 showing MAY 2026 over a caption dated 2005-05-08 — twenty-one
+  // years of disagreement in one frame, in the two lines a viewer reads
+  // together. Introduced with the floor itself in `751b7de`.
+  //
+  // A seek is a discontinuity. Nothing on screen describes the new moment yet,
+  // so there is no dwell to protect.
+  resetCaptionQueue();
   store.time.value = player.t;
   updateCaption(player.t);
 });
@@ -1143,6 +1260,11 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   }
   releaseCamera();
   captionPtr = 0;
+  // A new history does not inherit the last one's queued sentence. See
+  // `pending`: `Player.load` emits 'load', not 'seek', so the handler that
+  // clears it never ran here, and the opening frame of one repository could be
+  // captioned — and announced — with a sentence about the previous one.
+  resetCaptionQueue();
   renderer?.setPerformance(perf);
   audio.setPerformance(perf);
   syncRendererSettings();

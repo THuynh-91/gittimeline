@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { store } from './store';
-import { loadRepo } from './controller';
+import { clearStoredHistories, loadRepo } from './controller';
 import { formatReset } from '@/github/ratelimit';
 import { GitHubError } from '@/github/adapter';
 import { listMyRepositories, ListShapeError, type MyRepoList } from '@/github/repos';
@@ -163,7 +163,20 @@ export function MyRepos() {
               </button>
             )}
             {error.disconnect && (
-              <button type="button" class="btn" onClick={() => (store.token.value = null)} data-testid="my-repos-disconnect">
+              // Disconnecting means disconnecting, on this button as much as on
+              // the sign-in page's. This one dropped the token and left
+              // everything fetched with it on the device, so "revoke" was a
+              // word about GitHub rather than about this machine — the exact
+              // thing the other button's comment says it is not.
+              <button
+                type="button"
+                class="btn"
+                onClick={() => {
+                  store.token.value = null;
+                  void clearStoredHistories();
+                }}
+                data-testid="my-repos-disconnect"
+              >
                 Disconnect
               </button>
             )}

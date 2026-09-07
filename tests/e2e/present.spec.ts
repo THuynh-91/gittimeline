@@ -76,7 +76,12 @@ test.describe('nothing is drawn before it happens', () => {
       // scale — so a non-trivial residual would mean the geometry had stopped
       // being affine in impact and both numbers above would be meaningless.
       expect(audit!.fitResidualWorld, 'x is affine in impact').toBeLessThan(1);
-      expect(audit!.nonMonotone, 'x is monotone in impact').toBe(0);
+      // `nonMonotone` counts two things and only one of them can ever fire:
+      // it walks `nodesByX`, which is sorted by x, so the x half asserts that
+      // a sorted array is sorted. The impact half is the real check — that
+      // walking in x order also walks in impact order, without which the
+      // affine fit above is fitting a curve.
+      expect(audit!.nonMonotone, 'impact rises with x').toBe(0);
     });
   }
 });
