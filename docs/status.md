@@ -46,24 +46,19 @@ over unverified.
 
 ### Accessibility — where people are excluded
 
-3. **The scope dialog is unreachable at 320px** — title above the viewport,
-   close button below, and both `html` and `body` at `overflow: hidden`.
-   *Carried over, unverified.*
-4. **At 200% zoom the player drops** the coverage badge, the commit rail, Auto
-   camera and Help rather than reflowing them. *Carried over, unverified.*
-5. **Contrast of the quiet furniture** — `.dim` paragraphs and relative
-   timestamps have not been measured off rendered pixels since the palette
-   changed. The one that was measured (`.view-toggles` at 2.13:1) is fixed.
-   *Being measured now.*
+Nothing left on this list that has been measured. The three items that were
+here — the scope dialog at 320px, the coverage badge disappearing at 200% zoom,
+and the contrast of the quiet furniture — are in section 3 below, along with
+five more that a review found while checking them.
 
 ### Playback
 
-6. **Contributor selection is imprecise.** Reported by the user, still
+3. **Contributor selection is imprecise.** Reported by the user, still
    unexplained. The hit test is a flat 14px screen radius scanned over every
    node with no preference for the main line or for what is already focused. A
    deferral fix was built, A/B'd (13,191 vs 13,327 lit pixels — noise) and
    reverted, so the cause is something else and I do not yet know what.
-7. **Two frames a second is still two frames a second.** The clock keeps real
+4. **Two frames a second is still two frames a second.** The clock keeps real
    time down to that now and the quality ladder gives up the bloom and the dust
    before it — but a device that needs both steps is watching a slideshow. The
    remaining lever would be drawing at a fraction of the CSS resolution and
@@ -115,6 +110,37 @@ over unverified.
   work. `MAX_VIEW_WIDTH` is how wide a frame may be and `MAX_FETCH_WIDTH` is
   how much may be held around it, and reasoning about the closing shot as
   though only 16,000 units were resident sent that fix the wrong way twice.
+- **The suite stopped making noise.** Chromium and Firefox have launch
+  switches; WebKit has none and was covered by a helper each spec had to
+  remember to call, which two of fifteen did. That held until a spec that plays
+  something was added to the WebKit project. Measured on the element the app
+  actually uses: the track plays at volume 0.354 on all three engines
+  regardless, and only two of them decline to pass it to the speakers. It is a
+  fixture now, on every page on every engine, verified silent.
+- **The repositories list stopped describing its own failures as facts about
+  the reader.** A non-array answer rendered as "you have no public ones"; a
+  list holding one `null` put "Cannot read properties of null" on screen; a 401
+  asked for a token there is no box for while the app went on claiming to be
+  connected; a 403 blamed the anonymous per-network limit on a page about the
+  viewer's own allowance. Each has a sentence and, where there is something to
+  press, a button.
+- **And it stopped hiding things.** 300 repositories became "200", of which 60
+  were drawn, with no sentence admitting either bound. `size: 0` — disk usage
+  in kilobytes, rounded down — was being read as "no commits", so a new
+  repository with a README silently did not exist.
+- **The privacy promise is legible.** `--text-faint` measured 2.62–3.24:1 and
+  was carrying the one sentence the page exists to make.
+- **A repository that becomes private comes off the device.** The guarantee was
+  evaluated once, at fetch time, so one watched while public and then made
+  private kept its dataset, its cached pages, its name on the landing page, and
+  replayed with no token at all. A network failure is deliberately not an
+  answer.
+- **A private repository stopped transmitting its size**, labelled "a public
+  repository". `analytics.ts` declares the branch that withholds it and
+  documents why; nothing passed it.
+- **The scope dialog at 320px, the coverage badge at 200% zoom, and the other
+  scope dialog** — which had no `aria-modal`, no focus trap and no way out but
+  one specific button, on the private-repository path.
 - **The unit suite stopped failing for being busy.** Three tests compile whole
   histories and were losing to Vitest's five-second default whenever anything
   else was running. Three times today a green suite and a red suite differed
@@ -149,6 +175,14 @@ would duplicate the cache and help nothing.
 
 **Precomputed demo artifacts**, so a visitor can watch a large repository
 without a token at all.
+
+**Two costs nobody is paying attention to.** The repositories list is
+re-fetched on every visit — three visits, three calls, and the spinner replays
+each time — with no memoisation. And a public repository's metadata is fetched
+twice per visit: the probe's first call is deliberately uncached, for a reason
+that is sound, while the ingest client writes the same URL into the cache and
+then the probe ignores it next time. Neither is a defect; both are waste with a
+known cause.
 
 ---
 
