@@ -324,6 +324,52 @@ export function toast(message: string, ms = 2600) {
   toastTimer = window.setTimeout(() => (store.toast.value = null), ms);
 }
 
-export function announce(message: string) {
-  store.announcement.value = message;
+let announceAt = 0;
+let announceTimer = 0;
+let announceQueued: string | null = null;
+/** A screen reader needs about this long to say one of these out loud. */
+const ANNOUNCE_GAP_MS = 2500;
+
+/**
+ * Say one thing at a time, and say the most recent one.
+ *
+ * Captions change as the performance plays, and on a dense history that is
+ * often: measured at **6.8 times a second** in the player and 1.3 on the
+ * landing page before anybody has touched it. A polite live region does not
+ * drop what it cannot keep up with — it queues it — so this built a backlog no
+ * screen reader could ever drain, and the one viewer relying on it heard a
+ * running commentary minutes behind the picture.
+ *
+ * Rate-limited rather than sampled: whatever arrived last during the quiet
+ * period is what gets spoken, so the announcement always describes the present
+ * rather than an arbitrary moment in the past.
+ *
+ * `immediate` is for an answer to something the viewer just did — selecting a
+ * thread, jumping to a landmark, a history finishing loading. Those are not
+ * part of the stream and must not queue behind it: holding one back for two
+ * and a half seconds is a control that appears not to have worked.
+ */
+export function announce(message: string, immediate = false) {
+  const now = Date.now();
+  const wait = immediate ? 0 : ANNOUNCE_GAP_MS - (now - announceAt);
+  if (wait <= 0) {
+    if (announceTimer) {
+      // Something the viewer just did outranks whatever the performance was
+      // about to mention.
+      clearTimeout(announceTimer);
+      announceTimer = 0;
+      announceQueued = null;
+    }
+    announceAt = now;
+    store.announcement.value = message;
+    return;
+  }
+  announceQueued = message;
+  if (announceTimer) return;
+  announceTimer = window.setTimeout(() => {
+    announceTimer = 0;
+    announceAt = Date.now();
+    if (announceQueued != null) store.announcement.value = announceQueued;
+    announceQueued = null;
+  }, wait);
 }

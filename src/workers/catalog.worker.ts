@@ -1,4 +1,4 @@
-import { assembleWindow, safeResource, validateManifest, MAX_VIEW_WIDTH, type CatalogManifest, type Resource } from '@/export/catalogPackage';
+import { assembleWindow, safeResource, validateManifest, type CatalogManifest, type Resource } from '@/export/catalogPackage';
 import { gunzipIfNeeded, readCompiledPerformance } from '@/export/performance';
 import { sampleCamera } from '@/choreography/camera';
 import type { CompiledPerformance } from '@/model/types';
@@ -89,7 +89,11 @@ self.onmessage=async({data}:{data:{id:number;url:string;manifest:CatalogManifest
     // already dedupes for the plan it hands back; this is the same guard for
     // the one sample taken here.
     const camera=sampleCamera([...new Map(clocks.flatMap(p=>p.camera).map(c=>[c.time,c])).values()].sort((a,b)=>a.time-b.time),request.t);
-    const width=Math.min(MAX_VIEW_WIDTH,Math.max(6000,request.width??6000));
+      // `MAX_VIEW_WIDTH` caps what may be *shown*; this caps what may be fetched,
+  // and they are not the same number. A history whose camera trails the clock
+  // needs a band wider than any frame will ever display. `MAX_RESIDENT` below
+  // is the real limit and refuses anything that will not fit in memory.
+  const width=Math.min(48000,Math.max(6000,request.width??6000));
     const x=request.x??camera.x, min=x-width, max=x+width;
     const geometry=index.filter(r=>r.kind==='geometry'&&r.max>=min&&r.min<=max);
     const required=[...time,...geometry].reduce((n,r)=>n+r.decodedBytes,0);

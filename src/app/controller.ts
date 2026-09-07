@@ -23,7 +23,7 @@ import { mapMonotone } from '@/choreography/clock';
 import { claimTokenFromUrl, SIGN_IN_FAILED } from './auth';
 import { trackPerformanceStart } from './analytics';
 import { CatalogSource } from '@/player/catalogSource';
-import { MAX_VIEW_WIDTH, validateManifest, type CatalogManifest } from '@/export/catalogPackage';
+import { validateManifest, type CatalogManifest } from '@/export/catalogPackage';
 import { sampleCamera } from '@/choreography/camera';
 import { catalogUrl, externalCatalog } from './catalogLocation';
 
@@ -64,6 +64,24 @@ const PAGE_OVERLAP_SECONDS = 8;
  * plan is still authoritative, so playback never waits for it.
  */
 const PRE_SWAP_SECONDS = 3;
+/**
+ * How long a clock page runs, matching `WINDOW_SECONDS` in
+ * `scripts/package-catalog.mjs`. Used to size the runway ahead of the playhead
+ * so geometry outlasts the clock rather than the two interrupting in turn.
+ */
+const PAGE_SECONDS = 30;
+/**
+ * The widest band the fetcher will ask for, per side.
+ *
+ * Separate from `MAX_VIEW_WIDTH`, which is a limit on what may be *shown* — the
+ * renderer refuses any zoom revealing more than is resident, and that number
+ * should not move. This is a limit on what is *fetched*, and Linux needs a
+ * wider one: a trailing camera plus thirty seconds of runway at 957 units a
+ * second does not fit in 32,000. The worker still refuses anything that would
+ * exceed its 96 MB resident budget, and the widest band measured so far was
+ * 11.7 MB.
+ */
+const MAX_FETCH_WIDTH = 48000;
 /**
  * The page boundary already warmed. Not reset when a window is prepared: a
  * geometry refetch prepares a window without crossing a boundary, and clearing
@@ -117,9 +135,11 @@ function intervalError(error: unknown): string {
  * width]`, and centring it on the playhead spends half of it on history the
  * camera will never revisit.
  */
-function windowRequest(t: number, view: { cx: number; worldW: number } | null): { t: number; x?: number; width?: number } {
+function windowRequest(t: number, view: { cx: number; worldW: number } | null, manual = false): { t: number; x?: number; width?: number } {
   const p = player.perf;
-  if (view) {
+  if (manual && view) {
+    // The viewer is holding the camera, so the camera is the only thing that
+    // says what has to be drawable.
     const lead = Math.min(6000, Math.max(2000, view.worldW));
     return { t, x: view.cx + lead, width: Math.max(view.worldW, 12000) };
   }
@@ -140,8 +160,36 @@ function windowRequest(t: number, view: { cx: number; worldW: number } | null): 
   // The part behind is not spare: the frame holds the head at 60-70% across,
   // so a few thousand units of already-performed history are on screen to the
   // left of it and have to be drawable.
-  const width = MAX_VIEW_WIDTH;
-  return { t, x: t * xScale + width * 0.66, width };
+  // The camera trails the clock, and by how much depends on the history.
+  //
+  // `t * xScale` is where the *playhead* is. The camera is somewhere behind it,
+  // because the shot holds the head of the main line at 60-70% across and the
+  // dolly is smoothed — and on Linux it trails by a median 6,129 world units
+  // and a 95th percentile of 10,798, against about 1,200 on Kubernetes, Rust
+  // and VS Code. Biasing the band forward by two thirds of its width leaves
+  // 5,440 units behind the playhead, which covers the second group and starves
+  // the first: 58% of Linux's frames wanted geometry the band did not hold,
+  // the band was refetched eighteen times a second, and playback ran at 0.75x
+  // with twenty seconds of clock replayed over ten minutes.
+  //
+  // So the band is fitted to what has to be in it rather than to a fixed
+  // fraction: the visible frame at its trailing edge, the playhead, and enough
+  // runway past the playhead to outlast a clock page. Where that does not fit
+  // the low edge wins, because geometry behind the playhead is on screen now
+  // and geometry ahead of it is not yet needed.
+  const tx = t * xScale;
+  // Clamped, because right after a seek the camera is still at the moment it
+  // was asked to leave. Measuring the gap then reads the distance *jumped* as
+  // the distance *lagged*: seeking Linux to 80% put the camera 16.5 million
+  // units behind the playhead, so the band was fitted around 16.5M while the
+  // frame was at 32.6M and the stage drew nothing. A real trail is about
+  // 11,000 units at the 95th percentile on the worst entry, so half the band
+  // is a generous ceiling and a decisive one.
+  const trail = view ? Math.max(0, tx - view.cx) + view.worldW / 2 : 0;
+  const behind = Math.min(MAX_FETCH_WIDTH * 0.5, Math.max(6000, trail + 2000));
+  const ahead = Math.max(12000, PAGE_SECONDS * xScale + 4000);
+  const width = Math.min(MAX_FETCH_WIDTH, Math.max(6000, (behind + ahead) / 2));
+  return { t, x: tx - behind + width, width };
 }
 
 async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: boolean } = {}) {
@@ -178,11 +226,7 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
   // those uncovered and reintroduce the stop it exists to avoid.
   const w = held?.window;
   const covered = !!w && player.t >= w.start - PAGE_OVERLAP_SECONDS && player.t < w.end + PAGE_OVERLAP_SECONDS;
-  if (!covered) {
-    player.buffered = false;
-    store.buffering.value = true;
-    syncAudioToPlayback();
-  }
+  if (!covered) player.buffered = false;
   /**
    * Load around what the renderer is actually looking at.
    *
@@ -211,7 +255,6 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
    * the cue, which is at least an estimate *of the requested time*.
    */
   const live = renderer?.viewport() ?? null;
-  const view = manual ? live : null;
   try {
     /**
      * Aimed ahead of the camera, not centred on it.
@@ -235,7 +278,7 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
      * asks for 24,000 units in total against a 96 MB resident budget, and the
      * budget still refuses anything it cannot hold.
      */
-    const perf = await source.prepare(windowRequest(t, view));
+    const perf = await source.prepare(windowRequest(t, live, manual));
     if (source !== catalogSource || generation !== windowGeneration) return;
     const selected = player.perf?.nodes[store.selectedNode.value ?? -1]?.sha;
     const thread = player.perf?.threads[store.selectedThread.value ?? -1]?.id;
@@ -255,7 +298,16 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
     // A pre-swap is a change of plan, not a change of time: the clock is
     // mid-page and must stay there. Only a request made *for* a moment moves
     // the playhead to it.
-    if (opts.seek !== false) {
+    // Never backwards, and never during playback.
+    //
+    // `t` is captured when the request is issued and the clock keeps running
+    // while it is in flight, so seeking to it on arrival replays whatever
+    // elapsed. Harmless at one refetch per page and ruinous at eighteen a
+    // second: on Linux this rewound 1,030 frames and replayed 20.4 seconds of
+    // clock in a ten-minute run. A request made *for* a moment — a seek — must
+    // still land on it, which is what `opts.seek` distinguishes; an ordinary
+    // refetch is a change of plan and has no business moving the playhead.
+    if (opts.seek !== false && !player.playing) {
       committingSeek = true;
       if(Math.abs(player.t-t)>.001) player.seek(t);
       committingSeek = false;
@@ -265,22 +317,43 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
   } catch(error) {
     if(source!==catalogSource||generation!==windowGeneration)return;
     player.pause();
-    store.banner.value={kind:'info',message:intervalError(error),action:{label:'Retry',run:()=>void prepareCatalogWindow(t,manual)}};
+    // A pre-swap that fails costs nothing: the page in hand still covers the
+    // playhead — that is the condition under which it was issued — so pausing
+    // and putting an error in front of somebody is answering a question they
+    // did not ask. Measured: six seconds offline stopped the show at t=27.0
+    // holding a page good to t=38, with the network back by t=31.
+    if (opts.seek === false) return;
+    // And Retry has to resume where it stopped. Omitting the options here
+    // moved the playhead 27.0 -> 31.0, because `t` is the moment the failed
+    // request was aimed at rather than the moment the viewer is watching.
+    const at = player.t;
+    store.banner.value={kind:'info',message:intervalError(error),action:{label:'Retry',run:()=>void prepareCatalogWindow(at,manual,opts)}};
   } finally {
-    if(source===catalogSource&&generation===windowGeneration){
-      windowPending=false;
-      // `buffered` is set true by the success path; this only has to take the
-      // notice down, and only if it was put up.
-      if(!covered){store.buffering.value=false;syncAudioToPlayback();}
-    }
+    if(source===catalogSource&&generation===windowGeneration)windowPending=false;
   }
 }
+/**
+ * A seek always moves the clock. Whether it can be *drawn* is a separate
+ * question.
+ *
+ * This refused the seek and fetched instead, so on a slow link the scrubber
+ * went dead: ten drags 120ms apart moved nothing and said nothing, because
+ * each request superseded the one before it and none ever landed to release
+ * the playhead. A scrubber that does not move is broken however good the
+ * reason.
+ *
+ * So the clock goes where it was sent, `buffered` says the stage cannot draw
+ * it yet, and the frame loop holds the last good frame under "Loading this
+ * part of history…" until the window arrives — which is what that notice is
+ * for and what every video player does.
+ */
 player.beforeSeek = (t) => {
   if(!catalogSource||committingSeek)return true;
   const w=player.perf?.window;
-  if(!windowPending&&w&&t>=w.start&&t<w.end){return true;}
-  void prepareCatalogWindow(Math.max(0,Math.min(player.duration,t)));
-  return false;
+  const at=Math.max(0,Math.min(player.duration,t));
+  if(!windowPending&&w&&at>=w.start-PAGE_OVERLAP_SECONDS&&at<w.end+PAGE_OVERLAP_SECONDS)return true;
+  void prepareCatalogWindow(at,false,{seek:false});
+  return true;
 };
 
 interface Run {
@@ -525,6 +598,48 @@ function frame(now: number) {
   const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
   lastFrame = now;
   const perf = player.perf;
+  /**
+   * "Loading this part of history…" is derived, not announced.
+   *
+   * Three places used to raise and lower this by hand, and they disagreed: a
+   * per-frame check would put the notice up, the playhead would drift back
+   * inside the loaded window on its own, and the request that finally arrived
+   * had been issued for a moment it *did* cover — so it took nothing down and
+   * the notice stayed on screen for good, over a stage that was drawing
+   * perfectly well. That deadlock reached the end of every streamed entry and
+   * three tests caught it.
+   *
+   * `player.buffered` is the one fact — the stage cannot draw the moment the
+   * clock is on — so the notice is now exactly that fact, recomputed every
+   * frame. No sequence of window changes can leave the two disagreeing.
+   */
+  if (catalogSource) {
+    const waiting = !player.buffered;
+    if (store.buffering.peek() !== waiting) {
+      store.buffering.value = waiting;
+      syncAudioToPlayback();
+    }
+  }
+
+  // Whether the plan in hand can describe the moment being drawn, asked every
+  // frame rather than once.
+  //
+  // `prepareCatalogWindow` decided that when it was issued and never revisited
+  // it, and `windowPending` then suppressed the whole block below — so once a
+  // request was in flight the stage kept drawing whatever the clock reached,
+  // out of a plan that had stopped covering it. A tenth of a second when the
+  // link is quick, and 10.8 seconds of a page 0..30 being drawn for times past
+  // 30 when it is not. `sampleCamera` clamps past a page's last cue, so the
+  // dolly stops dead while the nameplate slides across the frame and then
+  // snaps back.
+  if(catalogSource&&perf?.window){
+    const w=perf.window;
+    const inside=player.t>=w.start-PAGE_OVERLAP_SECONDS&&player.t<w.end+PAGE_OVERLAP_SECONDS;
+    if(!inside){
+      player.buffered=false;
+      if(!windowPending)void prepareCatalogWindow(player.t);
+    }
+  }
   if(catalogSource&&perf?.window&&!windowPending&&player.buffered){
     const t=Math.min(perf.duration,player.t+(player.playing?dt*player.rate:0));
     const v=renderer?.viewport();
@@ -576,7 +691,7 @@ function frame(now: number) {
       const key=`warm:${perf.window.end}`;
       if(ahead>=perf.window.end&&t<perf.window.end&&key!==warmedKey){
         warmedKey=key;
-        void catalogSource.warm?.(windowRequest(ahead,manual&&v?v:null));
+        void catalogSource.warm?.(windowRequest(ahead,v??null,manual));
       }
     }
   }
@@ -832,7 +947,7 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   audio.setPerformance(perf);
   syncRendererSettings();
   startLoop();
-  announce(`${perf.source.owner}/${perf.source.name} is ready: ${perf.stats.commits} commits, ${perf.stats.threads} threads, ${Math.round(perf.duration)} seconds.`);
+  announce(`${perf.source.owner}/${perf.source.name} is ready: ${perf.stats.commits} commits, ${perf.stats.threads} threads, ${Math.round(perf.duration)} seconds.`, true);
   if (opts.autoplay) {
     if (store.mode.value === 'landing') player.play(); // soft performance behind the form: no audio, no mode change
     else play();
@@ -1623,7 +1738,7 @@ export function jumpLandmark(dir: 1 | -1) {
   const l = dir > 0 ? player.nextLandmark() : player.prevLandmark();
   if (l) {
     player.seek(l.time);
-    announce(`${l.kind}: ${l.label} at ${fmtClock(l.time)}`);
+    announce(`${l.kind}: ${l.label} at ${fmtClock(l.time)}`, true);
   }
 }
 
@@ -2041,7 +2156,7 @@ export function handleKey(e: KeyboardEvent): boolean {
       const next = e.key === 'ArrowUp' ? (i <= 0 ? active.length - 1 : i - 1) : (i + 1) % active.length;
       const th = active[next]!;
       selectThread(th.idx);
-      announce(`Thread ${th.label ?? th.id}, ${th.nodeIdxs.length} commits, ${th.ending}`);
+      announce(`Thread ${th.label ?? th.id}, ${th.nodeIdxs.length} commits, ${th.ending}`, true);
       return true;
     }
     case 'm':

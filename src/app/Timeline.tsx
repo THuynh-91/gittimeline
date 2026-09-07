@@ -152,7 +152,14 @@ function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines:
   const h = mapMonotone(perf.timeMap, t, true);
   const lines: string[] = [];
   const near = perf.landmarks.filter((l) => Math.abs(l.time - t) < Math.max(0.4, perf.duration * 0.012));
-  if (!perf.activity.length) return { head: fmtDate(h), lines: ['No commits'] };
+  // No activity data is not the same as no commits.
+  //
+  // `catalogPackage.ts` ships `activity: []` for a streamed entry, and this
+  // printed that absence as a count — so hovering anywhere on public-apis, a
+  // 5,272-commit repository, said "No commits" at every position. Saying
+  // nothing about counts is the honest answer when there is nothing to say;
+  // `accessibility.md` promises exactly that and this was the counter-example.
+  if (!perf.activity.length) return { head: fmtDate(h), lines: near.slice(0, 2).map((l) => `${l.kind}: ${l.label}`) };
   const first = perf.activity[0]!;
   const width = first.historicalEnd - first.historicalStart;
   const idx = Math.min(perf.activity.length - 1, Math.max(0, Math.floor((h - first.historicalStart) / width)));
