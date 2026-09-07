@@ -66,7 +66,19 @@ function Inspector() {
   const ds = store.dataset.value;
   const idx = store.selectedNode.value;
   const nd = idx != null ? perf.nodes[idx] : null;
-  if (!nd) return <p>Select a commit on the stage, or use ↑/↓ to walk active threads.</p>;
+  // Pointed at something that does what it says. This used to offer ↑/↓,
+  // which calls `selectThread` — so following the instruction selected a
+  // thread and left this panel still asking for a commit.
+  if (!nd)
+    return (
+      <p>
+        Select a commit on the stage, or open{' '}
+        <button type="button" class="linkish" onClick={() => (store.panel.value = 'events')}>
+          the events so far
+        </button>{' '}
+        — every line there is a link to its moment. <kbd>↑</kbd> <kbd>↓</kbd> walk the active threads instead.
+      </p>
+    );
   const commit = ds?.commits.find((c) => c.sha === nd.sha);
   const contributor = perf.contributors[nd.contributorIdx];
   const thread = perf.threads[nd.threadIdx];

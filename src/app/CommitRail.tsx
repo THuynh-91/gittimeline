@@ -82,6 +82,18 @@ export function CommitRail() {
     <aside
       class={`rail dock-${dock}`}
       data-testid="commit-rail"
+      /**
+       * Named, and named as what it is.
+       *
+       * This was an unlabelled `<aside>` full of `tabIndex={-1}` buttons: a
+       * region a screen reader announces as nothing, holding controls a
+       * keyboard cannot reach. Forty tab stops on a ticker that rewrites
+       * itself every half second would be worse than none, so the items stay
+       * out of the tab order — but that is only defensible now that the
+       * Events panel exists, and the label says where the reachable version
+       * of this is.
+       */
+      aria-label="Recent commits, as they land — a moving list. The Events panel, on E, is the same commits as text, and every line in it is a link to its moment."
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
