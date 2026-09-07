@@ -161,17 +161,25 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     expect(await page.evaluate(() => window.__gittimeline.planHash)).toBe(hash1);
   });
 
-  test('a multi-page history is fetched whole, even when the cache answers a page', async ({ page }) => {
+  test('a multi-page history is fetched whole, even when the cache answers every page', async ({ page }) => {
     /**
      * The regression this guards is invisible from the outside: every page
      * arrives and looks complete, but pagination stops early and the result is
      * labelled partial for no reason the viewer can see.
      *
      * A 304 carries no body and no Link header, so a page served from the
-     * cache has to take its pagination from the cache entry. It did not — and
-     * the size probe samples the same first page ingestion is about to walk,
-     * so priming that one entry truncated every repository. mdBook went from
-     * 3,296 commits to 401.
+     * cache has to take its pagination from the cache entry. It did not, and
+     * every repository truncated to its first page — mdBook went from 3,296
+     * commits to 401.
+     *
+     * Re-fetching is what reaches this now. It is the one path that walks the
+     * pages again with all of them already cached, so every request in the
+     * second walk is conditional and every answer is a 304 with no body and no
+     * `Link` — which is the worst case, not a sample of it. (The test used to
+     * prime the cache through the size probe and read a single conditional
+     * request. That request was the repository metadata, not a page of
+     * commits, and it stopped happening when the probe's first call was made
+     * uncached so that a private repository's name never reaches the disk.)
      */
     const mock = await routeGitHub(page, bigRepo(350));
     await page.goto('/');
@@ -179,9 +187,16 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     await page.getByTestId('play-button').click();
     await waitForReady(page);
 
-    expect(mock.conditional, 'the probe primes a page that ingestion then revalidates').toBeGreaterThan(0);
+    const first = await page.evaluate(() => window.__gittimeline.stats);
+    expect(first!.commits, 'the cold walk loads every page').toBe(350);
+
+    const before = mock.conditional;
+    await page.evaluate(() => window.__gittimeline.refetch());
+    await waitForReady(page);
+    expect(mock.conditional - before, 'the second walk revalidates the pages it already has').toBeGreaterThan(1);
+
     const stats = await page.evaluate(() => window.__gittimeline.stats);
-    expect(stats!.commits, 'every page of the history is loaded').toBe(350);
+    expect(stats!.commits, 'and 304s carry their pagination, so the history is still whole').toBe(350);
     // The badge names the span it covers, and says whether anything is missing
     // from it. Matching the whole string would pin the fixture's years.
     await expect(page.getByTestId('quality-badge')).toContainText('entire repo');

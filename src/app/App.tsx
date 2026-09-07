@@ -19,6 +19,7 @@ import { ExploreBar } from './ExploreBar';
 import { ViewToggles } from './ViewToggles';
 import { CatalogPage } from './CatalogPage';
 import { SignIn } from './SignIn';
+import { ReposPage } from './ReposPage';
 import './experience.css';
 
 export function App() {
@@ -78,7 +79,7 @@ export function App() {
           rather than merely fixed. `display: contents` keeps it out of the
           layout entirely, so every page's own positioning is untouched. */}
       <div class="route">
-        {mode === 'landing' ? <Landing /> : mode === 'catalog' ? <CatalogPage /> : mode === 'signin' ? <SignIn /> : null}
+        {mode === 'landing' ? <Landing /> : mode === 'catalog' ? <CatalogPage /> : mode === 'signin' ? <SignIn /> : mode === 'repos' ? <ReposPage /> : null}
       </div>
       <ScopeChooser />
       <Prelude />

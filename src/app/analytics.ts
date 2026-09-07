@@ -54,7 +54,10 @@
 
 import { catalogUrl } from './catalogLocation';
 
-export type PageView = 'landing' | 'player' | 'catalog' | 'signin';
+// A route name and nothing else — never a repository, never a slug. `repos` is
+// the page listing the signed-in viewer's own repositories; that a person
+// looked at their own list is not a disclosure, and no name from it is sent.
+export type PageView = 'landing' | 'player' | 'catalog' | 'signin' | 'repos';
 
 /**
  * Where a performance came from, which is what decides how much may be said

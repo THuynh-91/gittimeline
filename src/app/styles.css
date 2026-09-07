@@ -3591,3 +3591,124 @@ kbd {
   margin: 0 0 10px;
   color: var(--text-dim);
 }
+
+/* The repositories a signed-in visitor can reach. */
+.myrepos {
+  margin: 28px 0 8px;
+}
+.myrepos h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.myrepos .dim {
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+.myrepos-filter {
+  width: min(320px, 100%);
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+}
+.myrepos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.myrepos-list button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.myrepos-list button:hover {
+  background: var(--ink-2);
+  border-color: var(--line);
+}
+.myrepo-name {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.myrepo-when {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.myrepo-tag {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.myrepo-tag.private {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+/* Your repositories, on their own page. Opaque, because the demo performs
+   behind every one of these pages and a list drawn over a moving picture is
+   unreadable — the main line and its captions were legible through the rows. */
+.repos-page .myrepos {
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-top: 20px;
+}
+.repos-empty {
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-top: 20px;
+}
+.repos-empty p {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+}
+.repos-note {
+  /* Backed like the card above it. The demo performs behind every page, and
+     prose over a moving picture is the same problem the list had — the main
+     line and its captions were legible straight through this paragraph. */
+  margin: 30px 0 10px;
+  max-width: 760px;
+  background: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+.repos-note h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.repos-note p {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+}
+.repos-note p.dim {
+  color: var(--text-faint);
+}
+.signin-next {
+  margin: 24px 0 4px;
+}

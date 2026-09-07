@@ -21,6 +21,8 @@ export interface MockRepo {
 }
 
 export interface MockOptions {
+  /** Serve the repository with `private: true`, as GitHub does for one. */
+  private?: boolean;
   /** Return 403 rate-limited after this many successful requests. */
   rateLimitAfter?: number;
   resetAt?: number; // unix seconds
@@ -98,7 +100,7 @@ export function mockGitHub(repo: MockRepo | null, opts: MockOptions = {}) {
     const rest = u.pathname.slice(prefix.length);
     let body: unknown;
     if (rest === '' || rest === '/') {
-      body = { full_name: `${repo.owner}/${repo.name}`, default_branch: repo.defaultBranch, description: 'Mock repository', created_at: '2020-01-01T00:00:00Z', pushed_at: '2020-06-01T00:00:00Z', size: 42, html_url: `https://github.com/${repo.owner}/${repo.name}`, private: false };
+      body = { full_name: `${repo.owner}/${repo.name}`, default_branch: repo.defaultBranch, description: 'Mock repository', created_at: '2020-01-01T00:00:00Z', pushed_at: '2020-06-01T00:00:00Z', size: 42, html_url: `https://github.com/${repo.owner}/${repo.name}`, private: opts.private === true };
     } else if (rest === '/commits') {
       if (repo.commits.length === 0) return { status: 409, body: { message: 'Git Repository is empty.' }, headers: base };
       const sha = u.searchParams.get('sha') ?? repo.defaultBranch;

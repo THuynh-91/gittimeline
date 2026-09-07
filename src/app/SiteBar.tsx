@@ -16,7 +16,7 @@ import { Wordmark } from './Wordmark';
  * on the landing page the hero says the name again immediately below, so a
  * second clickable copy is noise.
  */
-export function SiteBar({ page }: { page: 'landing' | 'catalog' | 'signin' }) {
+export function SiteBar({ page }: { page: 'landing' | 'catalog' | 'signin' | 'repos' }) {
   const tokenActive = !!store.token.value;
   const mark = <Wordmark />;
 
@@ -50,6 +50,19 @@ export function SiteBar({ page }: { page: 'landing' | 'catalog' | 'signin' }) {
         >
           Selection
         </button>
+        {/* Only once there is a list to show. An entry that leads to "you are
+            not connected" is a dead end offered to everybody, and the sign-in
+            button beside it already says how to get there. */}
+        {tokenActive && (
+          <button
+            type="button"
+            aria-current={page === 'repos' ? 'page' : undefined}
+            onClick={() => (store.mode.value = 'repos')}
+            data-testid="repos-link"
+          >
+            Your repositories
+          </button>
+        )}
         <button
           type="button"
           onClick={() => (store.panel.value = store.panel.value === 'help' ? 'none' : 'help')}

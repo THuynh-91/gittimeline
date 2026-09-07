@@ -12,11 +12,25 @@ export default defineConfig({
     trace: 'retain-on-failure',
     viewport: { width: 1280, height: 800 },
   },
+  /**
+   * Built here, and not reused.
+   *
+   * `vite preview` serves whatever happens to be in `dist`, and reusing a
+   * server that is already listening skips the build entirely — so a run could
+   * report a green suite against a build made hours ago from a different
+   * commit. It did: a test for an API added minutes earlier failed with "not a
+   * function" while type-checking and linting were clean, because :4173 was
+   * still serving a colleague's build.
+   *
+   * The cost is one build per run, about ten seconds. A suite that does not
+   * necessarily describe the source it was run against is worth less than
+   * that.
+   */
   webServer: {
-    command: 'npm run preview',
+    command: 'npm run build && npm run preview',
     url: 'http://localhost:4173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    reuseExistingServer: false,
+    timeout: 180_000,
   },
   /**
    * Silence, at the audio output rather than in the app.

@@ -3,7 +3,7 @@ import { SiteFoot } from './SiteFoot';
 import { useState } from 'preact/hooks';
 import { store } from './store';
 import { AUTH_BASE, signInWithGitHub } from './auth';
-import { showLanding } from './controller';
+import { showLanding, clearStoredHistories } from './controller';
 import { Icons } from './icons';
 
 /**
@@ -65,6 +65,18 @@ export function SignIn() {
           </div>
         </div>
 
+
+        {/* Where to go next, rather than the list itself: this page is a
+            consent document and the demo performs behind it, so a list of
+            repositories here was both buried and drawn over. */}
+        {connected && (
+          <div class="signin-next">
+            <button type="button" class="btn primary" onClick={() => (store.mode.value = 'repos')} data-testid="signin-to-repos">
+              Pick one of your repositories
+            </button>
+          </div>
+        )}
+
         {connected ? (
           <div class="signin-actions">
             <button
@@ -72,6 +84,11 @@ export function SignIn() {
               class="btn"
               onClick={() => {
                 store.token.value = null;
+                // Disconnecting means disconnecting. Anything fetched while
+                // signed in was fetched with a credential that is now gone, and
+                // leaving it on the device makes "revoke" a word about GitHub
+                // rather than about this machine.
+                void clearStoredHistories();
               }}
               data-testid="signout-github"
             >
@@ -198,7 +215,7 @@ export function SignIn() {
                   it sat directly above a paragraph about private repositories.
                   Settings has the size and a button to clear it. */}
               <b>Gone when you close the tab.</b> The token lives in this tab's memory and is never written to disk. Responses already fetched from GitHub are
-              cached on your device so the same history is not downloaded twice; that cache holds public data only, and Settings shows its size and clears it.
+              cached on your device so the same history is not downloaded twice — public repositories only, never a private one — and Settings shows its size and clears it. Disconnecting clears it too.
             </li>
           </ul>
           <p class="grant-revoke">

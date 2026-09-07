@@ -9,7 +9,7 @@ import { parseRepoUrl, type RepoRef } from '@/github/url';
 import { GitHubClient, GitHubError } from '@/github/adapter';
 import { ApiCache } from '@/github/cache';
 import { ingestRepository, probeRepository, type IngestOutcome } from '@/github/ingest';
-import { formatReset } from '@/github/ratelimit';
+import { formatReset, type RateInfo } from '@/github/ratelimit';
 import { willOutrunTheCeiling } from '@/choreography/pace';
 import { buildShowcaseDataset } from '@/fixtures/showcase';
 import { buildLandingDataset } from '@/fixtures/landing';
@@ -135,7 +135,7 @@ function intervalError(error: unknown): string {
  * width]`, and centring it on the playhead spends half of it on history the
  * camera will never revisit.
  */
-function windowRequest(t: number, view: { cx: number; worldW: number } | null, manual = false): { t: number; x?: number; width?: number } {
+function windowRequest(t: number, view: { cx: number; worldW: number } | null, manual = false, jumped = false): { t: number; x?: number; width?: number } {
   const p = player.perf;
   if (manual && view) {
     // The viewer is holding the camera, so the camera is the only thing that
@@ -185,14 +185,19 @@ function windowRequest(t: number, view: { cx: number; worldW: number } | null, m
   // frame was at 32.6M and the stage drew nothing. A real trail is about
   // 11,000 units at the 95th percentile on the worst entry, so half the band
   // is a generous ceiling and a decisive one.
-  const trail = view ? Math.max(0, tx - view.cx) + view.worldW / 2 : 0;
+  // Not after a jump. The camera is still at the moment it was asked to leave,
+  // so it says nothing about how far it will trail the clock once it arrives —
+  // and fitting the band to a stale position lands it slightly wrong, which the
+  // per-frame check then notices and corrects with a second fetch. A seek was
+  // costing two round trips and about 2.5 seconds to settle where one would do.
+  const trail = view && !jumped ? Math.max(0, tx - view.cx) + view.worldW / 2 : 0;
   const behind = Math.min(MAX_FETCH_WIDTH * 0.5, Math.max(6000, trail + 2000));
   const ahead = Math.max(12000, PAGE_SECONDS * xScale + 4000);
   const width = Math.min(MAX_FETCH_WIDTH, Math.max(6000, (behind + ahead) / 2));
   return { t, x: tx - behind + width, width };
 }
 
-async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: boolean } = {}) {
+async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: boolean; jumped?: boolean } = {}) {
   const source = catalogSource;
   if (!source) return;
   const generation = ++windowGeneration;
@@ -278,7 +283,7 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
      * asks for 24,000 units in total against a 96 MB resident budget, and the
      * budget still refuses anything it cannot hold.
      */
-    const perf = await source.prepare(windowRequest(t, live, manual));
+    const perf = await source.prepare(windowRequest(t, live, manual, opts.jumped === true));
     if (source !== catalogSource || generation !== windowGeneration) return;
     const selected = player.perf?.nodes[store.selectedNode.value ?? -1]?.sha;
     const thread = player.perf?.threads[store.selectedThread.value ?? -1]?.id;
@@ -352,7 +357,7 @@ player.beforeSeek = (t) => {
   const w=player.perf?.window;
   const at=Math.max(0,Math.min(player.duration,t));
   if(!windowPending&&w&&at>=w.start-PAGE_OVERLAP_SECONDS&&at<w.end+PAGE_OVERLAP_SECONDS)return true;
-  void prepareCatalogWindow(at,false,{seek:false});
+  void prepareCatalogWindow(at,false,{seek:false,jumped:true});
   return true;
 };
 
@@ -379,7 +384,7 @@ let lastInputForRetry: string | null = null;
  *
  * A route rather than a flag, captured at the moment the stage is taken.
  */
-let startedFrom: 'landing' | 'catalog' | 'signin' = 'landing';
+let startedFrom: 'landing' | 'catalog' | 'signin' | 'repos' = 'landing';
 
 /** Take the stage, remembering the page being left so cancel can return to it. */
 function enterPlayer() {
@@ -391,7 +396,7 @@ let partialDataset: Dataset | null = null;
 let recompileTimer: number | null = null;
 let recorder: MediaRecorder | null = null;
 /** The repository a scope question is about, held while the viewer decides. */
-let pendingScope: { repo: RepoRef; autoplay: boolean; startAt?: number; tip?: string | null } | null = null;
+let pendingScope: { repo: RepoRef; autoplay: boolean; startAt?: number; tip?: string | null; isPrivate: boolean } | null = null;
 /**
  * How many commits make a repository worth asking about before fetching it.
  *
@@ -1234,7 +1239,7 @@ export function chooseScope(choice: { since: string | null; until: string | null
   store.scope.value = null;
   pendingScope = null;
   if (!pending) return;
-  void runIngest(pending.repo, { autoplay: pending.autoplay, tip: pending.tip ?? null, startAt: pending.startAt, since: choice.since, until: choice.until, scopeLabel: choice.label });
+  void runIngest(pending.repo, { autoplay: pending.autoplay, tip: pending.tip ?? null, startAt: pending.startAt, since: choice.since, until: choice.until, scopeLabel: choice.label, isPrivate: pending.isPrivate });
 }
 
 export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: string | null; startAt?: number; forceRefresh?: boolean } = {}): Promise<void> {
@@ -1273,19 +1278,38 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     }
   }
 
+  // Hoisted out of the try below, because the ingest that follows has to know
+  // it. Uninitialised on purpose: every path that reaches the ingest assigns it
+  // from the probe, and every path that does not returns — so the compiler,
+  // rather than a default, is what guarantees nothing is written to disk on a
+  // repository whose privacy was never established.
+  let isPrivate: boolean;
   const probeRun = newRun();
+  const onRate = (rate: RateInfo) => {
+    if (run?.id === probeRun.id) store.rate.value = rate;
+  };
+  /**
+   * The repository call, which is what discovers whether any of this may be
+   * written down. Uncached necessarily — see `probeRepository`.
+   */
   const probeClient = new GitHubClient({
+    cache: null,
+    token: store.token.value,
+    signal: probeRun.abort.signal,
+    onRate,
+  });
+  /** The same, for the two calls that happen after the answer is in hand. */
+  const probeCached = new GitHubClient({
     cache: cache.available ? cache : null,
     token: store.token.value,
     signal: probeRun.abort.signal,
-    onRate: (rate) => {
-      if (run?.id === probeRun.id) store.rate.value = rate;
-    },
+    onRate,
   });
   store.progress.value = { phase: 'metadata', message: 'Reading repository…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
   try {
-    const probe = await probeRepository(repo, probeClient);
+    const probe = await probeRepository(repo, probeClient, (priv) => (priv ? probeClient : probeCached));
     if (run?.id !== probeRun.id) return;
+    isPrivate = probe.isPrivate;
     const tooBig = (probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD;
     // Dense is not the same as large. A merge-heavy history can keep nearly
     // every commit on stage, because a junction only collapses when the branch
@@ -1294,7 +1318,7 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     const tooDense = willOutrunTheCeiling(probe.estimatedCommits, probe.mergeRatio, presetFromSettings().lengthBias);
     if (tooBig || tooDense) {
       // Ask before spending hundreds of requests on something unwatchable.
-      pendingScope = { repo, autoplay: opts.autoplay ?? true, startAt: opts.startAt, tip: opts.tip ?? null };
+      pendingScope = { repo, autoplay: opts.autoplay ?? true, startAt: opts.startAt, tip: opts.tip ?? null, isPrivate: probe.isPrivate };
       batch(() => {
         store.progress.value = null;
         store.scope.value = {
@@ -1313,10 +1337,18 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     reportGitHubError(err);
     return;
   }
-  await runIngest(repo, { autoplay: opts.autoplay ?? true, tip: opts.tip ?? null, startAt: opts.startAt, since: null, until: null });
+  await runIngest(repo, { autoplay: opts.autoplay ?? true, tip: opts.tip ?? null, startAt: opts.startAt, since: null, until: null, isPrivate });
 }
 
-async function runIngest(repo: RepoRef, opts: { autoplay: boolean; tip: string | null; startAt?: number; since: string | null; until: string | null; scopeLabel?: string }): Promise<void> {
+async function runIngest(
+  repo: RepoRef,
+  /**
+   * `isPrivate` comes from the probe's own view of the repository and is
+   * threaded rather than kept in module state, because everything here that
+   * writes to disk has to consult it and a stale flag would be worse than none.
+   */
+  opts: { autoplay: boolean; tip: string | null; startAt?: number; since: string | null; until: string | null; scopeLabel?: string; isPrivate: boolean },
+): Promise<void> {
   const r = newRun();
   partialDataset = null;
   batch(() => {
@@ -1326,7 +1358,11 @@ async function runIngest(repo: RepoRef, opts: { autoplay: boolean; tip: string |
     store.progress.value = { phase: 'metadata', message: 'Reading repository…', pagesLoaded: 0, commitsLoaded: 0, reportedTotal: null, rate: null, repoName: repo.slug, fromCache: false };
   });
   const client = new GitHubClient({
-    cache: cache.available ? cache : null,
+    // Nothing about a private repository is written down. `probe.isPrivate` is
+    // the repository's own `private` flag, carried out of the probe for exactly
+    // this — it has been declared and documented since the ingest was written
+    // and never once read, so a private history was cached like any other.
+    cache: opts.isPrivate || !cache.available ? null : cache,
     token: store.token.value,
     signal: r.abort.signal,
     onRate: (rate) => {
@@ -1350,8 +1386,16 @@ async function runIngest(repo: RepoRef, opts: { autoplay: boolean; tip: string |
     });
     if (run?.id !== r.id) return;
     const ds = result.dataset;
-    void cache.putDataset({ slug: repo.slug, dataset: ds, fetchedAt: Date.now(), tip: ds.source.selectedTipSha });
-    void cache.touchRecent({ slug: repo.slug, name: repo.slug, lastOpened: Date.now(), commits: ds.commits.length }).then(refreshRecent);
+    // A private history leaves nothing behind: not the compiled dataset, and
+    // not its name in the recents list — which the landing page paints in
+    // plain sight, so a slug alone is a disclosure to whoever next opens the
+    // tab. Keeping the dataset would also mean the history stayed playable
+    // with no credential at all, which would make removing the app's access
+    // in GitHub revoke nothing that had already been taken.
+    if (!opts.isPrivate) {
+      void cache.putDataset({ slug: repo.slug, dataset: ds, fetchedAt: Date.now(), tip: ds.source.selectedTipSha });
+      void cache.touchRecent({ slug: repo.slug, name: repo.slug, lastOpened: Date.now(), commits: ds.commits.length }).then(refreshRecent);
+    }
     const perf = await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: result.outcome, isDemo: false });
     if (perf && result.outcome === 'rate-limited') store.banner.value = { kind: 'rate-limited', message: `${ds.coverage.summary} GitHub’s request limit was reached; it resets ${formatReset(result.resetAt)}.` };
     else if (perf && opts.scopeLabel && opts.since) store.banner.value = { kind: 'partial', message: `Showing ${opts.scopeLabel}. ${ds.coverage.summary}` };
@@ -1917,6 +1961,13 @@ function exploreRange(worldW: number): { lo: number; hi: number; span: number } 
  * the history the way a scrollbar does.
  */
 /** Whether the viewer is holding the camera rather than the director. */
+/** Remove everything this device has kept: cached responses, datasets, recents. */
+export async function clearStoredHistories(): Promise<void> {
+  await cache.clearAll();
+  store.recent.value = [];
+  store.storage.value = await cache.estimate();
+}
+
 export function cameraIsManual(): boolean {
   return !!renderer?.manual;
 }
@@ -2395,6 +2446,13 @@ export function installDebugHook() {
       return perf.events.filter((e) => !type || e.type === type).map((e) => ({ type: e.type, impact: e.performanceImpact, start: e.performanceStart, end: e.performanceEnd, caption: e.caption }));
     },
     setToken: (t: string | null) => (store.token.value = t || null),
+    /**
+     * What Settings' re-fetch button does. Exposed because it is the only path
+     * that walks a history's pages a second time with all of them already
+     * cached, and a 304 answering a page carries no body and no `Link` header
+     * to take pagination from.
+     */
+    refetch: () => refetchCurrent(),
     seek: (t: number) => seek(t),
     play: () => play(),
     pause: () => pause(),

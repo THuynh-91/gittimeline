@@ -109,15 +109,36 @@ export interface RepoProbe {
  * expose a commit count, but the last page number of a one-per-page listing is
  * exactly that, so this costs two calls instead of hundreds.
  */
-export async function probeRepository(repo: RepoRef, client: GitHubClient): Promise<RepoProbe> {
+export async function probeRepository(repo: RepoRef, client: GitHubClient, onceKnown?: (isPrivate: boolean) => GitHubClient): Promise<RepoProbe> {
   const meta = await client.get<RepoMeta>(repo.apiUrl);
+
+  /**
+   * The first call is the one that answers the question, so everything after
+   * it can be treated according to the answer.
+   *
+   * The probe runs before anyone knows whether this repository is private, and
+   * two of its three calls are pages of commits — a hundred of them, with
+   * author names, addresses and full messages. Caching on the strength of an
+   * answer not yet received would put a private history on disk before the
+   * viewer had been shown the scope question, and cancelling there would not
+   * take it off again. Caching *nothing* was the first fix, and it cost a
+   * public repository three uncached requests on every visit — including the
+   * `per_page=100` page that ingestion then walks, which is the one the cache
+   * is most useful for.
+   *
+   * `repo.apiUrl` above stays uncached either way: it is the disclosure that
+   * cannot be avoided, and it is one small response.
+   */
+  const isPrivate = meta.data?.private === true;
+  const rest = onceKnown ? onceKnown(isPrivate) : client;
+
   const defaultBranch = typeof meta.data?.default_branch === 'string' ? cleanText(meta.data.default_branch, LIMITS.refName) : null;
   const created = typeof meta.data?.created_at === 'string' ? new Date(meta.data.created_at) : null;
   const pushed = typeof meta.data?.pushed_at === 'string' ? new Date(meta.data.pushed_at) : null;
   const branch = defaultBranch ? `&sha=${encodeURIComponent(defaultBranch)}` : '';
   let estimatedCommits: number | null;
   try {
-    const head = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=1${branch}`);
+    const head = await rest.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=1${branch}`);
     estimatedCommits = head.link.lastPage ?? (Array.isArray(head.data) ? head.data.length : null);
   } catch {
     estimatedCommits = null;
@@ -131,7 +152,7 @@ export async function probeRepository(repo: RepoRef, client: GitHubClient): Prom
   // a useless one.
   let mergeRatio: number | null = null;
   try {
-    const sample = await client.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=100${branch}`);
+    const sample = await rest.get<ApiCommit[]>(`${repo.apiUrl}/commits?per_page=100${branch}`);
     if (Array.isArray(sample.data) && sample.data.length) {
       const merges = sample.data.filter((c) => Array.isArray(c?.parents) && c.parents.length > 1).length;
       mergeRatio = merges / sample.data.length;
@@ -146,7 +167,7 @@ export async function probeRepository(repo: RepoRef, client: GitHubClient): Prom
     firstYear: created && Number.isFinite(created.getTime()) ? created.getUTCFullYear() : null,
     lastYear: pushed && Number.isFinite(pushed.getTime()) ? pushed.getUTCFullYear() : new Date().getUTCFullYear(),
     displayName: typeof meta.data?.full_name === 'string' ? cleanText(meta.data.full_name, 160) : repo.slug,
-    isPrivate: meta.data?.private === true,
+    isPrivate,
   };
 }
 

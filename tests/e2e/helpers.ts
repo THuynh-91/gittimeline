@@ -38,6 +38,8 @@ declare global {
       bodies(): Array<{ edge: number; kind: string; body: string; thread: number; contributor: number; progress: number; x: number; y: number }>;
       events(type?: string): Array<{ type: string; impact: number; start: number; end: number; caption: string }>;
       setToken(t: string | null): void;
+      /** Walk the pages again with everything already cached. */
+      refetch(): void;
       seek(t: number): void;
       play(): void;
       pause(): void;

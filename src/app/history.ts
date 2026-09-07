@@ -19,11 +19,11 @@ import { store } from './store';
  * one, and serve a 404 — a deep link that works only if you never use it as a
  * link. A hash never reaches the server.
  */
-const HASHES = { landing: '', catalog: '#selection', signin: '#sign-in' } as const;
+const HASHES = { landing: '', catalog: '#selection', signin: '#sign-in', repos: '#your-repositories' } as const;
 type Routed = keyof typeof HASHES;
 
 const routeOf = (hash: string): Routed =>
-  hash === '#selection' ? 'catalog' : hash === '#sign-in' ? 'signin' : 'landing';
+  hash === '#selection' ? 'catalog' : hash === '#sign-in' ? 'signin' : hash === '#your-repositories' ? 'repos' : 'landing';
 
 const urlFor = (r: Routed) => `${location.pathname}${location.search}${HASHES[r]}`;
 

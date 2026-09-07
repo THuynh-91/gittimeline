@@ -218,7 +218,7 @@ export const store = {
   buffering: signal(false),
   catalogManifest: signal<CatalogManifest | null>(null),
   phase: signal<AppPhase>('IDLE'),
-  mode: signal<'landing' | 'player' | 'catalog' | 'signin'>('landing'),
+  mode: signal<'landing' | 'player' | 'catalog' | 'signin' | 'repos'>('landing'),
   input: signal(''),
   inputError: signal<string | null>(null),
   progress: signal<IngestProgress | null>(null),
