@@ -920,7 +920,7 @@ function stageLabel(stage: string): string {
   return { graph: 'Reading the commit graph…', threads: 'Finding parallel threads…', activity: 'Measuring activity…', clock: 'Setting the tempo…', layout: 'Laying out the stage…', events: 'Writing the choreography…', camera: 'Directing the camera…', done: 'Ready' }[stage] ?? stage;
 }
 
-async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null }): Promise<CompiledPerformance | null> {
+async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null; isPrivate?: boolean }): Promise<CompiledPerformance | null> {
   store.phase.value = 'BUILDING_DAG';
   const handle = compileInWorker(dataset, { preset: presetFromSettings(), seed: store.settings.value.seed }, (stage) => {
     if (run?.id !== r.id) return;
@@ -948,7 +948,7 @@ async function compileAndLoad(r: Run, dataset: Dataset, opts: { autoplay: boolea
  * commit rail read, and `loadCatalogEntry` fetches it separately, afterwards,
  * when it is small enough to be worth the bytes.
  */
-function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null }) {
+function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opts: { autoplay: boolean; startAt?: number; outcome: IngestOutcome | 'synthetic' | 'artifact'; isDemo: boolean; backdrop?: boolean; span?: SpanChoice | null; isPrivate?: boolean }) {
   batch(() => {
     store.perf.value = perf;
     store.dataset.value = dataset;
@@ -1004,7 +1004,36 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   // decision. An artifact is either one of ours or a file the viewer supplied,
   // and the allowlist there is what tells those two apart.
   if (!opts.backdrop) {
-    const source = opts.isDemo ? 'demo' : perf.source.provider === 'synthetic' ? 'fixture' : opts.outcome === 'artifact' ? 'artifact' : 'repository';
+    /**
+     * `'private'` is the branch that makes the module's promise true, and for
+     * a day nothing passed it.
+     *
+     * `analytics.ts` declares the source and says, in as many words, that a
+     * private history contributes that something was watched and "nothing
+     * else. Not even its size: `commit_bucket` is a coarse number, but a
+     * coarse number attached to a private repository is a fingerprint of it."
+     * `repositoryParams` implements exactly that. Nowhere computed the value.
+     *
+     * So a private repository took the `'repository'` branch, missed the
+     * catalog allowlist, and went out as
+     * `{repository: "a public repository", commit_bucket: "100–1k"}` — its
+     * size to one significant figure, plus a positive assertion that it is
+     * public. Byte-identical to the public control, measured on a build with a
+     * measurement id set and Google's endpoints aborted at the route.
+     *
+     * Inert on the shipped build, because `VITE_GA_ID` is unset and there is
+     * no `dataLayer` at all. It fires the day the id is set, which is not a
+     * day anybody would think to re-audit this.
+     */
+    const source = opts.isDemo
+      ? 'demo'
+      : perf.source.provider === 'synthetic'
+        ? 'fixture'
+        : opts.outcome === 'artifact'
+          ? 'artifact'
+          : opts.isPrivate
+            ? 'private'
+            : 'repository';
     trackPerformanceStart(source, `${perf.source.owner}/${perf.source.name}`, perf.stats.commits);
   }
   releaseCamera();
@@ -1457,7 +1486,7 @@ async function runIngest(
       void cache.putDataset({ slug: repo.slug, dataset: ds, fetchedAt: Date.now(), tip: ds.source.selectedTipSha });
       void cache.touchRecent({ slug: repo.slug, name: repo.slug, lastOpened: Date.now(), commits: ds.commits.length }).then(refreshRecent);
     }
-    const perf = await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: result.outcome, isDemo: false });
+    const perf = await compileAndLoad(r, ds, { autoplay: opts.autoplay, startAt: opts.startAt, outcome: result.outcome, isDemo: false, isPrivate: opts.isPrivate });
     if (perf && result.outcome === 'rate-limited') store.banner.value = { kind: 'rate-limited', message: `${ds.coverage.summary} GitHub’s request limit was reached; it resets ${formatReset(result.resetAt)}.` };
     else if (perf && opts.scopeLabel && opts.since) store.banner.value = { kind: 'partial', message: `Showing ${opts.scopeLabel}. ${ds.coverage.summary}` };
   } catch (err) {
@@ -1483,6 +1512,10 @@ export async function playCachedPartial() {
   if (!partialDataset) return;
   const r = newRun();
   store.error.value = null;
+  // No `isPrivate` here, and not by omission: `partialDataset` is only ever
+  // set from `cache.getDataset`, and a private repository is never written
+  // there — so anything this path can reach is public by construction. If that
+  // ever stops being true, this is one of the places that has to change.
   await compileAndLoad(r, partialDataset, { autoplay: true, outcome: 'offline-cached', isDemo: false });
 }
 

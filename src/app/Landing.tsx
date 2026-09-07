@@ -174,13 +174,14 @@ export function Landing() {
             underneath. That second row was most of what made this area
             unreadable — a label, four names, another label, three more names,
             directly beneath a sentence of body copy. */}
-        <p class="ways">
+        <p class="ways" data-testid="ways">
           <span class="ways-label">{recent.length > 0 ? 'Again' : 'Try'}</span>
           {suggestions.map((s) => (
             <button
               key={s.key}
               type="button"
               title={s.title}
+              data-testid={`way-${s.key}`}
               onClick={() => {
                 store.input.value = s.target;
                 store.inputError.value = null;

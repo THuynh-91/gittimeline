@@ -93,9 +93,24 @@ test('a private history is watched but not written down', async ({ page }) => {
   }
 
   // And nothing to click on when you come back.
+  //
+  // This line was `expect(getByTestId('recent-list')).toHaveCount(0)`, and
+  // `recent-list` occurred exactly once in the whole repository — in the
+  // assertion. It passed for a public repository whose name *was* recorded and
+  // *was* painted on the landing page, which is precisely the situation it
+  // exists to catch. An assertion against a test id nothing carries is worse
+  // than no assertion: it reads as though it is holding something.
   await page.goto('/');
   await waitForReady(page);
-  await expect(page.getByTestId('recent-list')).toHaveCount(0);
+  const ways = page.getByTestId('ways');
+  await expect(ways).toBeVisible();
+  // The row is always there — it offers suggestions when there are no
+  // recents — so what is under test is what is *in* it. `title` carries the
+  // full slug and the visible label carries the bare name; check both.
+  await expect(ways, 'the private slug is not offered back').not.toContainText('widget');
+  const titles = await ways.locator('button').evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''));
+  expect(titles.join(' '), 'nor in any tooltip').not.toContain('acme/widget');
+  await expect(ways.locator('.ways-label'), 'and there is nothing to come back to').toHaveText('Try');
 });
 
 test('a public history in the same session still is', async ({ page }) => {

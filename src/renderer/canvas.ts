@@ -158,6 +158,17 @@ const MIN_LANE_PX = 26;
 const SLOW_FRAME_SECONDS = 0.1;
 
 /**
+ * How much of the closing frame's height the history has to occupy.
+ *
+ * The scale is uniform, so pulling back for a wide shot buys empty sky at the
+ * same rate it buys history. Measured on llvm at 1440x900 with no bound at
+ * all: 50 nodes in a 23-pixel band, a lit-pixel fraction of 0.00014 — the
+ * near-empty stage that the original width clamp existed to prevent and that
+ * two attempts at this shot walked back into from different directions.
+ */
+const MIN_TABLEAU_FILL = 0.3;
+
+/**
  * The widest shot a streamed performance may take, in world units.
  *
  * Not a taste decision: a windowed plan holds the pages around the playhead
@@ -440,6 +451,14 @@ export class StageRenderer {
     this.labelThreads = [];
     this.tipThreads = [];
     this.nodesByX = new Int32Array(0);
+    // The closing shot's cached box, and where it had eased to. Both describe
+    // a plan that is being replaced. The cache key covers the plan hash, the
+    // window key, the node count and the two end positions — a reviewer's
+    // question was whether a swap could change what is resident without
+    // changing any of those five, and clearing here means the answer stops
+    // mattering.
+    this.tableauShot = null;
+    this.tableauEase = null;
     this.edgeBuckets = [];
     this.longEdges = [];
     this.longLevels = [];
@@ -969,6 +988,8 @@ export class StageRenderer {
 
   /** Cached, because the tableau holds still for hundreds of frames. */
   private tableauShot: { key: string; box: { minX: number; minY: number; maxX: number; maxY: number } } | null = null;
+  /** Where the closing shot has eased to, so it is a move and not a cut. */
+  private tableauEase: { cx: number; cy: number; fit: number } | null = null;
 
   /**
    * The box the closing tableau should frame.
@@ -985,44 +1006,76 @@ export class StageRenderer {
    * mdBook and 404,602..13,866,081 on kubernetes — the whole history in both
    * cases, which is not what is drawable. Node positions are.
    */
-  private tableauBox(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  private tableauBox(cueW: number, aspect: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const p = this.perf;
     const n = this.nodesByX.length;
     if (!p || !n) return null;
     const firstX = p.nodes[this.nodesByX[0]!]!.x;
     const headX = p.nodes[this.nodesByX[n - 1]!]!.x;
-    const key = `${p.planHash}:${p.window?.key ?? 'whole'}:${n}:${firstX}:${headX}`;
+    const key = `${p.planHash}:${p.window?.key ?? 'whole'}:${n}:${firstX}:${headX}:${cueW.toFixed(1)}:${aspect.toFixed(3)}`;
     if (this.tableauShot?.key === key) return this.tableauShot.box;
+
+    /** The vertical extent of the nodes within `width` of the newest one. */
+    const heightWithin = (width: number): { minY: number; maxY: number } => {
+      const left = headX + width * 0.05 - width;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = n - 1; i >= 0; i--) {
+        const nd = p.nodes[this.nodesByX[i]!]!;
+        if (nd.x < left) break;
+        if (nd.y < minY) minY = nd.y;
+        if (nd.y > maxY) maxY = nd.y;
+      }
+      if (!Number.isFinite(minY)) return { minY: p.bounds.minY, maxY: p.bounds.maxY };
+      const pad = Math.max(40, (maxY - minY) * 0.09);
+      return { minY: minY - pad, maxY: maxY + pad };
+    };
 
     const span = Math.max(1, headX - firstX);
     const wanted = span * 1.06 + 80;
-    const width = p.window ? Math.min(wanted, MAX_VIEW_WIDTH) : wanted;
+    let width = p.window ? Math.min(wanted, MAX_VIEW_WIDTH) : wanted;
+
+    /**
+     * How wide the shot may be before the picture is mostly sky.
+     *
+     * The scale is uniform, so a frame `w` wide is `w / aspect` tall in world
+     * units whatever the content does. A 16,000-unit shot of a history whose
+     * lanes occupy 1,300 units is 87% empty, and measured on llvm it was 50
+     * nodes drawn into a 23-pixel band in a 900-pixel window — a lit-pixel
+     * fraction of 0.00014, which is the near-empty stage the original width
+     * clamp existed to prevent. Wide is not the same as informative.
+     *
+     * So the width is bounded by the height as well as by residency: the
+     * content has to fill at least `MIN_TABLEAU_FILL` of the frame. It costs
+     * coverage — mdBook goes from 11.6% of its history to about 6% — and buys
+     * a frame with the history in it rather than above and below it. Entries
+     * with tall endings keep a wide shot; entries with a single thread at the
+     * end get a tight one, which is what each of them needs.
+     *
+     * Two passes, because the height depends on the width it is measured over
+     * and the width then depends on the height. The second pass only ever
+     * narrows, so it cannot oscillate.
+     */
+    const legible = (h: number) => (h * aspect) / MIN_TABLEAU_FILL;
+    const first = heightWithin(width);
+    width = Math.min(width, legible(first.maxY - first.minY));
+
+    // Never narrower than the shot the director had already composed: `cue.w`
+    // is the tail's own framing, and a tableau tighter than that is a step
+    // backwards rather than a wide shot. Applied before the box is positioned,
+    // so the margin past the head stays five per cent of whatever the final
+    // width turns out to be — taking the maximum afterwards left a small
+    // repository with 10.6% of empty stage on its right.
+    width = Math.max(cueW, width);
+
     // A margin past the newest commit, so the head sits inside the frame
     // rather than exactly on its edge. A proportion and not a fixed number of
     // units, because the shot's width varies by four orders of magnitude
     // across the shelf.
     const maxX = headX + width * 0.05;
     const minX = maxX - width;
-
-    // Vertically, only the lanes that are in the shot. The whole plan's `minY`
-    // and `maxY` describe every lane the history ever opened, which on a long
-    // one is a far taller box than the ending occupies — and a taller box is a
-    // wider shot, which is how the horizontal cap gets undone from the other
-    // direction.
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (let i = n - 1; i >= 0; i--) {
-      const nd = p.nodes[this.nodesByX[i]!]!;
-      if (nd.x < minX) break;
-      if (nd.y < minY) minY = nd.y;
-      if (nd.y > maxY) maxY = nd.y;
-    }
-    if (!Number.isFinite(minY)) {
-      minY = p.bounds.minY;
-      maxY = p.bounds.maxY;
-    }
-    const padY = Math.max(40, (maxY - minY) * 0.09);
-    const box = { minX, maxX, minY: minY - padY, maxY: maxY + padY };
+    const { minY, maxY } = heightWithin(width);
+    const box = { minX, maxX, minY, maxY };
     this.tableauShot = { key, box };
     return box;
   }
@@ -1137,13 +1190,45 @@ export class StageRenderer {
      * has no window and no floor, and still frames its whole history.
      */
     const tableau = cue.state === 'tableau' && this.zoomLock == null;
-    let bounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
+    let bounds: { cx: number; cy: number } | null = null;
     let fit: number;
-    const shot = tableau ? this.tableauBox() : null;
+    const shot = tableau ? this.tableauBox(cue.w, safeW / Math.max(1e-6, safeH)) : null;
     if (shot) {
-      bounds = shot;
-      fit = Math.min(safeW / Math.max(cue.w, shot.maxX - shot.minX), safeH / Math.max(cue.h, shot.maxY - shot.minY));
+      /**
+       * Eased into, because nothing else smooths it.
+       *
+       * The compiled cue swings into the tail over about two seconds of
+       * spring. This box does not go through the spring — it is computed at
+       * draw time and was going straight into `view.cx`, so the frame the
+       * state turned `tableau` moved the camera 6,566 to 6,874 world units in
+       * one frame, 87x to 176x the median dolly, with a 5.6x to 6.6x zoom step
+       * in the same frame, and then held exactly still for 97 to 127 frames.
+       * A cut followed by a freeze, which is what the previous attempt at this
+       * shot also did and what the one before it was fixing.
+       *
+       * The filter is the one `rescueCue` already uses: `1 - exp(-dt * k)`,
+       * the analytic solution rather than an Euler step, so it is stable at
+       * any frame length and it still snaps when `dtReal` is zero — which is
+       * what a seek looks like, and a seek should arrive rather than glide.
+       */
+      const target = { cx: (shot.minX + shot.maxX) / 2, cy: (shot.minY + shot.maxY) / 2, fit: Math.min(safeW / (shot.maxX - shot.minX), safeH / (shot.maxY - shot.minY)) };
+      if (dtReal <= 0) this.tableauEase = target;
+      else if (!this.tableauEase) {
+        // Entering the shot during playback: start from where the camera is,
+        // not from where it is going.
+        this.tableauEase = { cx: this.view.cx, cy: this.view.cy, fit: this.view.scale };
+      } else {
+        const k = 1 - Math.exp(-dtReal * 2.4);
+        this.tableauEase = {
+          cx: this.tableauEase.cx + (target.cx - this.tableauEase.cx) * k,
+          cy: this.tableauEase.cy + (target.cy - this.tableauEase.cy) * k,
+          fit: this.tableauEase.fit + (target.fit - this.tableauEase.fit) * k,
+        };
+      }
+      bounds = { cx: this.tableauEase.cx, cy: this.tableauEase.cy };
+      fit = this.tableauEase.fit;
     } else {
+      this.tableauEase = null;
       fit = Math.min(safeW / cue.w, safeH / cue.h);
     }
     // Never so far out that two lanes become one line.
@@ -1169,7 +1254,24 @@ export class StageRenderer {
     // A tableau is exempt. That shot exists to show the whole shape at once
     // and is the one place a hairline picture is the point.
     const laneFloor = cue.state === 'tableau' ? 0 : MIN_LANE_PX / LANE_GAP;
-    const scale = Math.max(this.perf?.window?safeW/MAX_VIEW_WIDTH:0,(this.zoomLock ?? fit) * this.smoothedPunch, this.zoomLock != null ? 0 : laneFloor);
+    /**
+     * No punch on a tableau, and no width floor either.
+     *
+     * `smoothedPunch` scales the frame and not the box, so above a punch of
+     * about 1.11 the frame becomes narrower than the box it was composed from
+     * and the newest commit — placed at 95% across — leaves the screen
+     * entirely. Kubernetes's compiled tableau cues reach 1.1178; only the
+     * smoothing lag kept the head in frame at sixteen frames a second, and a
+     * faster machine would have lost it. A tableau is a still, so the punch it
+     * inherited from the phrase before it has nothing to express anyway.
+     *
+     * The `MAX_VIEW_WIDTH` floor is also skipped here, because `tableauBox`
+     * has already applied it to the box — reapplying it to the scale would
+     * override the height bound and put the letterboxing straight back.
+     */
+    const scale = shot
+      ? fit
+      : Math.max(this.perf?.window ? safeW / MAX_VIEW_WIDTH : 0, (this.zoomLock ?? fit) * this.smoothedPunch, this.zoomLock != null ? 0 : laneFloor);
     this.view = {
       scale,
       ox: s.left + safeW / 2,
@@ -1178,8 +1280,8 @@ export class StageRenderer {
       // Centred on whatever is being framed. Widening the shot to the bounds
       // while still pointing at the cue's centre shows the whole width from
       // the wrong place, which is a different way of missing most of it.
-      cx: bounds ? (bounds.minX + bounds.maxX) / 2 : cue.x,
-      cy: bounds ? (bounds.minY + bounds.maxY) / 2 : cue.y,
+      cx: bounds ? bounds.cx : cue.x,
+      cy: bounds ? bounds.cy : cue.y,
     };
     // The head of the main line is kept between three fifths and seven tenths
     // of the way across.

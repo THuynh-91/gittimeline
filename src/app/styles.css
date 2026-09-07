@@ -1010,11 +1010,34 @@ a {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Centred by auto margins rather than by `justify-content`, so that a card
+     taller than the window can be scrolled to instead of clipped.
+
+     `justify-content: center` with `overflow-y: auto` does not work: the
+     scrollable region does not extend past the start edge, so the overflow is
+     centred and *both* ends are cut off with nothing to scroll. At 320x568
+     that put the scope dialog's title above the top of the window and its
+     Close button below the bottom — a dialog that cannot be closed by its own
+     button. Auto margins absorb the free space when there is some and collapse
+     to nothing when there is not, which is the behaviour wanted in both cases.
+
+     First-child top and last-child bottom only, so the children stay together
+     rather than being spread down the column. */
+  justify-content: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 8;
   padding: 24px;
   background: rgba(7, 8, 12, 0.72);
   text-align: center;
+}
+
+.prelude > *:first-child {
+  margin-top: auto;
+}
+
+.prelude > *:last-child {
+  margin-bottom: auto;
 }
 
 .prelude .name {
@@ -1870,7 +1893,28 @@ kbd {
   }
 
   .repo-id {
-    display: none;
+    /* Was `display: none`, which took the coverage badge with it — the app's
+       own statement about whether this history is the whole of the repository
+       or part of it. A truth claim is not furniture, and this is the width a
+       phone has and also the width a 1280px window has at 200% zoom, where
+       there is no shortage of screen at all.
+
+       It is also the only remaining route to Help at this width, because the
+       badge opens it and `.icon-btn.optional` is hidden just below.
+
+       The name truncates; the badge does not shrink. */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .repo-id strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 38vw;
   }
 
   .band {
@@ -3184,6 +3228,26 @@ kbd {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+    /* The base rule sets a fixed `height`, to match the player's top bar to
+       the pixel. Here the bar becomes a column and the nav wraps, so a fixed
+       height means the content is simply drawn outside the box — 56px below
+       it, on top of whatever the page put there. What the page put there is
+       "← Back".
+
+       Adding "Your repositories" to the nav is what made this matter: the nav
+       went from four items to five, from 347px wide to wider than a phone, and
+       the wrap it forces covered Back at every width from 320 to 436px on all
+       three engines — iPhone SE through 15 Pro Max and every Android reference
+       width. Playwright would not even click it: the point resolved to the
+       sign-in button that had landed on top. Signed out at 320-324px this was
+       already true, so the geometry is not new, but the band it applies to was
+       two widths and is now the whole phone range, on a page that only exists
+       for people who have connected.
+
+       The bar is `position: sticky` on a page, so growing it moves the content
+       down rather than overlapping it. */
+    height: auto;
+    min-height: var(--chrome-top);
   }
 
   .landing-nav {
