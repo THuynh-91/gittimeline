@@ -10,6 +10,14 @@ several of the wrong ones were wrong in an instructive way.
 
 Evidence lives in `docs/reviews/`.
 
+Follow-up, 2026-09-07: the [controlled clock investigation](reviews/main-line-clock-investigation.md)
+found that removing the aggregate weight ceiling alone leaves Node's eleven-year
+transition at approximately 77 milliseconds. A quiet-gap rule overwrites the
+aggregate weight. The [resolution plan](main-line-resolution-plan.md) recommends
+correcting activity classification and temporal aggregation, alongside closing-shot
+legibility. These are investigated recommendations, not shipped changes; the
+original proposal below is retained as the record that prompted the experiment.
+
 ---
 
 ## 1. The problem, as reported

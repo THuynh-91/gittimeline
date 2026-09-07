@@ -88,6 +88,13 @@ nodes, public-apis three, React one.
 
 ## 3. What to change
 
+**Follow-up evidence, 2026-09-07:** the [controlled clock investigation](reviews/main-line-clock-investigation.md)
+tested option A below. Removing the ceiling alone does **not** give Node's long
+span a visible duration: it remains approximately 77 milliseconds because the
+quiet-gap rule overwrites the weighted step. The original alternatives below are
+retained for context; use the [resolution plan](main-line-resolution-plan.md) for
+the current recommendation.
+
 The first version of this document recommended sizing a beat by
 `log2(memberCount)`, sub-linearly, "instead of one beat per visible node
 regardless". **That is already implemented.**

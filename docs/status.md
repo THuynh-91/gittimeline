@@ -10,6 +10,79 @@ time anyone read it again.
 
 ---
 
+## 0. Paused here — 2026-09-07
+
+Work stopped mid-investigation, deliberately. This section says exactly what
+was in flight so it can be picked up without re-deriving it.
+
+### In flight and interrupted
+
+An assessment of `proposal-present-and-parallel.md` was stopped after a few
+minutes. It wrote its harness to `x/rev3/` (`plan-analysis.mjs`, `patch.mjs`,
+`serve.mjs`, `build.config.mjs`) and had begun writing to `x/rev3/out`. **It
+produced no report.** One line came back before it stopped:
+
+> "Zero overhang at the closing frame on the whole kubernetes plan."
+
+**Treat that as a lead, not a finding.** It is one sentence, from one
+repository, from an interrupted run that verified nothing, had not touched
+Linux, and had not compared the streamed plan against the whole one — which was
+the comparison that would have made it mean something.
+
+If it holds, it is the most consequential result in this whole thread: it would
+mean the lines a viewer sees running past MASTER at the closing frame are a
+**resident-window artefact**. A streamed plan holds only the pages around the
+playhead, so main's *resident* head can be earlier than other threads' resident
+nodes, and MASTER's plate is then not where main actually ends. Nothing would be
+wrong with the layout at all — only with what is loaded at that moment — and
+the fix would be different from, and cheaper than, either candidate the
+proposal recommends. It is question 1 of that proposal's §6 and the reason it
+was asked first.
+
+### Open questions nobody has answered
+
+`proposal-present-and-parallel.md` §6 lists six. All six are still open.
+
+### Two proposals awaiting a decision, neither implemented
+
+- `proposal-main-line.md` — main as a reference. Two items shipped, two
+  recommended, three rejected on measurement, six questions left open.
+- `proposal-present-and-parallel.md` — mark the present; stop main looking
+  overtaken. Written from a viewer's question that reframed the problem: the
+  complaint is not that lines are hard to tell apart, it is that **the present
+  is not marked anywhere on the stage**, so the only labelled landmark near the
+  right — MASTER's plate — gets read as "now".
+- `main-line-resolution-plan.md` — Codex's four-step plan. Supersedes this
+  document's earlier recommendation to raise the `3.2` weight clamp, which was
+  tested and does not work: Node stays at ~77 ms for 11.35 years because a
+  quiet-gap rule overwrites the weighted step.
+
+### One prototype exists and is not in the codebase
+
+Codex's closing-camera change — six lines, applied by a build transform, in
+`x/large-repo-camera-build.mjs`. It takes closing-shot lane spacing from
+2.71–14.36 px to a flat 26 px across six viewports, measured over 48 samples.
+It shows about 23% as much history in the closing frame as the current build,
+so it trades coverage for legibility — the opposite trade from the closing-shot
+work earlier the same day. Before/after images in `x/large-repo-browser/` and
+`x/large-repo-camera/`. Two servers were left up for comparison and have since
+been stopped.
+
+It does **not** address branches running past MASTER, and by making the lines
+distinguishable it makes them more prominent. Its anchor is `shot.maxX` — the
+rightmost resident *node*, under a variable named `headX` — which is usually a
+branch commit, so MASTER lands at about 65% of the frame rather than the
+intended 90%.
+
+### Verification debt
+
+No full three-engine suite run covers everything committed on 2026-09-07. The
+last complete run was 127 passed / 4 skipped / 0 failed and predates the final
+several commits; browser-free gates (tsc, eslint, 180 unit, 27 worker) are green
+as of the pause. Attempts at a full run were killed twice for host memory.
+
+---
+
 ## 1. Blocked on a person, not on work
 
 | | what | cost |
