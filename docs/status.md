@@ -53,20 +53,57 @@ five more that a review found while checking them.
 
 ### Playback
 
-3. **Contributor selection is imprecise.** Reported by the user, still
+3. **A weak device is choppy, though no longer slow.** The clock holds real
+   time now — see the device matrix below — but a configuration that needs both
+   rungs of the quality ladder is watching two to six frames a second. Measured
+   worst cases: Chromium at 20x CPU throttling and 2x device pixels, 2.43 fps;
+   WebKit on an iPhone 12 descriptor, 3.55 fps; WebKit at 1280x720 and dpr 2,
+   5.65 fps. Nothing stalls and nothing drifts, but nobody would call it an
+   animation. The only lever left is drawing at a fraction of the CSS
+   resolution and upscaling, which no setting currently permits.
+4. **Contributor selection is imprecise.** Reported by the user, still
    unexplained. The hit test is a flat 14px screen radius scanned over every
    node with no preference for the main line or for what is already focused. A
    deferral fix was built, A/B'd (13,191 vs 13,327 lit pixels — noise) and
    reverted, so the cause is something else and I do not yet know what.
-4. **Two frames a second is still two frames a second.** The clock keeps real
-   time down to that now and the quality ladder gives up the bloom and the dust
-   before it — but a device that needs both steps is watching a slideshow. The
-   remaining lever would be drawing at a fraction of the CSS resolution and
-   upscaling, which no setting currently permits.
 
 ---
 
-## 3. Fixed today, with the measurement that proved it
+## 3. Is it smooth on other devices?
+
+Yes, in the sense that mattered: **the show runs at the speed it says it does
+everywhere it was measured.** 38 cells, one continuous run of at least 60
+seconds each, sampled across three engines, seven viewports, device pixel
+ratios 1 and 2, CPU throttling at 4x/8x/20x, spoofed 2-core and 2GB hardware,
+the Pixel 5 and iPhone 12 device descriptors with touch, and four different
+histories including a five-minute continuous run into the middle of Linux.
+
+| | |
+|---|---|
+| Clock rate against real time | **0.96x to 1.00x in every cell** |
+| Worst cell | Chromium, 2x device pixels, 20x CPU throttling: 0.9601x at 2.43 fps |
+| Frames over one second | **0, anywhere** |
+| Console errors | **0, anywhere** |
+| Five-minute continuous Linux run, mid-history | 0.9929x, 17.9 fps, one buffering period |
+| kubernetes, all three engines | 1.00x, 22 to 26 fps |
+
+For comparison, the same conditions before the frame-clamp fix read 0.41x on
+WebKit and 0.49x on Firefox — a history whose card said 2 min 43 taking 6 min
+37. That is gone.
+
+What is *not* fixed is the frame rate itself on the weakest configurations,
+which is item 3 above. Real time holding at 2.4 fps means the show is honest
+and choppy rather than dishonest and smooth, which is the better of the two but
+is not the same as good.
+
+Two caveats, because this is a partial run: the matrix was stopped early to
+save usage, so the 300%-zoom cells and the memory-growth series were never
+collected, and no reduced-motion or camera-still cell was measured. The raw
+data is `x/dev1/results/main.jsonl`; the harness is beside it.
+
+---
+
+## 4. Fixed today, with the measurement that proved it
 
 - **A private history is no longer written to the device.** `RepoProbe.isPrivate`
   had been declared, documented and carried out of the probe for exactly this
@@ -148,7 +185,7 @@ five more that a review found while checking them.
 
 ---
 
-## 4. Ideas worth deciding on
+## 5. Ideas worth deciding on
 
 **A packaged whole-history overview.** A streamed entry can never show its real
 shape, because only a window is resident. A decimated skeleton of the whole
@@ -186,7 +223,7 @@ known cause.
 
 ---
 
-## 5. How to test this without lying to yourself
+## 6. How to test this without lying to yourself
 
 Written down because every wrong claim in this project's history came from one
 of these, and most came from the first two.
