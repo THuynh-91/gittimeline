@@ -279,9 +279,18 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
      * time page, so geometry and clock now tend to be refetched together
      * rather than in alternation.
      *
-     * `width` is per side and the worker clamps it to [6000, 16000], so this
-     * asks for 24,000 units in total against a 96 MB resident budget, and the
-     * budget still refuses anything it cannot hold.
+     * `width` is per side and the worker clamps it to
+     * `[6000, MAX_FETCH_WIDTH]`, which is 48,000 — so this asks for up to
+     * 96,000 units in total against a 96 MB resident budget, and the budget
+     * still refuses anything it cannot hold.
+     *
+     * That ceiling used to be 16,000, the same number as `MAX_VIEW_WIDTH`, and
+     * this comment went on saying so for a day after the stutter work raised
+     * it. Worth being exact about, because the two limits are easy to conflate
+     * and are not the same claim: `MAX_VIEW_WIDTH` is how wide a frame may be,
+     * this is how much may be held around it, and reasoning about the closing
+     * shot as though only 16,000 units were resident sent that fix the wrong
+     * way twice.
      */
     const perf = await source.prepare(windowRequest(t, live, manual, opts.jumped === true));
     if (source !== catalogSource || generation !== windowGeneration) return;
