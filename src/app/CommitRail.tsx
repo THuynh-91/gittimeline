@@ -59,14 +59,30 @@ export function CommitRail() {
   const items = advanceFeed(feed, perf, t, last);
   if (!items.length) return null;
 
+  /**
+   * Captured when it becomes a drag, and not before.
+   *
+   * This captured the pointer on every `pointerdown`, which meant the
+   * `pointerup` was delivered to this `<aside>` and the browser's click target
+   * became the common ancestor rather than the button under the finger. So
+   * every per-commit button in here was dead: clicking a commit in the ledger
+   * seeked to nothing and selected nothing, on a control that is pointer-only
+   * to begin with. The drag worked; the thing the buttons are for did not.
+   *
+   * Capture from the first move past the threshold instead. A plain click then
+   * never captures at all and reaches its button; a real drag captures from
+   * the moment it is one, which is what capture is for.
+   */
   const onDown = (e: PointerEvent) => {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onMove = (e: PointerEvent) => {
     const d = drag.current;
     if (!d) return;
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 24) d.moved = true;
+    if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 24) {
+      d.moved = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
   };
   const onUp = (e: PointerEvent) => {
     const d = drag.current;

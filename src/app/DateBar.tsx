@@ -27,6 +27,18 @@ export function DateBar() {
   const era = travelling ? undefined : perf.eras.find((e) => t >= e.performanceStart && t < e.performanceEnd);
   const ev = travelling ? null : store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;
+  /**
+   * Branches open at this moment: started, and not yet finished.
+   *
+   * `end` is the plan's end for a thread that never lands — a live ref tip, or
+   * one that simply went quiet — and counting those as open is the honest
+   * reading rather than a convenience. They are open; nobody merged them.
+   *
+   * Not counted while travelling, because the clock is parked at the end and
+   * the number would describe the last frame rather than the picture on
+   * screen — the same reason the era and the caption go quiet above.
+   */
+  const open = travelling ? 0 : perf.threads.reduce((n, th) => n + (th.start <= t && th.end > t ? 1 : 0), 0);
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
@@ -50,6 +62,29 @@ export function DateBar() {
           {era && ev ? ' · ' : ''}
           {ev ? ev.caption : ''}
         </span>
+        {/* How many branches are open at this moment.
+
+            The one number this app can put on screen that a topological tool
+            cannot. gitk, `git log --graph` and GitHub's network graph all draw
+            main as a trunk by construction, so "how much was happening at
+            once" is not a question they can be asked — there is no *now* in a
+            topological view to ask it about. Here x is the clock, so it is a
+            reading rather than a calculation.
+
+            `maxConcurrentThreads` has been in `stats` since the compiler was
+            written and only ever appeared in Help as a repository-wide
+            maximum. This is the live value, which is the interesting one: the
+            peak tells you what the project was once capable of, and this tells
+            you what it is doing while you watch.
+
+            Beside the date rather than in the transport, which the proposal
+            suggested, because the transport is controls and this line is
+            already the app's answer to "what is true at this moment". */}
+        {open > 0 && (
+          <span class="open-threads" data-testid="open-threads" title={`${open} of ${perf.stats.threads} branches are open at this point; the busiest moment of this history has ${perf.stats.maxConcurrentThreads}.`}>
+            <b>{open}</b> {open === 1 ? 'branch' : 'branches'} open
+          </span>
+        )}
         <span class="clock" data-testid="clock">
           {partial && <span class="partial-flag">partial history</span>}
           {/* Against the length of what is actually playing. A span is a

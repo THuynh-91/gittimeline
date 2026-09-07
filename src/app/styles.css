@@ -3920,3 +3920,22 @@ kbd {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+/* How many branches are open right now — see `DateBar`. Sits with the clock,
+   quiet, because it is a reading and not a headline. */
+.open-threads {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.open-threads b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+/* How long the selected thread was open. Part of the thread pill's line, so it
+   reads as a fact about that thread rather than a separate row. */
+.thread-life {
+  color: var(--text-dim);
+  font-size: 12px;
+}
