@@ -564,6 +564,41 @@ export class StageRenderer {
         }
       }
     }
+    // The overhang: work that has happened but that main has not received.
+    //
+    // A different quantity from `beyondWorld` above, and the one a viewer
+    // actually asks about. `beyondWorld` counts nodes right of the *playhead*
+    // and must be zero — nothing is drawn before it happens. This counts nodes
+    // right of *main's head* and left of the playhead, which is committed work
+    // waiting on a merge, and is the one thing this app can show that a
+    // topological tool cannot. Their thread endings say which it is: `merged`
+    // means it landed later, `tip` means it never did.
+    // Main's newest *landed commit*, not `spineTip` — that returns the drawn
+    // end of the stroke, which has no impact on it to compare against.
+    const spine = p.threads[0];
+    let tip: NodeGeom | null = null;
+    if (spine) {
+      for (let i = spine.nodeIdxs.length - 1; i >= 0; i--) {
+        const nd = p.nodes[spine.nodeIdxs[i]!];
+        if (nd && nd.impact <= t + 0.001) { tip = nd; break; }
+      }
+    }
+    let overhang = 0;
+    const endings: Record<string, number> = {};
+    let worstOverhangSeconds = 0;
+    if (tip) {
+      for (let i = n - 1; i >= 0; i--) {
+        const nd = p.nodes[this.nodesByX[i]!]!;
+        if (nd.x <= tip.x) break; // sorted by x, so the rest are behind main
+        if (nd.impact > t + 0.001) continue;
+        overhang++;
+        const th = p.threads[nd.threadIdx];
+        const key = th ? th.ending : 'unknown';
+        endings[key] = (endings[key] ?? 0) + 1;
+        const gap = nd.impact - tip.impact;
+        if (gap > worstOverhangSeconds) worstOverhangSeconds = gap;
+      }
+    }
     return {
       t,
       resident: n,
@@ -575,6 +610,17 @@ export class StageRenderer {
       beyondWorld,
       worst,
       nonMonotone,
+      mainHeadX: tip ? tip.x : null,
+      mainHeadImpact: tip ? tip.impact : null,
+      // Screen x of the playhead, whether or not the rule is drawn there.
+      // `showPresent` governs the drawing; the position is a property of the
+      // clock and the camera, so a test can ask for it with the mark off —
+      // which is the default, and the state that needs guarding.
+      presentScreenX: worldX == null ? null : this.worldToScreen(worldX, tip ? tip.y : 0).x,
+      mainHeadScreenX: tip ? this.worldToScreen(tip.x, tip.y).x : null,
+      overhang,
+      overhangEndings: endings,
+      worstOverhangSeconds,
       unlandedInFrame,
       minUnlandedScreenX,
       unlandedSample,

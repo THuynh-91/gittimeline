@@ -37,6 +37,26 @@ declare global {
       music: { title: string; artist: string; playing: boolean } | null;
       bodies(): Array<{ edge: number; kind: string; body: string; thread: number; contributor: number; progress: number; x: number; y: number }>;
       events(type?: string): Array<{ type: string; impact: number; start: number; end: number; caption: string }>;
+      spineLabel: { x: number; y: number } | null;
+      presentMark: { nowX: number; tipX: number; tipY: number } | null;
+      /** See `StageRenderer.presentAudit`. Only the fields tests read. */
+      presentAudit(): {
+        t: number;
+        worldX: number | null;
+        beyondWorld: number;
+        edgesPastRule: number;
+        fitResidualWorld: number;
+        nonMonotone: number;
+        overhang: number;
+        overhangEndings: Record<string, number>;
+        worstOverhangSeconds: number;
+        mainHeadX: number | null;
+        mainHeadImpact: number | null;
+        presentScreenX: number | null;
+        mainHeadScreenX: number | null;
+        maxLandedX: number;
+        viewScale: number;
+      } | null;
       setToken(t: string | null): void;
       /** Walk the pages again with everything already cached. */
       refetch(): void;
