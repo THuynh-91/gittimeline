@@ -169,6 +169,16 @@ const SLOW_FRAME_SECONDS = 0.1;
 const MIN_TABLEAU_FILL = 0.3;
 
 /**
+ * The fewest pixels the stage will draw per CSS pixel.
+ *
+ * The picture is hairlines — a 1px spine and a lane glow a few pixels wide —
+ * and they survive a bit over a third of the pixels but stop reading as lines
+ * much below that. Reached only by a device that has already given up its
+ * second device pixel, the bloom and the dust.
+ */
+const MIN_RENDER_SCALE = 0.6;
+
+/**
  * The widest shot a streamed performance may take, in world units.
  *
  * Not a taste decision: a windowed plan holds the pages around the playhead
@@ -283,7 +293,37 @@ export class StageRenderer {
    * recovery is evidence for the step rather than against it.
    */
   private qualityEarned: Quality = 'full';
-  private slowFrames = 0;
+  /**
+   * The share of recent frames that were slow, as an exponential average.
+   *
+   * Was a count of *consecutive* slow frames, and twenty of them in a row is a
+   * stricter condition than it looks. A device that is mostly too slow but
+   * occasionally manages a quick frame — one where the camera barely moved, or
+   * a garbage collection happened to land between frames — resets the counter
+   * every time, so the ladder stalls on exactly the machines it exists for.
+   * Measured: Chromium under 8x and 20x CPU throttling reached the 0.75 rung
+   * and then sat there for another 45 seconds at 3 to 5 frames a second,
+   * because a run of twenty unbroken slow frames never happened.
+   *
+   * A share is the honest form of the question — "is this device struggling
+   * most of the time" — and it is robust to one frame going the other way.
+   */
+  private slowShare = 0;
+  /** Frames since the last step, so the ladder cannot spend two rungs at once. */
+  private sinceStep = 0;
+  /**
+   * Frames drawn of the current performance, so the ladder cannot judge a
+   * device by its first seconds.
+   *
+   * A load is a burst of slow frames for reasons that are nothing to do with
+   * the device: the compile finishes on this thread, the first paint touches
+   * every cache, and the geometry is being built. The original comment here
+   * said as much and relied on "twenty consecutive" to rule it out, which it
+   * does not — a load easily produces twenty in a row. Stepping there costs a
+   * canvas reallocation at the worst moment for it, and headless WebKit
+   * crashed twice on load while this was reachable.
+   */
+  private framesSeen = 0;
   private frameEma = 0;
   private view: ViewTransform = { scale: 1, ox: 0, oy: 0, rotation: 0, cx: 0, cy: 0 };
   private smoothedPunch = 1;
@@ -459,6 +499,11 @@ export class StageRenderer {
     // mattering.
     this.tableauShot = null;
     this.tableauEase = null;
+    // A new performance is a new load, and the frames it spends arriving say
+    // nothing about the device.
+    this.framesSeen = 0;
+    this.slowShare = 0;
+    this.sinceStep = 0;
     this.edgeBuckets = [];
     this.longEdges = [];
     this.longLevels = [];
@@ -625,10 +670,26 @@ export class StageRenderer {
     // "this frame was capped" — and when the clamp moved to half a second to
     // stop slow frames turning the show into slow motion, a test written
     // against the old value would have silently stopped counting anything.
-    if (dtReal >= SLOW_FRAME_SECONDS) this.slowFrames++;
-    else this.slowFrames = 0;
-    if (this.slowFrames < 20 || this.frameEma < 0.06) return;
-    this.slowFrames = 0;
+    this.slowShare = this.slowShare * 0.9 + (dtReal >= SLOW_FRAME_SECONDS ? 0.1 : 0);
+    this.sinceStep++;
+    this.framesSeen++;
+    /**
+     * Sustained, and about the device rather than the moment.
+     *
+     * Three conditions, each ruling out a different false positive. Seven
+     * frames in ten being slow says the trouble is the norm and not an
+     * incident — a seek, a first paint, a compile finishing on the same thread
+     * and a tab coming back from the background are all bursts of slow frames
+     * and none of them mean the device is slow. The frame average being over
+     * 60ms says the slow frames are actually slow, so a run of merely mediocre
+     * ones does not accumulate towards the same conclusion as a run of
+     * terrible ones. And thirty frames since the last step stops the ladder
+     * spending every rung it has in one bad second.
+     */
+    if (this.framesSeen < 90 || this.slowShare < 0.7 || this.frameEma < 0.06 || this.sinceStep < 30) return;
+    this.slowShare = 0;
+    this.sinceStep = 0;
+
     // Resolution first, because it is the cheapest thing to give up and the
     // largest saving — and unlike the bloom, nobody chose it.
     if (this.dpr > 1) {
@@ -637,12 +698,44 @@ export class StageRenderer {
       this.resize();
       return;
     }
-    // Then the picture itself, a notch at a time. `minimal` is the floor: past
-    // it there is nothing left to remove that is not the history.
+
+    // Then the picture itself, a notch at a time.
     const next = this.quality === 'full' ? 'reduced' : this.quality === 'reduced' ? 'minimal' : null;
-    if (!next) return;
-    this.qualityEarned = next;
-    renderProfile.counts.qualitySteppedDown++;
+    if (next) {
+      this.qualityEarned = next;
+      renderProfile.counts.qualitySteppedDown++;
+      this.resize();
+      return;
+    }
+
+    /**
+     * And then fewer pixels than the window has, upscaled by the compositor.
+     *
+     * `minimal` used to be the floor, on the reasoning that past it there is
+     * nothing left to remove that is not the history. True of *effects*, and
+     * it left the worst devices with nowhere to go: a 1x display already at
+     * `minimal` had spent every rung, and the measurements say that is not a
+     * hypothetical — headless WebKit at 1280x720 runs the demo at 5.65 frames
+     * a second, an iPhone 12 descriptor at 3.55, and Chromium under 20x CPU
+     * throttling at 2.43. Those are honest, in real time, and unwatchable.
+     *
+     * Fill is quadratic in this number, so 0.75 is a little over half the
+     * pixels and 0.6 is a little over a third. The picture gets soft — this is
+     * the same trade as a game dropping its render scale — and it is only
+     * reached by a device that has already given up the bloom, the dust and
+     * its second device pixel, so the alternative on offer is not a sharp
+     * picture but a slideshow.
+     *
+     * 0.6 is the floor because the stage is drawn in hairlines: the lane glow
+     * and the 1px spine survive a bit over a third of the pixels and stop
+     * reading as lines much below it. `resize` needs no change — `dpr` has
+     * always been a multiplier on the backing store, and nothing in the
+     * renderer assumed it was at least one.
+     */
+    const under = this.dprEarned > 0.75 ? 0.75 : this.dprEarned > MIN_RENDER_SCALE ? MIN_RENDER_SCALE : null;
+    if (under == null) return;
+    this.dprEarned = under;
+    renderProfile.counts.dprSteppedDown++;
     this.resize();
   }
 
