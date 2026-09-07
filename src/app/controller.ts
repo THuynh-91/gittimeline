@@ -1436,7 +1436,11 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
       // just clutter over the stage; the banners that stay are the ones
       // reporting that the history is partial, which the viewer needs.
       // Re-fetching lives in Settings.
-      if (perf) toast(`Loaded from your last visit — no requests used.`);
+      // "No requests used" was true and is not any more: `confirmStillPublic`
+      // spends exactly one, to ask whether this is still a history we may
+      // hold. Worth saying rather than rounding to nothing, because the
+      // sentence is a claim about somebody's rate limit.
+      if (perf) toast(`Loaded from your last visit — one request, to check it is still readable.`);
       return;
     }
   }

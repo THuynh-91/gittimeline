@@ -120,9 +120,18 @@ test.describe('public repository ingestion (mocked GitHub)', () => {
     const firstVisit = mock.requests.length;
     expect(firstVisit).toBeGreaterThan(0);
 
-    // Second visit: nothing already fetched should be fetched again.
+    // Second visit: the history comes off the disk, and the only thing GitHub
+    // is asked is whether we may still have it.
+    //
+    // This used to assert *no* requests at all. It costs one now, deliberately
+    // — `confirmStillPublic`. The privacy decision was otherwise taken once,
+    // at the moment a history was first fetched, and never revisited: a
+    // repository watched while public and then made private kept its dataset,
+    // kept its name on the landing page and replayed with no token. One
+    // unconditional request for the repository itself is the cheapest way to
+    // find out, and the number is pinned here so it stays one.
     await open();
-    expect(mock.requests.length).toBe(firstVisit);
+    expect(mock.requests.length, 'one request, to ask whether this is still readable').toBe(firstVisit + 1);
     // Said once, in passing — a permanent bar for a thing that went right is
     // clutter over the stage.
     await expect(page.locator('.toast')).toContainText('from your last visit');

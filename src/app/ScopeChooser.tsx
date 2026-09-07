@@ -54,7 +54,7 @@ function runtime(seconds: number): string {
  * had no `aria-modal`, no trap, focus starting on `<body>`, no backdrop
  * dismissal and no test id on its Cancel, which is why no test pressed it.
  */
-function useModalCard(card: { current: HTMLDivElement | null }) {
+function useModalCard(card: { current: HTMLDivElement | null }, open: boolean) {
   useEffect(() => {
     const root = card.current;
     if (!root) return;
@@ -90,7 +90,12 @@ function useModalCard(card: { current: HTMLDivElement | null }) {
       root.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, [card]);
+    // `open` and not just the ref: `ScopeChooser` is mounted for the whole
+    // life of the app and returns null until there is a question, so an
+    // effect keyed on the ref alone ran once, with `card.current` still null,
+    // and never again. Focus then started on `<body>` and the trap was never
+    // installed — which is the state the dialog had been in all along.
+  }, [card, open]);
 }
 
 function CatalogScope({ q }: { q: CatalogQuestion }) {
@@ -159,7 +164,7 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   const dragged = useRef(false);
   const card = useRef<HTMLDivElement>(null);
 
-  useModalCard(card);
+  useModalCard(card, true);
   const [dragging, setDragging] = useState(false);
   // Pointer capture sends every subsequent event to the track, so the year
   // under the pointer has to be found by hit-testing rather than read off the
@@ -326,7 +331,7 @@ export function ScopeChooser() {
   // below does nothing until the ref is attached, which is exactly when there
   // is a dialog to hold focus inside.
   const card = useRef<HTMLDivElement>(null);
-  useModalCard(card);
+  useModalCard(card, !!scope);
   if (!scope) return null;
   // A catalog entry is the same question about a history that has already been
   // composed, so it is answered from measurements rather than from a forecast.
@@ -338,6 +343,19 @@ export function ScopeChooser() {
   const years: number[] = [];
   if (firstYear && lastYear) for (let y = lastYear; y >= firstYear && years.length < 12; y--) years.push(y);
   const approx = estimatedCommits ? estimatedCommits.toLocaleString('en-US') : 'a great many';
+  /**
+   * Backing out of the question, which is not the same as cancelling the load.
+   *
+   * Cancel here called `cancel()` alone, and `cancel()` does not touch
+   * `store.scope` — so the dialog stayed on screen, over the landing page it
+   * had just sent the viewer back to. The only reason nobody noticed is that
+   * the button had no test id, so nothing had ever pressed it. Escape went
+   * through `dismissScope` and worked; the button did not.
+   */
+  const backOut = () => {
+    cancel();
+    dismissScope();
+  };
   const requests = estimatedCommits ? Math.ceil(estimatedCommits / 100) : null;
   // What the whole history could cost to watch, at the pace that keeps every
   // arrival visible. Nothing is truncated, so this is never an under-estimate —
@@ -361,7 +379,7 @@ export function ScopeChooser() {
       // than `click`, so a drag that starts on the card and ends on the
       // backdrop does not dismiss it.
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) cancel();
+        if (e.target === e.currentTarget) backOut();
       }}
     >
       <div class="error-card scope-card" ref={card} tabIndex={-1}>
@@ -401,7 +419,7 @@ export function ScopeChooser() {
           <button type="button" class="btn" onClick={() => chooseScope({ since: null, until: null, label: 'the full history' })} data-testid="scope-full">
             {reason === 'dense' && fullMinutes ? `Everything · up to ${fullMinutes} min` : 'Everything'}
           </button>
-          <button type="button" class="btn" onClick={cancel} data-testid="scope-cancel">
+          <button type="button" class="btn" onClick={backOut} data-testid="scope-cancel">
             Cancel
           </button>
         </div>

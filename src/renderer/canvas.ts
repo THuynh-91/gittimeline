@@ -1055,10 +1055,21 @@ export class StageRenderer {
      * Two passes, because the height depends on the width it is measured over
      * and the width then depends on the height. The second pass only ever
      * narrows, so it cannot oscillate.
+     *
+     * Only for a windowed plan. A plan held whole — the demo, and anything
+     * compiled from a pasted URL — is meant to end on the whole history, and
+     * that promise is older and more important than this bound: applying it
+     * there took the closing frame from 100% of a generated history to 48%,
+     * which two tests caught immediately and were right to. The letterboxing
+     * is the correct trade when the alternative is not showing the history at
+     * all. On a streamed entry no such promise is available, because only a
+     * window is resident — so the frame may as well be one worth looking at.
      */
     const legible = (h: number) => (h * aspect) / MIN_TABLEAU_FILL;
-    const first = heightWithin(width);
-    width = Math.min(width, legible(first.maxY - first.minY));
+    if (p.window) {
+      const first = heightWithin(width);
+      width = Math.min(width, legible(first.maxY - first.minY));
+    }
 
     // Never narrower than the shot the director had already composed: `cue.w`
     // is the tail's own framing, and a tableau tighter than that is a step

@@ -1890,6 +1890,26 @@ kbd {
 
   .topbar {
     padding: 0 12px;
+    gap: 8px;
+  }
+
+  /* The left-hand group gives way; the controls do not.
+     Restoring `.repo-id` here put 245px of repository name into a 390px bar
+     and pushed `.icon-buttons` to x=369 with a width of 114 — 93px past the
+     right edge, with Settings entirely off-screen. `body` is
+     `overflow: hidden`, so `scrollWidth` reported no overflow at all and
+     Playwright called the button visible while the click landed on nothing.
+     The same shape of fault as the repository rows: content outside the window
+     with nothing saying so. */
+  .topbar > div:first-of-type {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    gap: 10px;
+  }
+
+  .icon-buttons {
+    flex: 0 0 auto;
   }
 
   .repo-id {
@@ -1914,7 +1934,11 @@ kbd {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 38vw;
+    /* Whatever is left after the wordmark and the controls have taken theirs.
+       A fixed 38vw was 148px of a 390px bar on top of a 114px control cluster
+       and a 100px wordmark, which does not fit and was not made to. */
+    min-width: 0;
+    flex: 0 1 auto;
   }
 
   .band {

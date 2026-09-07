@@ -74,6 +74,25 @@ test.describe('fallbacks, accessibility and layouts', () => {
     await expect(page.getByTestId('timeline')).toBeVisible();
     const box = (await page.getByTestId('timeline').boundingBox())!;
     expect(box.width).toBeGreaterThan(300);
+
+    /**
+     * Every control in the top bar inside the window, checked directly.
+     *
+     * `scrollWidth - clientWidth` above cannot see this: `body` is
+     * `overflow: hidden`, so content pushed past the right edge produces no
+     * scrollable overflow and the measurement reads zero. Restoring the
+     * repository name to this bar put `.icon-buttons` at x=369 with a width of
+     * 114 in a 390px window — Settings entirely off-screen — and the only
+     * symptom was the click below timing out after a minute while Playwright
+     * reported the button visible, enabled and stable.
+     */
+    const width = page.viewportSize()!.width;
+    for (const id of ['mute-button', 'settings-button']) {
+      const b = (await page.getByTestId(id).boundingBox())!;
+      expect(b.x, `${id} is not off the left`).toBeGreaterThanOrEqual(-1);
+      expect(b.x + b.width, `${id} is not off the right`).toBeLessThanOrEqual(width + 1);
+    }
+
     await page.getByTestId('settings-button').click();
     await expect(page.getByTestId('panel-settings')).toBeVisible();
   });
