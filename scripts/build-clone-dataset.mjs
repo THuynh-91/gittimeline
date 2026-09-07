@@ -177,7 +177,10 @@ const source = {
 
 console.log('normalizing...');
 const t2 = Date.now();
-const dataset = buildDataset(source, raw, rawRefs, { reportedCommitCount: total, truncated: raw.length < total });
+// `bounded`, because `--max` is a decision and not a failure: the count below
+// comes from `git rev-list` on the clone, so the summary must not credit it to
+// GitHub.
+const dataset = buildDataset(source, raw, rawRefs, { reportedCommitCount: total, truncated: raw.length < total, bounded: raw.length < total });
 const { streamArtifact } = await server.ssrLoadModule('/src/export/stream.ts');
 await server.close();
 console.log(`normalized ${dataset.commits.length.toLocaleString('en-US')} commits in ${((Date.now() - t2) / 1000).toFixed(1)}s`);

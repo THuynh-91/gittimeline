@@ -149,7 +149,26 @@ visibly change the performance. Verify by loading the artifact and checking
 
 ---
 
-## 3. Google Analytics, with the privacy rules actually enforced
+## ~~3. Google Analytics, with the privacy rules actually enforced~~ — DONE
+
+Built as specified: `src/app/analytics.ts` is the only thing that touches
+`gtag`, the catalog index is an allowlist rather than a blocklist, Do Not Track
+and `navigator.globalPrivacyControl` are both honoured, and the whole module
+no-ops when `VITE_GA_ID` is unset so local development and CI send nothing.
+Unit tests cover the allowlist and a Playwright test asserts no Google endpoint
+receives a pasted slug.
+
+One gap survived to 2026-09-07 and is worth recording, because it is the exact
+failure mode the task called out as the one that matters. The module declared a
+`'private'` source and documented why a private repository must not contribute
+even its size — "a coarse number attached to a private repository is a
+fingerprint of it" — and *nothing ever passed that value*. So a private
+repository took the `'repository'` branch and went out as
+`{repository: "a public repository", commit_bucket: "100–1k"}`. Inert on the
+shipped build because there is no measurement id, which is why it survived: it
+would have started the day one was set. Fixed, with a test.
+
+### Original spec, for the record
 
 **Why it matters:** asked for in `task-additional.md`. The privacy constraint
 there is not decoration — the app's whole promise is that repository data never
@@ -262,7 +281,15 @@ reproduce, and say how.
 
 ---
 
-## 6. Raise `--max` handling so a bounded build is honest
+## ~~6. Raise `--max` handling so a bounded build is honest~~ — DONE
+
+`CoverageHints` gained a `bounded` flag and `build-clone-dataset.mjs` sets it,
+so a deliberately limited build now reads "This build was limited to the newest
+N of M; earlier topology was not included" instead of crediting the count to a
+service that was never asked. Both wordings are tested, and they differ only by
+the flag, so removing the branch fails the test.
+
+### Original note, for the record
 
 Small, and it needs care rather than effort.
 

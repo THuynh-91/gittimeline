@@ -30,6 +30,19 @@ export interface CoverageHints {
   warnings?: string[];
   /** True when pagination stopped before reaching the roots. */
   truncated?: boolean;
+  /**
+   * True when the *build* was deliberately limited, rather than a fetch having
+   * run out.
+   *
+   * `scripts/build-clone-dataset.mjs --max N` takes the N newest commits, which
+   * leaves exactly the shape a rate-limited API fetch produces — a contiguous
+   * run ending at the tip with one boundary at the far end — and that shape is
+   * why the two shared their wording. But the total then comes from
+   * `git rev-list` on a local clone, so "GitHub reports about M" credited a
+   * service that was never asked, in a sentence the app presents as coverage
+   * truth.
+   */
+  bounded?: boolean;
 }
 
 export function buildDataset(source: RepositorySource, raw: RawCommitRecord[], rawRefs: RawRef[], hints: CoverageHints = {}): Dataset {
@@ -138,6 +151,8 @@ export function buildDataset(source: RepositorySource, raw: RawCommitRecord[], r
   else if (complete && source.provider !== 'github')
     summary = `${commits.length.toLocaleString('en-US')} commits — a generated history, not a real repository.`;
   else if (complete) summary = `${commits.length.toLocaleString('en-US')} commits loaded — the full known history from GitHub.`;
+  else if (hints.bounded)
+    summary = `${commits.length.toLocaleString('en-US')} recent commits loaded. This build was limited to the newest ${commits.length.toLocaleString('en-US')}${reported && reported > commits.length ? ` of ${reported.toLocaleString('en-US')}` : ''}; earlier topology was not included.`;
   else summary = `${commits.length.toLocaleString('en-US')} recent commits loaded; earlier topology is not yet available${reported && reported > commits.length ? ` (GitHub reports about ${reported.toLocaleString('en-US')})` : ''}.`;
   if (!complete && commits.length) warnings.push('Partial history: commits whose parents were not loaded are shown as boundaries, never as roots.');
 
