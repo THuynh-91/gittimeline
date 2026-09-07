@@ -3685,12 +3685,28 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 420px;
+  /* A flat 420px hid one and a half rows at exactly twelve entries — while the
+     filter, which only appeared above twelve, was still absent. So the first
+     size at which the list needed searching was the one size that could
+     neither be seen nor searched. Both ends of that are fixed: this grows with
+     the window, and the filter arrives earlier. */
+  max-height: min(60vh, 620px);
   overflow-y: auto;
 }
 .myrepos-list button {
   width: 100%;
   display: flex;
+  /* Wraps. It was a non-wrapping row inside a container whose `overflow-y:
+     auto` computes `overflow-x` to `auto`, so at 320px the "today" column sat
+     129px past the right edge with 709px of the row hidden inside a nested
+     scroller — and the *page* reported zero horizontal scroll, so there was no
+     hint at all that anything was missing. Reachable by dragging sideways
+     inside a 226px box, which on a touch device is competing with the page's
+     own scroll.
+
+     A repository name can be a hundred characters, so the name is also allowed
+     to shrink and truncate rather than push everything else out. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -3709,10 +3725,17 @@ kbd {
 .myrepo-name {
   font-family: var(--mono);
   font-size: 12.5px;
+  /* Shrinks and truncates: a 100-character name ran 480px off the edge. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
 }
 .myrepo-when {
   margin-left: auto;
-  color: var(--text-faint);
+  /* 2.62:1 at 11px. Same colour, same argument as the tags above. */
+  color: var(--text-dim);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -3720,7 +3743,13 @@ kbd {
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  /* `--text-faint` measured 2.62:1 here on all three engines, at 10px, which
+     is not large text under any reading of the guideline. This project has
+     already had this argument with itself and won it — the URL placeholder
+     carries a comment refusing the same colour because "faint is a decoration
+     a placeholder cannot afford". A status on a repository you are choosing
+     between is not a decoration either. */
+  color: var(--text-dim);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 1px 7px;
@@ -3728,6 +3757,16 @@ kbd {
 .myrepo-tag.private {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+/* The language is not a status, and was styled exactly like one — so a row
+   read `all-four PRIVATE FORK ARCHIVED RUST`, four identical pills of which
+   one is a fact about the code and three are facts about the repository. */
+.myrepo-tag.lang {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  border-color: transparent;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* Your repositories, on their own page. Opaque, because the demo performs
@@ -3770,8 +3809,13 @@ kbd {
   margin: 0 0 10px;
   color: var(--text-dim);
 }
-.repos-note p.dim {
-  color: var(--text-faint);
+/* Deliberately not `--text-faint`, which measured 2.62 to 3.24:1 across the
+   three engines and made the guarantee this page exists to make the least
+   legible sentence on it. `.dim` is gone from the markup as well as from here;
+   the paragraph is a promise, and a promise set in decoration reads as a
+   disclaimer. */
+.repos-note p:last-of-type {
+  color: var(--text-dim);
 }
 .signin-next {
   margin: 24px 0 4px;
@@ -3837,4 +3881,18 @@ kbd {
   .event-what {
     grid-column: 1;
   }
+}
+
+/* Something went wrong reading the list — see `explain()` in `MyRepos.tsx`.
+   Backed and spaced like the empty state, because a sentence about a failure
+   floating in the card reads as part of the list. */
+.myrepos-error p {
+  margin: 0 0 12px;
+  color: var(--text);
+  max-width: 62ch;
+}
+.myrepos-error .btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }

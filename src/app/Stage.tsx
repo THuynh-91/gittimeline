@@ -108,13 +108,27 @@ function CanvasStage() {
   };
 
   const manual = store.manualCamera.value;
+  /**
+   * On every page but the player, this is wallpaper.
+   *
+   * The demo keeps performing behind the landing page, the sign-in page, the
+   * shelf and the repositories list, and the canvas was `role="img"` with a
+   * full description on all of them — so the accessibility tree for "Your
+   * repositories" opened with *"gittimeline/an example history: 2401 commits,
+   * 383 threads, 318 merges…"*. A screen-reader user's first and most frequent
+   * encounter with these pages was a fabricated repository they had not asked
+   * for. It is described where it is the subject and hidden where it is the
+   * background.
+   */
+  const isStage = store.mode.value === 'player';
   return (
     <div class="stage">
       <canvas
         ref={ref}
         class={manual ? 'grab' : ''}
-        role="img"
-        aria-label={stageLabel()}
+        role={isStage ? 'img' : 'presentation'}
+        aria-hidden={isStage ? undefined : 'true'}
+        aria-label={isStage ? stageLabel() : undefined}
         data-testid="stage-canvas"
         onPointerDown={onDown}
         onPointerMove={onMove}

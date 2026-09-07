@@ -64,7 +64,11 @@ const upload=async(name,data,hash,mutable=false)=>{
     // new object. An existing object must match exactly; it is never replaced.
     const old=await s3.send(new HeadObjectCommand({Bucket:bucket,Key}));
     if(old.Metadata?.sha256===hash && old.ContentLength===data.length) return;
-    throw new Error(`Refusing to overwrite immutable object: ${name}`);
+    // The 412 is part of the story and not noise: it says the conditional
+    // create was refused because the object exists, and the check above then
+    // says the existing one differs. Both facts are needed to work out what
+    // happened, so the first is carried along rather than dropped.
+    throw new Error(`Refusing to overwrite immutable object: ${name}`, { cause: e });
   }
 };
 try {

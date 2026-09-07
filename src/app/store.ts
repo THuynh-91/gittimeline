@@ -360,6 +360,21 @@ const ANNOUNCE_GAP_MS = 2500;
  * and a half seconds is a control that appears not to have worked.
  */
 export function announce(message: string, immediate = false) {
+  /**
+   * Only the page that is performing gets to narrate.
+   *
+   * The caption stream runs off the demo behind every page, so this live
+   * region was reading *"3 commits pass as one span (2025-09-17 → 2025-09-21)"*
+   * at somebody browsing their own repositories, unprompted, about a history
+   * that does not exist. There is exactly one live region in the app and it
+   * was describing the wallpaper.
+   *
+   * `immediate` is how a control says what it just did — "Events panel open",
+   * "Thread main selected" — and those happen on their own page and are always
+   * wanted. It is the performance's own commentary that has to stay on the
+   * stage.
+   */
+  if (!immediate && store.mode.peek() !== 'player') return;
   const now = Date.now();
   const wait = immediate ? 0 : ANNOUNCE_GAP_MS - (now - announceAt);
   if (wait <= 0) {

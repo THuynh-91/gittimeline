@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './muted';
 import { waitForReady, stageHash, silenceWebkit } from './helpers';
 
 // WebKit takes no mute switch, so the soundtrack is refused rather than

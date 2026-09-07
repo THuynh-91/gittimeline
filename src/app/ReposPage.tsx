@@ -22,7 +22,10 @@ export function ReposPage() {
   return (
     <div class="page repos-page" data-testid="repos-page">
       <SiteBar page="repos" />
-      <div class="page-inner">
+      {/* A `<main>`, so the page can be skipped into. There was none, on any
+          of these pages, which leaves a screen-reader user walking the site
+          bar every time. */}
+      <main class="page-inner">
         <button type="button" class="page-back" onClick={showLanding} data-testid="repos-back">
           ← Back
         </button>
@@ -59,21 +62,24 @@ export function ReposPage() {
         {/* Said here as well as on the sign-in page, because this is where
             somebody will be looking for a private repository and not finding
             one. An absence with no explanation reads as a bug. */}
-        <section class="repos-note">
-          <h2>Why a private repository is not in this list</h2>
+        {/* Named, so it is exposed as a region and can be jumped to. A
+            `<section>` with no accessible name is not one. */}
+        <section class="repos-note" aria-labelledby="repos-note-heading">
+          <h2 id="repos-note-heading">Why a private repository is not in this list</h2>
           <p>
             The connection above asks GitHub for <b>no permissions</b>, so a private repository is invisible to it —
             GitHub answers as though it does not exist, which is the same answer a stranger gets. Making one visible
             is a separate, deliberate act: a read-only grant on <b>the specific repositories you choose</b>, revocable
             one at a time, and nothing else becomes visible with it.
           </p>
-          <p class="dim">
+          <p>
             Whatever is granted, a private history is never written to this device — not its commits, not its name,
             not in the list of what you have watched. Everything else you open is cached so it need not be downloaded
-            twice; a private repository is the exception, and Disconnect clears the rest.
+            twice; a private repository is the exception, and Disconnect clears the rest. If a repository you have
+            already watched stops being readable with this connection, the copy kept here is deleted.
           </p>
         </section>
-      </div>
+      </main>
       <SiteFoot />
     </div>
   );

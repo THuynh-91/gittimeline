@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './muted';
 import { routeGitHub, waitForReady } from './helpers';
 import { sampleRepo, type MockRepo } from '../fixtures/mock-github';
 

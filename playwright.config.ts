@@ -36,15 +36,25 @@ export default defineConfig({
    * Silence, at the audio output rather than in the app.
    *
    * The soundtrack is three recorded tracks and the demo autoplays, so a suite
-   * run — or any one-off probe — plays music out of the machine's speakers for
-   * as long as it lasts. Muting through the app's own `muted` setting would be
-   * simpler and is not available: `fallback.spec.ts` asserts that setting
-   * moving false -> true -> false, so seeding it would be seeding the thing
-   * under test. These switches work below the DOM: `el.volume` and the stored
-   * settings behave exactly as they always did, and nothing comes out.
+   * run plays music out of the machine's speakers for as long as it lasts.
+   * Muting through the app's own `muted` setting would be simpler and is not
+   * available: `fallback.spec.ts` asserts that setting moving false -> true ->
+   * false, so seeding it would be seeding the thing under test.
    *
-   * WebKit has no equivalent launch switch, so it is muted a level up, by
-   * refusing the audio files themselves — see `tests/e2e/helpers.ts`.
+   * These switches silence the output device. Measured with the element the
+   * app actually uses — `new Audio()`, never in the document, so querying the
+   * DOM for it finds nothing — the track plays at `volume` 0.354 on all three
+   * engines regardless; Chromium and Firefox simply do not pass it to the
+   * speakers. **WebKit has no equivalent switch and was therefore audible.**
+   * It was being covered by a helper each spec had to remember to call, and
+   * two of fifteen did — which held only until a spec that plays something was
+   * added to the WebKit project.
+   *
+   * So the real silencing is a fixture: `tests/e2e/muted.ts`, imported instead
+   * of `@playwright/test`. It refuses `HTMLMediaElement.volume` on every page
+   * on every engine, below the app, so the stored settings and the volume
+   * control behave exactly as they always did. These two switches stay as
+   * belt and braces.
    */
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: { args: ['--mute-audio'] } } },

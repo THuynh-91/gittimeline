@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './muted';
 
 /**
  * The browser's own Back button.

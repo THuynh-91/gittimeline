@@ -105,7 +105,12 @@ export function App() {
           {view.showControls && <Transport />}
         </div>
       )}
-      {showPlayer && banner && !chromeHidden && (
+      {/* Not gated on the player. A banner is retired when the stage is left
+          — see the mode effect in `controller.ts` — so anything still here is
+          about where you are, including the one case that has to explain why
+          you were sent back: a history that has been taken off the device
+          because GitHub stopped answering for it. */}
+      {banner && !(showPlayer && chromeHidden) && (
         <div class={`banner ${banner.kind}`} role="status">
           <span>{banner.message}</span>
           {banner.action && (

@@ -1042,7 +1042,12 @@ function loadPerformance(perf: CompiledPerformance, dataset: Dataset | null, opt
   audio.setPerformance(perf);
   syncRendererSettings();
   startLoop();
-  announce(`${perf.source.owner}/${perf.source.name} is ready: ${perf.stats.commits} commits, ${perf.stats.threads} threads, ${Math.round(perf.duration)} seconds.`, true);
+  // Not for the backdrop. The same flag that keeps a demo out of the analytics
+  // keeps it from introducing itself: "an example history is ready: 2401
+  // commits, 383 threads" was being announced at somebody arriving on the
+  // sign-in page or their own repositories list, about a history that does not
+  // exist and that they had not asked to see.
+  if (!opts.backdrop) announce(`${perf.source.owner}/${perf.source.name} is ready: ${perf.stats.commits} commits, ${perf.stats.threads} threads, ${Math.round(perf.duration)} seconds.`, true);
   if (opts.autoplay) {
     if (store.mode.value === 'landing') player.play(); // soft performance behind the form: no audio, no mode change
     else play();
@@ -1165,6 +1170,12 @@ effect(() => {
   lastMode = mode;
   if (mode === 'landing') {
     audio.suspend();
+    // Banners describe the performance that was on the stage, so leaving the
+    // stage retires them. They used only to be *rendered* in the player, which
+    // came to the same thing until something needed to say why it had sent
+    // somebody back here — and then found its message unrenderable. Cleared on
+    // the way in, so anything set afterwards survives.
+    store.banner.value = null;
     startLandingDemo();
   } else {
     syncAudioToPlayback();
@@ -1332,6 +1343,66 @@ export function chooseScope(choice: { since: string | null; until: string | null
   void runIngest(pending.repo, { autoplay: pending.autoplay, tip: pending.tip ?? null, startAt: pending.startAt, since: choice.since, until: choice.until, scopeLabel: choice.label, isPrivate: pending.isPrivate });
 }
 
+/**
+ * Ask GitHub whether a history we already hold is still one we may hold.
+ *
+ * The fast path above serves a cached dataset without a single request, which
+ * is the whole point of it — reading a repository you watched yesterday should
+ * cost nothing. But it also means the privacy question is answered once, at
+ * the moment the history was first fetched, and never asked again. A
+ * repository watched while it was public and then made private stayed on the
+ * disk, stayed in the recents row on the landing page, and replayed with no
+ * token at all.
+ *
+ * So: serve immediately, and ask afterwards. One request, unconditional and
+ * uncached, for the repository itself — the same call the probe makes and the
+ * one small response that reveals nothing but visibility. If the answer is
+ * that it is private now, or 404, which is the answer GitHub gives a caller
+ * who may not see it, everything about it comes off the device and the
+ * performance stops with a sentence saying why.
+ *
+ * It is one view later than perfect. Nothing can do better without asking
+ * before serving, which would cost a request on every revisit and break
+ * offline playback — and the person watching is, in this scenario, the person
+ * who changed the setting. What this protects is the next person to open the
+ * tab.
+ *
+ * Network failure is not an answer. Offline is the case the cache exists for,
+ * and a repository must not be evicted because a train went into a tunnel.
+ */
+async function confirmStillPublic(repo: RepoRef): Promise<void> {
+  let stillOurs: boolean;
+  try {
+    const res = await fetch(repo.apiUrl, {
+      headers: { Accept: 'application/vnd.github+json', ...(store.token.peek() ? { Authorization: `Bearer ${store.token.peek()!}` } : {}) },
+      cache: 'no-store',
+    });
+    if (res.status === 404 || res.status === 403 || res.status === 401) stillOurs = false;
+    else if (!res.ok) return;
+    else {
+      const meta = (await res.json()) as { private?: boolean };
+      stillOurs = meta.private !== true;
+    }
+  } catch {
+    return;
+  }
+  if (stillOurs) return;
+
+  await cache.clearRepository(repo.slug);
+  await refreshRecent();
+  // Only interrupt if this is still what is on screen. The check is slower
+  // than a click, and stopping a history somebody has since moved on from
+  // would be a jump scare about a repository they are no longer watching.
+  const showing = store.perf.peek()?.source;
+  if (!showing || `${showing.owner}/${showing.name}` !== repo.slug) return;
+  pause();
+  showLanding();
+  store.banner.value = {
+    kind: 'offline',
+    message: `${repo.slug} is no longer readable with this connection — it may have been made private or removed. The copy this device had kept has been deleted.`,
+  };
+}
+
 export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: string | null; startAt?: number; forceRefresh?: boolean } = {}): Promise<void> {
   const parsed = parseRepoUrl(input);
   if (!parsed.ok) {
@@ -1357,6 +1428,8 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
   if (!opts.forceRefresh) {
     const cached = await cache.getDataset(repo.slug);
     if (cached?.dataset?.commits.length) {
+      // Served first, checked second. See `confirmStillPublic`.
+      void confirmStillPublic(repo);
       const r0 = newRun();
       const perf = await compileAndLoad(r0, cached.dataset, { autoplay: opts.autoplay ?? true, startAt: opts.startAt, outcome: cached.dataset.coverage.completeness === 'exact' ? 'complete' : 'partial', isDemo: false });
       // Said once and gone. A permanent bar for a thing that went *right* is
@@ -1400,6 +1473,27 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
     const probe = await probeRepository(repo, probeClient, (priv) => (priv ? probeClient : probeCached));
     if (run?.id !== probeRun.id) return;
     isPrivate = probe.isPrivate;
+    /**
+     * If it is private now, remove whatever a previous visit left behind.
+     *
+     * The privacy decision used to be taken once, at the moment a history was
+     * fetched, and never revisited. So a repository watched while it was
+     * public and *then* made private kept its compiled dataset, its cached
+     * pages with their author e-mail addresses, and its name in the recents
+     * row the landing page paints in plain sight — and replayed from the disk
+     * with no token and no requests at all.
+     *
+     * Which is the argument this app already makes against caching a private
+     * history in the first place, word for word: keeping it would leave the
+     * history playable with no credential, so removing the app's access in
+     * GitHub would revoke nothing that had already been taken. Changing a
+     * repository's visibility in GitHub's settings is the other way people
+     * revoke, and it revoked nothing here.
+     *
+     * `ApiCache.clearRepository` had existed, complete and correct, with no
+     * callers anywhere. This is one of its two.
+     */
+    if (probe.isPrivate) await cache.clearRepository(repo.slug).then(refreshRecent);
     const tooBig = (probe.estimatedCommits ?? 0) > SCOPE_THRESHOLD;
     // Dense is not the same as large. A merge-heavy history can keep nearly
     // every commit on stage, because a junction only collapses when the branch
