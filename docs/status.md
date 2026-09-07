@@ -96,7 +96,16 @@ five more that a review found while checking them.
 
 ### Playback
 
-3. **A weak device is choppy, though no longer slow.** The clock holds real
+3. **Node.js spends 86% of its show on 2011–2014 and 2.4% on the decade
+   after.** Each year from 2017 to 2026 gets **0.007 seconds** — four tenths of
+   a frame. Not a general pacing fault: Chromium, LLVM and Kubernetes give
+   67%, 71% and 85% of their runtime to 2016 onward. The cause is that runtime
+   is allocated per *visible arrival*, so a stretch of history is paid for how
+   badly it aggregates rather than how much work it holds — and Node's 327
+   threads are concentrated in the io.js era while its later years are one long
+   collapsible run. Measured, diagnosed and three options written up in
+   `docs/pacing.md`; needs a republish, so it needs a decision first.
+4. **A weak device is choppy, though no longer slow.** The clock holds real
    time now — see the device matrix below — but a configuration that needs both
    rungs of the quality ladder is watching two to six frames a second. Measured
    worst cases: Chromium at 20x CPU throttling and 2x device pixels, 2.43 fps;
@@ -104,7 +113,7 @@ five more that a review found while checking them.
    5.65 fps. Nothing stalls and nothing drifts, but nobody would call it an
    animation. The only lever left is drawing at a fraction of the CSS
    resolution and upscaling, which no setting currently permits.
-4. **Contributor selection is imprecise.** Reported by the user, still
+5. **Contributor selection is imprecise.** Reported by the user, still
    unexplained. The hit test is a flat 14px screen radius scanned over every
    node with no preference for the main line or for what is already focused. A
    deferral fix was built, A/B'd (13,191 vs 13,327 lit pixels — noise) and
@@ -312,6 +321,15 @@ of these, and most came from the first two.
   Linux.
 - **Never measure timing next to another browser.** Five separate false
   failures in this project were another process on the machine.
+- **Do not read a number through the thing you are testing.** The mute fixture
+  faked the `volume` getter to 0 and refused the setter, so the element played
+  at 1.0 while answering 0 to the probe that was verifying it. A fresh realm is
+  no escape either: `addInitScript` runs in child frames, so the fake follows
+  you. Assert the accessor is native code before trusting what it says.
+- **Headless WebKit dies under sustained main-thread blocking.** "Target
+  crashed", reproduced four times, in any test that busy-waits inside
+  `page.evaluate` for tens of seconds. Not an app fault, but it means that
+  technique covers two engines and not three.
 - **Six-second samples test densities, not accumulation.** Twenty of them at
   twenty depths says nothing about what twelve hours does to the heap or to the
   1,440 page boundaries a full run crosses.
