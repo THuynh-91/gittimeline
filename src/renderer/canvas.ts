@@ -426,6 +426,13 @@ export class StageRenderer {
   private byImpact = new Int32Array(0);
   private landedPtr = 0;
   private landedT = -1;
+  /**
+   * Whether the clock is running, set by the frame loop each frame.
+   *
+   * The quality ladder reads it: a paused stage still draws, and frames spent
+   * holding a still picture say nothing about whether a device can perform.
+   */
+  live = false;
   /** Empty until a node lands: an all-zero box would drag the bounds to the origin. */
   private landed = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   private shopView: { cx: number; cy: number; scale: number } | null = null;
@@ -684,7 +691,17 @@ export class StageRenderer {
    * accumulate towards the same conclusion as a run of terrible ones.
    */
   private watchFrameRate(dtReal: number) {
-    if (dtReal <= 0) return;
+    /**
+     * Only while something is actually playing.
+     *
+     * The last commit claimed this wanted "ninety frames *of a performance*…
+     * so a step costs a canvas reallocation only once the show is actually
+     * running", and that was not what it did: `framesSeen` counted every frame
+     * drawn, and a paused stage still draws. With `play()` never called and
+     * the clock parked at zero it spent a rung within two seconds — judging a
+     * device on frames that were costing it nothing to hold still.
+     */
+    if (dtReal <= 0 || !this.live) return;
     this.frameEma = this.frameEma ? this.frameEma * 0.9 + dtReal * 0.1 : dtReal;
     // Ten frames a second, named here rather than inherited from the frame
     // loop's clamp. It used to be the clamp — `dtReal >= 0.0999` was reading

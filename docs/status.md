@@ -96,23 +96,35 @@ five more that a review found while checking them.
 
 ### Playback
 
-3. **Node.js spends 86% of its show on 2011–2014 and 2.4% on the decade
-   after.** Each year from 2017 to 2026 gets **0.007 seconds** — four tenths of
-   a frame. Not a general pacing fault: Chromium, LLVM and Kubernetes give
-   67%, 71% and 85% of their runtime to 2016 onward. The cause is that runtime
-   is allocated per *visible arrival*, so a stretch of history is paid for how
-   badly it aggregates rather than how much work it holds — and Node's 327
-   threads are concentrated in the io.js era while its later years are one long
-   collapsible run. Measured, diagnosed and three options written up in
-   `docs/pacing.md`; needs a republish, so it needs a decision first.
-4. **A weak device is choppy, though no longer slow.** The clock holds real
-   time now — see the device matrix below — but a configuration that needs both
-   rungs of the quality ladder is watching two to six frames a second. Measured
-   worst cases: Chromium at 20x CPU throttling and 2x device pixels, 2.43 fps;
-   WebKit on an iPhone 12 descriptor, 3.55 fps; WebKit at 1280x720 and dpr 2,
-   5.65 fps. Nothing stalls and nothing drifts, but nobody would call it an
-   animation. The only lever left is drawing at a fraction of the CSS
-   resolution and upscaling, which no setting currently permits.
+3. **Node.js gives 0.054% of its show to the decade from 2016**, and eleven of
+   its years get under 0.05 s each. **CPython is worse** — 0.305% for 2018
+   onward, twenty-two years under 0.05 s, and a 213,610 : 1 spread between its
+   fattest year and its thinnest — and React's 2016-onward share of 29.4% is
+   worse than Chromium's 71.2% or LLVM's 67.0%. Six of the twelve entries have
+   no thin year at all.
+
+   The cause on Node is **one aggregate**: `agg-0-462`, 36,848 members spanning
+   11.35 years, worth at most 3.2 beats because `compile.ts:263` clamps
+   `log2(memberCount) * 0.55` there. Its eleven "thin years" hold *zero*
+   visible nodes and are `mapMonotone` subdividing a single 0.077-second gap
+   between two consecutive commits. Full account in `docs/pacing.md`, including
+   how the first version of that document got three figures wrong. Needs a
+   republish — but raising the clamp is testable locally without publishing.
+4. **A weak device is choppy, though no longer slow, and the bottom rung may
+   be too low.** Measured before the render-scale rungs existed: Chromium at
+   20x CPU throttling and 2x device pixels, 2.43 fps; WebKit on an iPhone 12
+   descriptor, 3.55 fps; WebKit at 1280x720 and dpr 2, 5.65 fps. The ladder has
+   five rungs now and the last two draw below CSS resolution — 0.75 then 0.6 of
+   the window's pixels — which roughly doubled the frame rate at 8x throttling
+   and cut p95 frame time about threefold.
+
+   What is left is a device that spends every rung and is still at three to
+   five frames a second. **And 0.6 is probably too low.** Measured at the same
+   moment and camera: the 1px spine survives intact (peak 181.8 either way,
+   3px full width) but lane-pair modulation collapses from 0.455 to 0.060 —
+   87% — where lanes are five pixels apart, a difference of 2.7 levels out of
+   255. The floor was justified on the lane glow and only the spine was
+   checked.
 5. **Following a contributor: diagnosed, improved, and the improvement is
    unverified.** Reported as "select a contributor isn't too accurate to
    follow". The Help panel offers a list under "select one to follow their work
@@ -162,7 +174,7 @@ histories including a five-minute continuous run into the middle of Linux.
 
 | | |
 |---|---|
-| Clock rate against real time | **0.96x to 1.00x in every cell** |
+| Clock rate against real time | **0.92x to 1.00x.** 0.96 was the floor across the 38 cells; two later quiet runs inside the same grid read 0.924 and 0.930 per rung |
 | Worst cell | Chromium, 2x device pixels, 20x CPU throttling: 0.9601x at 2.43 fps |
 | Frames over one second | **0, anywhere** |
 | Console errors | **0, anywhere** |
@@ -174,7 +186,7 @@ WebKit and 0.49x on Firefox — a history whose card said 2 min 43 taking 6 min
 37. That is gone.
 
 What is *not* fixed is the frame rate itself on the weakest configurations,
-which is item 3 above. Real time holding at 2.4 fps means the show is honest
+which is item 4 above. Real time holding at 2.4 fps means the show is honest
 and choppy rather than dishonest and smooth, which is the better of the two but
 is not the same as good.
 
@@ -306,10 +318,13 @@ The goal is still worth keeping; this specification is not buildable as written,
 and building it first would have been building on top of the date bug above,
 which is what the complaint that motivated it actually was.
 
-**Speculative prefetch.** The worker cancels its previous request on every
-message, so the next window cannot be warmed while the current one plays. A
-separate speculative channel would remove the remaining stalls rather than
-making them rarer. A second worker was investigated and is not the answer: a
+**~~Speculative prefetch~~ — already built; this entry was stale.** It read
+"the worker cancels its previous request on every message, so the next window
+cannot be warmed while the current one plays". `catalog.worker.ts` has carried
+`warmAbort` as its own controller since the stutter work, under a comment
+titled "a speculative fetch, running beside the live one instead of replacing
+it"; `CatalogSource.warm()` exists and `controller.ts` calls it. The other half
+of the entry stands: a second worker was investigated and is not the answer — a
 warmed page answers in 100ms and a cold one also in 100ms, because the cost is
 plan assembly and structured clone rather than fetching, so a second worker
 would duplicate the cache and help nothing.
@@ -341,11 +356,19 @@ of these, and most came from the first two.
 - **A test that cannot fail proves nothing.** Revert the fix and watch the test
   go red before believing it. Two tests in this repository were passing against
   behaviour they did not exercise.
-- **Never `page.screenshot` or `canvas.toDataURL`** on the stage: it is
-  `desynchronized: true` and both hang above about 40k nodes. Use `drawImage`
-  into an `OffscreenCanvas` and `getImageData`, from a frame that is paused and
-  settled — `pause()`, wait for `buffering` to clear, wait 700-1400ms, then
-  three `requestAnimationFrame`s.
+- **Read pixels from a frame that is paused and settled** — `pause()`, wait for
+  `buffering` to clear, wait 700-1400ms, then three `requestAnimationFrame`s.
+- **This repository asserts two contradictory things about *how* to read them,
+  and one of them is misdirecting every future measurement.** This list said
+  "never `page.screenshot` or `canvas.toDataURL`; both hang above about 40k
+  nodes — use `drawImage` into an `OffscreenCanvas`", while
+  `tests/e2e/stage.spec.ts` does the opposite and explains why: "`drawImage`
+  never returned on Linux's 332,279 nodes … `toDataURL` does."
+  `large.spec.ts` and `focus.spec.ts` side with the doctrine. They cannot all
+  be right, and the contradiction survives because `stage.spec.ts` runs on the
+  177-commit demo where either method works. Settling it needs both tried on
+  Linux, which nobody has done. Until then, expect whichever you pick to hang
+  and have the other ready.
 - **Assert what you loaded.** `window.__gittimeline.source` beside every
   measurement. One probe measured the demo for an hour while labelling it
   Linux.

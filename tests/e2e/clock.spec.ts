@@ -207,12 +207,21 @@ test.describe('the performance clock', () => {
         })) as typeof window.requestAnimationFrame;
       await new Promise<void>((done) => {
         let n = 0;
-        const tick = () => (++n >= 170 ? done() : raf(tick));
+        const tick = () => {
+          // Keep the clock running. The ladder only counts frames while
+          // something is playing — a paused stage still draws, and frames
+          // spent holding a still picture say nothing about the device — and
+          // this fixture is about 25 seconds long, so at an eighth of a second
+          // a frame it would otherwise reach the end and stop being judged
+          // before the last rung was spent.
+          if (window.__gittimeline.time > window.__gittimeline.duration - 3) window.__gittimeline.seek(0);
+          return ++n >= 260 ? done() : raf(tick);
+        };
         raf(tick);
       });
       blocking = false;
       window.requestAnimationFrame = raf;
-    }, 120);
+    }, 110);
 
     const after = await scale();
     expect(after, `render scale went to ${after}`).toBeLessThan(1);

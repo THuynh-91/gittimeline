@@ -28,17 +28,26 @@ export function DateBar() {
   const ev = travelling ? null : store.caption.value;
   const d = hist != null && Number.isFinite(hist) ? new Date(hist) : null;
   /**
-   * Branches open at this moment: started, and not yet finished.
+   * Branches open at this moment: started, and not merged.
    *
-   * `end` is the plan's end for a thread that never lands — a live ref tip, or
-   * one that simply went quiet — and counting those as open is the honest
-   * reading rather than a convenience. They are open; nobody merged them.
+   * Read off `ending` rather than off `end`, and the difference is not
+   * cosmetic. The first version of this counted `start <= t && end > t` under
+   * a comment claiming that `end` is the plan's end for a thread that never
+   * lands. That is false on all thirteen plans: `duration - max(thread.end)`
+   * is exactly `CLOCK_TAIL` — 3.20s — for every one of them, and no thread
+   * ends at `duration`. So a live ref tip read as *closed* for the last 3.2
+   * seconds of every history, which is the stretch where the caption says
+   * "Present day".
+   *
+   * `ending` says what actually happened to it. A merged thread closes when it
+   * merges. A tip or a dormant one never closes, because nobody merged it —
+   * which is the honest reading and needs no arithmetic on the clock.
    *
    * Not counted while travelling, because the clock is parked at the end and
    * the number would describe the last frame rather than the picture on
    * screen — the same reason the era and the caption go quiet above.
    */
-  const open = travelling ? 0 : perf.threads.reduce((n, th) => n + (th.start <= t && th.end > t ? 1 : 0), 0);
+  const open = travelling ? 0 : perf.threads.reduce((n, th) => n + (th.start <= t && (th.ending !== 'merged' || th.end > t) ? 1 : 0), 0);
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
@@ -79,9 +88,18 @@ export function DateBar() {
 
             Beside the date rather than in the transport, which the proposal
             suggested, because the transport is controls and this line is
-            already the app's answer to "what is true at this moment". */}
+            already the app's answer to "what is true at this moment".
+
+            The tooltip says what the number counts and nothing else. It used
+            to add "the busiest moment of this history has N", from
+            `maxConcurrentThreads` — which counts threads with an edge *in
+            flight*, a different and much smaller quantity. Put in one sentence
+            the two read as a contradiction, and on seven of the nine shelf
+            entries it was a flat absurdity: "99 of 1033 branches are open at
+            this point; the busiest moment of this history has 16." Both
+            numbers were right, about different questions. */}
         {open > 0 && (
-          <span class="open-threads" data-testid="open-threads" title={`${open} of ${perf.stats.threads} branches are open at this point; the busiest moment of this history has ${perf.stats.maxConcurrentThreads}.`}>
+          <span class="open-threads" data-testid="open-threads" title={`${open} of this history's ${perf.stats.threads} branches have started by this point and have not been merged.`}>
             <b>{open}</b> {open === 1 ? 'branch' : 'branches'} open
           </span>
         )}

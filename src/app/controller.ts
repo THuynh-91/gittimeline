@@ -733,6 +733,9 @@ function frame(now: number) {
       }
     }
   }
+  // The ladder is only allowed to judge a device that is performing; see
+  // `StageRenderer.live`.
+  if (renderer) renderer.live = player.playing;
   player.advance(dt);
   // A span ends where it said it would. `player.loop` would wrap here, which
   // is a different promise from the one the card made, so the stop is here
