@@ -143,6 +143,15 @@ const DUST_COUNT = 90;
  */
 const MIN_LANE_PX = 26;
 
+/**
+ * Slow enough to count against the device: ten frames a second.
+ *
+ * Its own name because it was once the frame loop's `dt` clamp, and reading
+ * "was this frame capped?" as "is this device struggling?" only worked while
+ * the two numbers were the same one.
+ */
+const SLOW_FRAME_SECONDS = 0.1;
+
 
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -203,11 +212,13 @@ export class StageRenderer {
    * "full", the stage is sized at twice the device pixels in each direction,
    * and four times the fill lands on a CPU.
    *
-   * That is not merely a soft picture. `dt` in the frame loop is clamped to
-   * 0.1s, so below ten frames a second the performance clock advances slower
-   * than the wall clock and the whole show runs in slow motion — while the
-   * soundtrack, three recordings playing on their own clock, does not.
-   * Measured on this build at 1280x720 with the same demo:
+   * That is not merely a soft picture. It used to be slow motion as well: the
+   * frame loop clamped `dt` to 0.1s, so below ten frames a second the
+   * performance clock advanced slower than the wall clock and a history the
+   * card said ran 2 min 43 took 6 min 37. The clamp is half a second now, so
+   * real time survives down to two frames a second — but two frames a second
+   * is not a performance, which is why this still steps the resolution down.
+   * Measured at 1280x720 with the same demo, under the old clamp:
    *
    *     chromium  dpr 1   59.8 fps   1.00x     dpr 2   59.6 fps   1.00x
    *     webkit    dpr 1   15.0 fps   0.99x     dpr 2    4.2 fps   0.41x
@@ -538,10 +549,9 @@ export class StageRenderer {
   /**
    * Step the resolution down if the frames say the device cannot hold this one.
    *
-   * `dtReal` is the frame loop's own delta, already clamped to 0.1s — which is
-   * why the test is a count of clamped frames rather than a rate: at the cap,
-   * one frame arriving late and one frame arriving very late are the same
-   * number, and the count is the honest reading of "we are at the ceiling".
+   * The test is a count of frames slower than a tenth of a second rather than
+   * a frame rate, because what matters is a sustained run at the floor and not
+   * the average of a run and a recovery.
    *
    * Two seconds' worth in a row before anything changes. A seek, a first
    * paint, a compile finishing on the same thread and a tab coming back from
@@ -553,8 +563,12 @@ export class StageRenderer {
   private watchFrameRate(dtReal: number) {
     if (this.dpr <= 1 || dtReal <= 0) return;
     this.frameEma = this.frameEma ? this.frameEma * 0.9 + dtReal * 0.1 : dtReal;
-    // 0.1 is the clamp itself, so `>=` and not `>`.
-    if (dtReal >= 0.0999) this.slowFrames++;
+    // Ten frames a second, named here rather than inherited from the frame
+    // loop's clamp. It used to be the clamp — `dtReal >= 0.0999` was reading
+    // "this frame was capped" — and when the clamp moved to half a second to
+    // stop slow frames turning the show into slow motion, a test written
+    // against the old value would have silently stopped counting anything.
+    if (dtReal >= SLOW_FRAME_SECONDS) this.slowFrames++;
     else this.slowFrames = 0;
     if (this.slowFrames >= 20 && this.frameEma >= 0.06) {
       this.dprEarned = 1;
@@ -1297,7 +1311,20 @@ export class StageRenderer {
     }
     const cue = sampleCamera(p.camera, t);
     this.lastCue = cue;
-    this.applyCamera(cue, this.lastT < 0 || Math.abs(t - this.lastT) > 1 ? 0 : dtReal, t);
+    /**
+     * A jump the clock could not have made by running is a seek, and a seek
+     * snaps the camera rather than gliding it across the history.
+     *
+     * "Could not have made" has to be measured against the frame, not fixed at
+     * a second. Playback goes up to 4x, so half a second of real time — which
+     * the frame loop now permits — is two seconds of show time, and a flat
+     * one-second test would have called every slow frame at speed a seek and
+     * snapped the camera on each one. Eight times the frame's own step leaves
+     * the fastest legitimate advance well inside, and at sixty frames a second
+     * the test is the one second it always was.
+     */
+    const jumped = this.lastT < 0 || Math.abs(t - this.lastT) > Math.max(1, dtReal * 8);
+    this.applyCamera(cue, jumped ? 0 : dtReal, t);
     this.lastT = t;
     lap('camera');
     if (p.nodes.length === 0) {

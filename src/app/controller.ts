@@ -592,6 +592,30 @@ function syncRendererSettings() {
 
 /* ---------------- frame loop ---------------- */
 
+/**
+ * The most real time one frame is allowed to be worth.
+ *
+ * This was 0.1s, and the cap was doing two jobs badly. Its real job is the
+ * pathological gap: `requestAnimationFrame` stops firing in a background tab,
+ * so a tab left for a minute comes back with a minute of elapsed time in one
+ * frame, and the show would jump a minute. Its accidental job was to cap every
+ * *ordinary* slow frame too — so below ten frames a second the performance
+ * clock advanced slower than the wall clock and the whole show ran in slow
+ * motion. Measured on the headless engines: WebKit at 2x device pixels ran the
+ * clock at 0.41x, so a history the card says runs 2 min 43 took 6 min 37, the
+ * scrubber crawled, and every duration the app had quoted was wrong.
+ *
+ * Half a second keeps real time down to two frames a second, which is well
+ * past the point where the picture is watchable anyway, and still refuses the
+ * minute-long jump. The background tab is handled where it belongs, on
+ * `visibilitychange` below, rather than by punishing every slow frame for it.
+ *
+ * Nothing integrating downstream minds a larger step: every smoothing term in
+ * the renderer is `1 - exp(-dt * k)`, which is the analytic solution rather
+ * than an Euler step, so a big `dt` snaps to target instead of overshooting.
+ */
+const MAX_FRAME_SECONDS = 0.5;
+
 let rafId = 0;
 let lastFrame = 0;
 let uiTick = 0;
@@ -600,7 +624,7 @@ let running = false;
 
 function frame(now: number) {
   rafId = requestAnimationFrame(frame);
-  const dt = lastFrame ? Math.min(0.1, (now - lastFrame) / 1000) : 0;
+  const dt = lastFrame ? Math.min(MAX_FRAME_SECONDS, (now - lastFrame) / 1000) : 0;
   lastFrame = now;
   const perf = player.perf;
   /**
@@ -748,6 +772,26 @@ export function startLoop() {
   running = true;
   lastFrame = 0;
   rafId = requestAnimationFrame(frame);
+}
+
+/**
+ * A tab coming back from the background starts a new frame, not a late one.
+ *
+ * `requestAnimationFrame` stops firing while a tab is hidden, so the first
+ * frame after it is shown again carries however long the tab was away —
+ * seconds, or a lunch hour. Forgetting the timestamp makes that frame worth
+ * nothing, which is the truth: no frames were drawn, so no performance
+ * happened, so the show resumes where it was rather than jumping.
+ *
+ * This is the case the `dt` clamp was really for. It used to be handled by
+ * capping *every* frame at a tenth of a second, which stopped the jump and
+ * also turned any device below ten frames a second into slow motion. Handling
+ * the actual cause here is what let that cap move to `MAX_FRAME_SECONDS`.
+ */
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') lastFrame = 0;
+  });
 }
 
 export function stopLoop() {

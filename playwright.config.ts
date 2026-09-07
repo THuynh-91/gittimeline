@@ -48,11 +48,17 @@ export default defineConfig({
    */
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: { args: ['--mute-audio'] } } },
-    // The travel slider is a styled range input, which is the one control whose
-    // furniture every browser draws differently, and the fallback ladder is the
-    // other place engines disagree. Those two specs run everywhere so it is
-    // verified rather than assumed; the rest would only triple CI for nothing.
-    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback)\.spec\.ts/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback)\.spec\.ts/ },
+    /**
+     * Three specs run everywhere; the rest would only triple CI for nothing.
+     *
+     * The travel slider is a styled range input, the one control whose
+     * furniture every browser draws differently. The fallback ladder is the
+     * other place engines disagree. And the clock, because the defect it
+     * guards — a slow frame costing the show real time — was measured at 0.41x
+     * on WebKit and 0.49x on Firefox and never once reproduced on Chromium.
+     * Covering it on the fast engine only would have been covering it nowhere.
+     */
+    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback|clock)\.spec\.ts/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback|clock)\.spec\.ts/ },
   ],
 });
