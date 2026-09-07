@@ -435,9 +435,25 @@ function allocateEffectBudget(events: ChoreographyEvent[]) {
   }
 }
 
+/**
+ * The event types that are texture rather than news.
+ *
+ * One per visible commit for `COMMIT_STEP`, and the other three fire around
+ * things that are already reported by the event they lead up to. The
+ * transcript has always skipped them; exported so the Events panel skips the
+ * same ones, because two different answers to "what is significant" is how
+ * a panel and a transcript come to disagree about the same history.
+ */
+export const TEXTURE_EVENTS: ReadonlySet<ChoreographyEventType> = new Set<ChoreographyEventType>([
+  'COMMIT_STEP',
+  'MERGE_APPROACH',
+  'CONTRIBUTOR_ENTER',
+  'COMMIT_CLUSTER',
+]);
+
 function buildTranscript(events: ChoreographyEvent[], ctx: EventContext): string[] {
   const lines: string[] = [];
-  const skip = new Set<ChoreographyEventType>(['COMMIT_STEP', 'MERGE_APPROACH', 'CONTRIBUTOR_ENTER', 'COMMIT_CLUSTER']);
+  const skip = TEXTURE_EVENTS;
   for (const ev of events) {
     if (skip.has(ev.type)) continue;
     const when = ev.historicalTime != null ? fmtDate(ev.historicalTime) : '';

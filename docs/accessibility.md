@@ -9,7 +9,7 @@ Every function is reachable without a pointer. `Space` play/pause (outside text 
 ## Non-canvas equivalence
 
 - The stage `<canvas>` has an `aria-label` summarizing the repository (commits, threads, merges, coverage) and points to the Events panel.
-- The **Events** panel is a synchronized semantic stream (type, historical date, provenance, caption) with the current event marked `aria-current`; each entry seeks on activation. A "show every commit" switch expands it to all steps.
+- The **Events** panel is a synchronized semantic stream — performance clock, historical date, caption, and provenance where it is anything other than exact — with the current event marked `aria-current`; each entry seeks on activation, and its accessible name carries the time so it is not "merge" out of context. A "show every commit" switch expands it to all steps; by default it lists only the news, skipping the same texture events the transcript skips. It ends at the playhead, because nothing is listed before it happens. On a streamed entry it covers the part of the history now loaded and says so, and the transcript is the whole of it. (The event *type* is an internal enum — `MAJOR_MERGE`, `COMMIT_STEP` — and this used to promise it; the caption is what it means, and jargon is not an equivalence.)
 - A polite live region announces significant events (birth, divergences, merges, tags, eras, present) and thread selection; commit-by-commit steps are not announced to avoid noise.
 - The timeline is a `role="slider"` with `aria-valuetext` giving both clocks; hovering/focusing shows a bucket tooltip with honest measures (unavailable measures are omitted, never shown as zero).
 - The transcript export (Markdown) is a complete textual account of the performance.

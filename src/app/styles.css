@@ -3939,3 +3939,21 @@ kbd {
   color: var(--text-dim);
   font-size: 12px;
 }
+
+/* The "show every commit" switch, and provenance when it is not the ordinary
+   case — see `EventsPanel`. */
+.events-every {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.event-prov {
+  grid-column: 2;
+  color: var(--warn);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}

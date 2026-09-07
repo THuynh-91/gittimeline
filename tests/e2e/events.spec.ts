@@ -57,13 +57,28 @@ test.describe('the events panel', () => {
     expect(half, 'more has happened by halfway').toBeGreaterThan(atStart);
     expect(end, 'and more again by the end').toBeGreaterThan(half);
 
-    // Every listed moment is at or before the playhead, checked against the
-    // plan rather than against the rendering.
-    const late = await page.evaluate((d: number) => {
+    /**
+     * Checked against the plan rather than against the rendering — but as a
+     * relationship, not an equality.
+     *
+     * This asserted `rows === events().filter(impact <= t).length`, which was
+     * true while the panel listed every event unconditionally and became false
+     * the moment it started hiding texture by default. Duplicating the list of
+     * hidden types here would put the definition of "significant" in two
+     * places, which is exactly what sharing `TEXTURE_EVENTS` with the
+     * transcript was meant to avoid. So: never more than the plan holds at
+     * that moment, and exactly as many once the switch is on.
+     */
+    await page.evaluate((d: number) => window.__gittimeline.seek(d * 0.5), duration);
+    const inPlan = await page.evaluate((d: number) => {
       const t = d * 0.5;
       return window.__gittimeline.events().filter((e) => e.impact <= t).length;
     }, duration);
-    expect(late, 'the count matches the plan at that moment').toBe(half);
+    expect(half, 'never more than the plan holds by then').toBeLessThanOrEqual(inPlan);
+
+    await page.getByTestId('events-every').check();
+    const everything = await page.getByTestId('events-list').locator('li').count();
+    expect(everything, 'and exactly as many with every commit shown').toBe(inPlan);
   });
 
   test('every line goes to its moment', async ({ page }) => {
@@ -85,6 +100,37 @@ test.describe('the events panel', () => {
     const after = await page.evaluate(() => window.__gittimeline.time);
     expect(after, 'the playhead moved off the end').toBeLessThan(duration);
     expect(after, 'and landed somewhere in the performance').toBeGreaterThanOrEqual(0);
+  });
+
+  test('shows the news by default and every commit on request, and marks where the show is', async ({ page }) => {
+    /**
+     * `accessibility.md` has described both of these since before the panel
+     * existed — "the current event marked `aria-current`" and "a 'show every
+     * commit' switch expands it to all steps" — and the first version of the
+     * panel had neither. It listed everything unconditionally, which on a
+     * thousand-node plan buries the divergences and the merges among a
+     * thousand entries of "somebody committed something".
+     */
+    await load(page);
+    const duration = await page.evaluate(() => window.__gittimeline.duration);
+    await page.evaluate((d: number) => window.__gittimeline.seek(d), duration);
+    await page.keyboard.press('e');
+    const list = page.getByTestId('events-list');
+    await expect(list.locator('li').first()).toBeVisible();
+
+    const news = await list.locator('li').count();
+    const every = await page.evaluate(() => window.__gittimeline.events().length);
+    expect(news, 'the default is not simply everything').toBeLessThan(every);
+
+    // The most recent thing is where the performance has got to, for anybody
+    // who cannot see the playhead.
+    await expect(list.locator('[aria-current="true"]'), 'exactly one entry is current').toHaveCount(1);
+    await expect(list.locator('li').first().locator('button')).toHaveAttribute('aria-current', 'true');
+
+    await page.getByTestId('events-every').check();
+    const all = await list.locator('li').count();
+    expect(all, 'the switch expands it').toBeGreaterThan(news);
+    await expect(list.locator('[aria-current="true"]'), 'and the current entry survives it').toHaveCount(1);
   });
 
   test('offers the whole transcript, which the panel deliberately does not hold', async ({ page }) => {

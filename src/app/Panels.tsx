@@ -13,7 +13,7 @@ import {
   refetchCurrent,
   cache,
 } from './controller';
-import { fmtClock, fmtDate } from '@/choreography/events';
+import { fmtClock, fmtDate, TEXTURE_EVENTS } from '@/choreography/events';
 import { describeAggregate } from '@/analysis/aggregate';
 import { Icons } from './icons';
 import type { CompiledPerformance, NodeGeom, ThreadGeom } from '@/model/types';
@@ -492,14 +492,31 @@ function TokenField() {
 function EventsPanel() {
   const perf = store.perf.value;
   const t = store.time.value;
+  /**
+   * Every commit, or only the news.
+   *
+   * `accessibility.md` has described this switch since before the panel
+   * existed — "a 'show every commit' switch expands it to all steps" — and the
+   * first version of the panel listed everything unconditionally instead,
+   * which on a thousand-node plan is a thousand entries of "somebody committed
+   * something" with the divergences and the merges lost among them.
+   *
+   * Off by default, and the types it hides are `TEXTURE_EVENTS`, which is the
+   * same set the transcript has always skipped. Sharing it is the point: two
+   * different answers to "what is significant" is how a panel and a transcript
+   * come to disagree about one history.
+   */
+  const [everyCommit, setEveryCommit] = useState(false);
   if (!perf) return <p>Nothing is playing.</p>;
 
   // Newest first, because the interesting end of a growing list is the end
   // that is growing. Capped because Linux has hundreds of thousands and a
   // screen reader would be walking the list rather than the history; the count
   // above says what is being left out, which is the honest form of a cap.
-  const happened = perf.events.filter((e) => e.performanceImpact <= t);
+  const happened = perf.events.filter((e) => e.performanceImpact <= t && (everyCommit || !TEXTURE_EVENTS.has(e.type)));
   const shown = happened.slice(-200).reverse();
+  /** The most recent thing to have happened, which is where the show is. */
+  const currentId = shown.length ? shown[0]!.id : null;
 
   /**
    * A streamed history is not all here, and this must not say that it is.
@@ -522,6 +539,10 @@ function EventsPanel() {
             ? `${happened.length.toLocaleString('en-US')} in the part of this history now loaded, newest first. Each one is a link to its moment; the transcript below covers the whole of it.`
             : `${happened.length.toLocaleString('en-US')} so far, newest first${happened.length > shown.length ? `; the most recent ${shown.length}` : ''}. Each one is a link to its moment.`}
       </p>
+      <label class="events-every">
+        <input type="checkbox" checked={everyCommit} onChange={(e) => setEveryCommit((e.target as HTMLInputElement).checked)} data-testid="events-every" />
+        Show every commit
+      </label>
       <button type="button" class="btn" onClick={() => exportTranscript()} data-testid="events-transcript">
         Download the whole transcript
       </button>
@@ -531,6 +552,10 @@ function EventsPanel() {
             <li key={e.id}>
               <button
                 type="button"
+                // Where the performance has got to, for anyone who cannot see
+                // the playhead. Named in `accessibility.md` and absent from
+                // the first version of this panel.
+                aria-current={e.id === currentId ? 'true' : undefined}
                 onClick={() => seek(e.performanceImpact)}
                 // The time is part of the name, not decoration beside it: out
                 // of visual context "merge" says nothing about where to go.
@@ -539,6 +564,9 @@ function EventsPanel() {
                 <span class="event-when">{fmtClock(e.performanceImpact)}</span>
                 <span class="event-what">{e.caption}</span>
                 {e.historicalTime && <span class="event-date">{fmtDate(e.historicalTime)}</span>}
+                {/* Said only when it is not the ordinary case, so the column
+                    stays quiet on a history that is fully known. */}
+                {e.provenance !== 'exact' && <span class="event-prov">{e.provenance}</span>}
               </button>
             </li>
           ))}
