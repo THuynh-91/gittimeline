@@ -2154,9 +2154,19 @@ export async function exportArtifact() {
 }
 
 export function exportTranscript() {
-  if(catalogSource){
-    const a=document.createElement('a');a.href=new URL(store.catalogManifest.value!.transcript,catalogSource.url).href;a.download='history-transcript.txt.gz';a.click();return;
+  const manifest = store.catalogManifest.value;
+  if (catalogSource && manifest) {
+    // A packaged entry's transcript is a file beside its pages, because the
+    // plan in memory is only a window and the transcript is the whole history.
+    const a = document.createElement('a');
+    a.href = new URL(manifest.transcript, catalogSource.url).href;
+    a.download = 'history-transcript.txt.gz';
+    a.click();
+    return;
   }
+  // Streamed, but the manifest has not arrived — which is a moment, not a
+  // state, and the plan in hand can still be written out. Was a `!`, which
+  // threw and left the button doing nothing at all.
   const perf = store.perf.value;
   if (!perf) return;
   const text = [`# ${perf.source.owner}/${perf.source.name} — GitTimeline transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');
@@ -2270,6 +2280,13 @@ export function handleKey(e: KeyboardEvent): boolean {
     case 'C':
       if (!hasPerf) return false;
       toggleAutoCamera();
+      return true;
+    case 'e':
+    case 'E':
+      // The key the canvas's alternative text has been naming all along.
+      if (!hasPerf) return false;
+      store.panel.value = store.panel.value === 'events' ? 'none' : 'events';
+      announce(store.panel.peek() === 'events' ? 'Events panel open' : 'Events panel closed', true);
       return true;
     case '?':
       store.panel.value = store.panel.value === 'help' ? 'none' : 'help';

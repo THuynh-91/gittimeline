@@ -60,7 +60,17 @@ export function phaseSpoken(phase: AppPhase): string {
   }
 }
 
-export type PanelId = 'none' | 'inspector' | 'settings' | 'help';
+/**
+ * `events` is the non-canvas account of the performance.
+ *
+ * It is not an extra. The canvas's own alternative text has told every
+ * screen-reader user to "use the Events panel (E) for a textual account"
+ * since the stage was written, and there was no such panel and no such key —
+ * so the whole of what a screen reader was told about the stage ended in a
+ * pointer to nothing. `accessibility.md` lists it as one of six promised
+ * equivalences.
+ */
+export type PanelId = 'none' | 'inspector' | 'settings' | 'help' | 'events';
 
 export interface Settings {
   lengthMode: 'brief' | 'natural' | 'extended';

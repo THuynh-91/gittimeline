@@ -104,6 +104,10 @@ export function TopBar() {
         <button type="button" class={`icon-btn optional${s.autoCamera ? ' active' : ''}`} aria-label={store.manualCamera.value ? 'Free look — follow at this zoom (C)' : store.cameraLocked.value ? 'Following at your zoom (C)' : 'Auto camera (C)'} aria-pressed={s.autoCamera} title="Camera (C)" onClick={toggleAutoCamera} data-testid="camera-button">
           <Icons.camera />
         </button>
+        {/* Not `optional`: this is the stage's stated alternative for anyone
+            who cannot see it, so it is not the first thing to drop when the
+            window narrows. */}
+        {btn('events', 'Events (E)', Icons.list, 'events-button')}
         {btn('settings', 'Settings', Icons.settings, 'settings-button')}
         {btn('help', 'Help (?)', Icons.help, 'help-button', true)}
       </div>

@@ -3712,3 +3712,65 @@ kbd {
 .signin-next {
   margin: 24px 0 4px;
 }
+
+/* The performance in words — see `EventsPanel`. Laid out as a list of times
+   and captions rather than a table, because a screen reader reads a list in
+   the order it is written and this one is deliberately newest-first. */
+.events-panel .btn {
+  margin: 6px 0 14px;
+}
+.events-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.events-list button {
+  width: 100%;
+  display: grid;
+  /* The clock column is fixed so the captions align down the list; below the
+     narrow breakpoint it stacks, because a 56px column out of 320 is a fifth
+     of the width spent on four characters. */
+  grid-template-columns: 56px 1fr;
+  gap: 2px 10px;
+  align-items: baseline;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.events-list button:hover {
+  background: var(--ink-2);
+}
+.events-list button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.event-when {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.event-what {
+  line-height: 1.35;
+}
+.event-date {
+  grid-column: 2;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+@media (max-width: 420px) {
+  .events-list button {
+    grid-template-columns: 1fr;
+  }
+  .event-date,
+  .event-what {
+    grid-column: 1;
+  }
+}

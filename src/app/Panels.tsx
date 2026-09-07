@@ -3,6 +3,7 @@ import { store, updateSettings, toast, type PanelId } from './store';
 import { MusicCredit } from './MusicCredit';
 import {
   seek,
+  exportTranscript,
   selectNode,
   selectThread,
   focusContributor,
@@ -19,7 +20,7 @@ import type { CompiledPerformance, NodeGeom } from '@/model/types';
 export function Panels() {
   const id = store.panel.value;
   if (id === 'none') return null;
-  const titles: Record<PanelId, string> = { none: '', inspector: 'Commit', settings: 'Settings', help: 'How it works' };
+  const titles: Record<PanelId, string> = { none: '', inspector: 'Commit', settings: 'Settings', help: 'How it works', events: 'Events' };
   return (
     <aside class="panel" role="dialog" aria-label={titles[id]} data-testid={`panel-${id}`}>
       <header>
@@ -32,6 +33,7 @@ export function Panels() {
         {id === 'inspector' && <Inspector />}
         {id === 'settings' && <SettingsPanel />}
         {id === 'help' && <HelpPanel />}
+        {id === 'events' && <EventsPanel />}
       </div>
     </aside>
   );
@@ -395,6 +397,87 @@ function TokenField() {
  * So the explanation stands on its own and the repository-specific half
  * appears only when there is a repository to describe.
  */
+/**
+ * The performance, in words.
+ *
+ * The canvas's alternative text has told every screen-reader user to "use the
+ * Events panel (E) for a textual account" since the stage was written, and
+ * until now there was no panel and no key — so the whole of what a screen
+ * reader was told about a Canvas2D animation ended in a pointer to nothing.
+ * `accessibility.md` promises six non-canvas equivalences and this is the one
+ * the stage itself names.
+ *
+ * Two rules it inherits from the stage rather than invents:
+ *
+ * Nothing is listed before it happens. The stage's hardest invariant is that
+ * no commit is drawn before its moment, and a panel that listed the whole plan
+ * would hand a screen-reader user the ending while a sighted one was four
+ * minutes from it. So the list ends at the playhead, newest first, and grows
+ * as the performance does.
+ *
+ * And every line is a seek. Reading that something happened is half of it;
+ * being able to go there is the other half, and it is the only way a keyboard
+ * user reaches a moment that is not a landmark.
+ */
+function EventsPanel() {
+  const perf = store.perf.value;
+  const t = store.time.value;
+  if (!perf) return <p>Nothing is playing.</p>;
+
+  // Newest first, because the interesting end of a growing list is the end
+  // that is growing. Capped because Linux has hundreds of thousands and a
+  // screen reader would be walking the list rather than the history; the count
+  // above says what is being left out, which is the honest form of a cap.
+  const happened = perf.events.filter((e) => e.performanceImpact <= t);
+  const shown = happened.slice(-200).reverse();
+
+  /**
+   * A streamed history is not all here, and this must not say that it is.
+   *
+   * `assembleWindow` builds `events` from the pages in hand — the plan a
+   * packaged entry plays is a window around the playhead and nothing else — so
+   * counting them and calling the number "so far" would be a false count of
+   * exactly the kind this project treats as a defect. What the panel holds
+   * then is the loaded part of the history, and the transcript below is where
+   * the whole of it lives.
+   */
+  const windowed = !!perf.window;
+
+  return (
+    <div class="events-panel" data-testid="events-panel">
+      <p class="dim">
+        {happened.length === 0
+          ? 'Nothing has happened yet. Events appear here as the performance reaches them.'
+          : windowed
+            ? `${happened.length.toLocaleString('en-US')} in the part of this history now loaded, newest first. Each one is a link to its moment; the transcript below covers the whole of it.`
+            : `${happened.length.toLocaleString('en-US')} so far, newest first${happened.length > shown.length ? `; the most recent ${shown.length}` : ''}. Each one is a link to its moment.`}
+      </p>
+      <button type="button" class="btn" onClick={() => exportTranscript()} data-testid="events-transcript">
+        Download the whole transcript
+      </button>
+      {shown.length > 0 && (
+        <ol class="events-list" data-testid="events-list">
+          {shown.map((e) => (
+            <li key={e.id}>
+              <button
+                type="button"
+                onClick={() => seek(e.performanceImpact)}
+                // The time is part of the name, not decoration beside it: out
+                // of visual context "merge" says nothing about where to go.
+                aria-label={`${e.caption}, at ${fmtClock(e.performanceImpact)}${e.historicalTime ? `, ${fmtDate(e.historicalTime)}` : ''}. Go there.`}
+              >
+                <span class="event-when">{fmtClock(e.performanceImpact)}</span>
+                <span class="event-what">{e.caption}</span>
+                {e.historicalTime && <span class="event-date">{fmtDate(e.historicalTime)}</span>}
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function HelpPanel() {
   // The landing page keeps a demo compiled and running behind the hero, so a
   // performance object exists there even though the visitor never asked for
@@ -447,6 +530,8 @@ function HelpPanel() {
         <span>sound</span>
         <kbd>C</kbd>
         <span>free look, follow at your zoom, auto</span>
+        <kbd>E</kbd>
+        <span>the events so far, in words</span>
         <kbd>Esc</kbd>
         <span>close</span>
       </div>
