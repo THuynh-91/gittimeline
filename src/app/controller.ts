@@ -781,6 +781,49 @@ function frame(now: number) {
  * still interrupts, so this delays a caption rather than suppressing one.
  */
 const MIN_CAPTION_MS = 900;
+
+/**
+ * How much authority a caption has over the line, above its salience.
+ *
+ * Salience alone is the wrong measure twice, and `751b7de` — which introduced
+ * "whichever explains the most, not the last of them" — got one of those two
+ * right and broke the other.
+ *
+ * `REPO_PRESENT` is the plan's last word: "Present day · N live tips". It is
+ * the final event in every plan, and while the loop kept the *last* crossed
+ * event it always won by position. Ranking by salience took that away — on the
+ * demo it sits at impact 67.11 with a `MAJOR_MERGE` at 66.81 above it on
+ * salience, so a seek to the end left the closing shot captioned with a merge
+ * three seconds earlier and the closing sentence never appeared at all.
+ *
+ * `QUIET_GAP` and `UNKNOWN_SPAN` are the only captions that explain a
+ * *discontinuity* — why the date moved further than the picture did, or why a
+ * line stops without a parent. Everything else describes something on the
+ * stage: miss it and the stage still shows it. Miss one of these and the
+ * viewer is left with an unexplained jump, which is the complaint that started
+ * that commit. Measured then: `QUIET_GAP` carries salience 0.3 and lost the
+ * line to a `REPO_BIRTH` crossed in the same frame.
+ *
+ * Ranking beats both special cases the old code carried. It used an
+ * unconditional override for the explaining pair and a `holdsFloor` flag to
+ * stop anything later taking the line back — which is right within one frame's
+ * batch and wrong across a seek, where the walk covers the whole history and
+ * the last quiet span in the plan outranked every event after it.
+ */
+function captionRank(e: ChoreographyEvent): number {
+  if (e.type === 'REPO_PRESENT') return 2;
+  return e.type === 'QUIET_GAP' || e.type === 'UNKNOWN_SPAN' ? 1 : 0;
+}
+
+/** Whether `ev` should take the line from `from`; see `captionRank`. */
+function outranks(ev: ChoreographyEvent, from: ChoreographyEvent): boolean {
+  const a = captionRank(ev);
+  const b = captionRank(from);
+  // `>=` on salience within a rank keeps the old tie-break: of equals, the
+  // later one, which is the order the walk visits them in.
+  return a > b || (a === b && ev.salience >= from.salience);
+}
+
 let captionAt = 0;
 /** A caption waiting for the line to come free. */
 let pending: ChoreographyEvent | null = null;
@@ -796,27 +839,16 @@ function updateCaption(t: number) {
     const ev = events[captionPtr++]!;
     if (ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') {
       /**
-       * Whichever of the ones crossed explains the most, not the last of them.
+       * Whichever of the ones crossed has most claim on the line, not the last
+       * of them.
        *
        * Several caption-worthy events land in one frame whenever the clock
        * moves faster than the plan's own spacing — a frame at four frames a
        * second covers a quarter-second of runtime, and a compressed stretch
        * fits years into that. Keeping the last is arbitrary: it is whichever
-       * the array happened to end on.
-       *
-       * `QUIET_GAP` and `UNKNOWN_SPAN` outrank everything, and salience is the
-       * wrong measure for them. They are the only two captions that explain a
-       * *discontinuity* — why the date moved further than the picture did, or
-       * why a line stops without a parent. Everything else describes something
-       * that is on the stage: miss it and the stage still shows it. Miss one of
-       * these and the viewer is left with an unexplained jump, which is the
-       * complaint that started this. Measured: `QUIET_GAP` carries salience
-       * 0.3 and lost the line to a `REPO_BIRTH` crossed in the same frame.
+       * the array happened to end on. `captionRank` says what beats what.
        */
-      const explains = ev.type === 'QUIET_GAP' || ev.type === 'UNKNOWN_SPAN';
-      const holdsFloor = current !== held && (current!.type === 'QUIET_GAP' || current!.type === 'UNKNOWN_SPAN');
-      if (explains) current = ev;
-      else if (!holdsFloor && (current === held || ev.salience >= current!.salience)) current = ev;
+      if (current === held || outranks(ev, current!)) current = ev;
     }
   }
   /**
@@ -829,8 +861,7 @@ function updateCaption(t: number) {
    * chose.
    */
   if (current !== held) {
-    const keepsPending = pending && (pending.type === 'QUIET_GAP' || pending.type === 'UNKNOWN_SPAN');
-    pending = keepsPending || (pending && pending.salience > current!.salience) ? pending : current;
+    pending = pending && !outranks(current!, pending) ? pending : current;
   }
   const want = pending ?? current;
   if (!want || want === held) return;
@@ -838,7 +869,10 @@ function updateCaption(t: number) {
   // A caption too brief to read is not a caption. Held for a moment, unless
   // something more salient wants the line.
   const now = Date.now();
-  const urgent = want.type === 'QUIET_GAP' || want.type === 'UNKNOWN_SPAN';
+  // The floor delays a caption; it may not suppress one that outranks what is
+  // on screen — least of all the closing sentence, which has nothing after it
+  // to try again on.
+  const urgent = captionRank(want) > 0;
   if (held && now - captionAt < MIN_CAPTION_MS && !urgent && want.salience <= held.salience) return;
   captionAt = now;
   pending = null;

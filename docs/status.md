@@ -10,6 +10,38 @@ time anyone read it again.
 
 ---
 
+## 0b. The closing sentence was never reaching the screen — 2026-09-07
+
+Found by the first full Chromium e2e run against today's work, which is the
+verification debt this file recorded. One failure: `fallback.spec.ts` ▸
+"ultrawide layout and the final tableau", at the line asking the closing shot
+to be captioned "Present day". Bisected rather than assumed — passes at
+`43213c8`, fails from `751b7de`, which is mine from earlier today ("Show the
+sentence that explains the date jumping years in one frame").
+
+That commit replaced "keep the last event crossed" with "keep the most
+salient". `REPO_PRESENT` — "Present day · N live tips" — is the last event in
+every plan and had been winning by position. On the demo it sits at impact
+67.11 with a `MAJOR_MERGE` at 66.81 above it on salience, so the closing shot
+was captioned with a merge three seconds earlier and **the closing sentence of
+the whole show never appeared at all**, by seek or by playing into it.
+
+Fixed by ranking instead of special cases: `captionRank` puts `REPO_PRESENT`
+above the two discontinuity captions (`QUIET_GAP`, `UNKNOWN_SPAN`) above
+everything else, and `outranks` decides the contest, ties still going to the
+later event as they did before. That also retires the `holdsFloor` flag, which
+stopped anything later in a walk taking the line back. Both the caption floor
+and the pending-caption queue now use the same ranking.
+
+`concurrency.spec.ts` gains two tests. "The closing sentence is not in
+competition" is a real guard — it fails at `751b7de` and passes now, at both
+ways of arriving at the end. "A gap notice does not outrank everything that
+follows it" is a property, not a regression: it was checked against `751b7de`
+and **passed there too**, so no version is known to have failed it, and the
+test says so in its own comment rather than implying a bisection it does not
+have. What `751b7de` was for still holds — "a gap notice survives the frame it
+was created in" passes.
+
 ## 0a. Resumed, and the viewer was right — 2026-09-07
 
 **Merge strokes were being drawn in the future.** Candidates A (a labelled rule

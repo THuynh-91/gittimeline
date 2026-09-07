@@ -130,4 +130,84 @@ test.describe('a caption nobody can read', () => {
     await page.waitForTimeout(600);
     await expect(page.getByTestId('caption')).toContainText(/quiet span of/i);
   });
+
+  /**
+   * ...but it does not keep the line for the rest of the show.
+   *
+   * The fix above gave the explaining captions an unconditional override plus
+   * a `holdsFloor` flag that stopped anything later in the same walk taking the
+   * line back. Within one frame's batch that is right. Across a seek the walk
+   * consumes every event up to the clock in one pass, so on the face of it the
+   * last quiet span in a history could outrank everything after it.
+   *
+   * Stated as a property rather than as a regression: this was checked against
+   * `751b7de`, the commit that introduced the flag, and **passed there too**,
+   * so no version of the app is known to have failed it. It is here because
+   * the rule is worth holding — a caption describes what just happened, and a
+   * gap from the middle of a history is not that — and because `captionRank`
+   * now decides it by ranking rather than by a flag, which is a thing that can
+   * be got wrong again.
+   */
+  test('a gap notice does not outrank everything that follows it', async ({ page }) => {
+    await page.goto('/');
+    await waitForReady(page);
+    await page.evaluate(() => window.__gittimeline.loadFixture('11-dense-linear-burst'));
+    await waitForReady(page);
+    const gaps = await page.evaluate(() => window.__gittimeline.events('QUIET_GAP'));
+    test.skip(gaps.length === 0, 'this fixture has no quiet span to cross');
+
+    await page.evaluate((t: number) => {
+      window.__gittimeline.pause();
+      window.__gittimeline.seek(t + 0.01);
+    }, gaps[0]!.impact);
+    await expect(page.getByTestId('caption')).toContainText(/quiet span of/i);
+
+    // Back to the start and then to the end in one jump, which is the walk
+    // that matters: the pointer resets only on a *backward* seek, so this is
+    // the one pass that holds the gap and everything after it together. That
+    // is where the override used to win — the gap took the line, the flag
+    // stopped anything later taking it back, and the closing sentence lost to
+    // a quiet span from the middle of the history.
+    await page.evaluate(() => window.__gittimeline.seek(0));
+    // A frame has to run in between, or the pointer never rewinds: it is reset
+    // inside the caption walk from the clock it is called with, and two seeks
+    // back to back are two clocks with no walk between them.
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.__gittimeline.seek(window.__gittimeline.duration - 0.2));
+    await expect(page.getByTestId('caption'), 'the show has moved on from the gap').not.toContainText(/quiet span of/i);
+  });
+
+  /**
+   * The plan's last word gets the line.
+   *
+   * `REPO_PRESENT` — "Present day · N live tips" — is the final event in every
+   * plan, and it won by position while the walk kept whichever event it ended
+   * on. Ranking the walk by salience took that away without noticing: on the
+   * demo it sits at impact 67.11 with a `MAJOR_MERGE` at 66.81 above it on
+   * salience, so the closing shot was captioned with a merge three seconds
+   * earlier and the closing sentence never appeared at all. Caught by the
+   * ultrawide tableau test in `fallback.spec.ts`, which asks for it in passing;
+   * this asks for it on purpose, and at the two ways of arriving at the end.
+   */
+  test('the closing sentence is not in competition', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+
+    // Arrived at by a seek, which covers the whole history in one walk.
+    await page.evaluate((t: number) => {
+      window.__gittimeline.pause();
+      window.__gittimeline.seek(t);
+    }, dur - 0.2);
+    await expect(page.getByTestId('caption')).toContainText('Present day');
+
+    // And arrived at by playing into it from just before, where the six events
+    // that land at impact 66.81 are crossed a frame or two earlier and one of
+    // them outranks it on salience.
+    await page.evaluate((t: number) => {
+      window.__gittimeline.seek(t);
+      window.__gittimeline.play();
+    }, dur - 2.4);
+    await expect(page.getByTestId('caption')).toContainText('Present day', { timeout: 15000 });
+  });
 });
