@@ -54,14 +54,61 @@ whole plans:
 Ten of the twelve published entries are between 53% and 88%. This is the
 common case, not an edge.
 
-**What those lines actually are is not established** — see §6.1. Candidates:
-unmerged branch tips; aggregate ribbons whose exit node is later than main's
-head; or an artefact of which pages happen to be resident in a streamed
-window. Kubernetes has 57,738 threads and 57,863 merges, so nearly every
-thread does eventually merge, which makes a large permanent set of open tips
-unlikely and makes the other two explanations more probable. This matters: two
-of those three would be *representational* rather than factual, and would
-change what the fix should be.
+### 1d. Settled: the overhang is real, and it is work waiting on a merge
+
+§6.1 asked what those lines are, offering three candidates — unmerged tips,
+aggregate ribbons, or a resident-window artefact. **Measured: none of them.**
+
+Whole plans compiled locally, `planHash` matching the published sidecar as a
+control, overhang counted as nodes with `mainHead(t).impact < impact <= t`:
+
+| | at t=100% | max over the show | every overhang node's thread `ending` |
+|---|---|---|---|
+| microsoft/vscode | **0** | 3,137 at 38.5%, worst 422.6 s | **100% `merged`** |
+| facebook/react | **0** | 383 at 97%, worst 47.5 s | **100% `merged`** |
+
+Not one overhang node on either entry belongs to a thread ending as `tip` or
+`dormant`. So it is not stale branches and not unmerged forks: it is committed
+work on a branch that has not been merged yet, and main catches up when the
+merge lands. An open pull request, drawn — which is the one thing this app can
+show that a topological tool cannot.
+
+**And at the closing frame there is no overhang at all**, including on the
+streamed window, which is the case the screenshot came from. Assembling the
+pages the app holds at the end of Kubernetes exactly as `assembleWindow` does
+— 2 time pages, 29 geometry pages, 1,239 resident nodes:
+
+    main's resident head:  impact 16377.490   x 14028321
+    newest landed node:    impact 16377.490   x 14028321
+    overhang: 0 nodes      worst separation: 0.000 s
+
+Main's head *is* the newest node, to the digit. The resident-window artefact
+hypothesis is refuted, and the closing frame was the only place it could have
+applied.
+
+### 1e. So why does MASTER's plate sit at about 65% of the frame?
+
+By design, during playback. `canvas.ts:1452`: *"The head of the main line is
+kept between three fifths and seven tenths of the way across."* The band exists
+because the director composes around the phrase being played, and without it
+the travelling work sits off the frame — measured on a seek into CPython, every
+travelling body was about five thousand pixels off the left edge.
+
+So during playback the geometry is: main's head at 60-70%, the playhead at
+100%, and **the 30-40% between them is exactly the in-flight work**. It is
+real, it is often thousands of commits, and nothing marks either end of the
+gap. The plate is the only label in it, so the gap reads as "the future" when
+what it means is "not merged yet".
+
+That also resolves a lead left by an interrupted assessment — "zero overhang at
+the closing frame on the whole kubernetes plan". It is true, and it explains
+nothing, because zero at the end is the normal case and the confusion happens
+mid-show.
+
+*One inference, flagged as such:* that the reported screenshot is mid-playback
+rather than the closing frame. It follows from the plate sitting exactly at the
+head band and from overhang being zero at the end. The viewer can confirm it in
+a moment.
 
 ## 2. Why the literal request is refused
 
@@ -130,6 +177,15 @@ cannot be mistaken for commits — dashed, or dimmed, or hairline.
 A and B answer different halves: A says where the present is, B stops main
 looking overtaken. They are not alternatives and neither subsumes the other.
 
+**And on the measurements in 1d-1e, B is the viewer's request satisfied
+honestly.** "Nothing ahead of main" cannot be had by moving commits: that would
+place a commit before unrelated work that preceded it, and would make in-flight
+work look merged. Main's *line* reaching the present costs none of that. No
+commit moves, main gains no commits it does not have, and the in-flight work
+then sits beside main rather than beyond it — so the gap stops being
+unexplained space and becomes the visible distance between what has landed and
+now.
+
 ### D — Already prototyped, and it does not address this
 
 Codex's closing-camera change holds the lane floor in the tableau, which takes
@@ -145,24 +201,28 @@ Because branches run past main, that node is usually a branch commit, so MASTER
 landed at about 65% of the frame rather than the intended 90%, with the
 overhang filling the right third.
 
-## 5. Recommendation
+## 5. Recommendation — revised on the 1d-1e measurements
 
-**A first, then reassess.** It is the only candidate that answers the question
-that was asked, it needs no republish, and it makes B's benefit measurable
-rather than assumed — if a labelled present already resolves the confusion, B
-is decoration with a bad precedent attached.
+**A and B together, A first.** The original recommendation was A alone, with B
+held back as decoration carrying a bad precedent. The measurements changed
+that: the gap between main's head and the present is not an artefact to be
+explained away, it is a third of the frame holding real in-flight work, and B
+is the honest form of what the viewer asked for.
 
-Do not build B without a first-time viewer looking at A, because the case for B
-rests entirely on whether "main has not caught up" reads correctly once the
-present is marked.
+A first only because it is one line and a text draw, and because it makes B's
+benefit measurable rather than assumed.
+
+Still do not build B without looking at A, and still do not let B draw anything
+that could be mistaken for a commit — that is the trap `48ca9d7` climbed out
+of.
 
 ## 6. What this document does not know
 
-1. **What the lines right of MASTER's plate are.** Unmerged tips, aggregate
-   ribbons, or a resident-window artefact (§1c). Establishing it needs the
-   nodes right of main's head in a settled closing frame classified by thread
-   `ending` and by whether they carry an `aggregateIdx`. If they are mostly an
-   artefact of the window, the fix is different and cheaper.
+1. ~~What the lines right of MASTER's plate are.~~ **Settled — see 1d.** Real
+   commits, on branches that all eventually merge; zero at the closing frame,
+   thousands mid-show. Two entries measured on whole plans plus the streamed
+   closing window. Kubernetes and Linux whole-plan sweeps are still worth
+   taking for completeness.
 2. **Whether a full-height rule survives dense playback.** It has never been
    drawn. Kubernetes has 125,973 visible nodes; a vertical line through a dense
    frame may read as a seam or a tear.

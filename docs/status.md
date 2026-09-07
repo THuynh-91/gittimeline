@@ -24,24 +24,34 @@ produced no report.** One line came back before it stopped:
 
 > "Zero overhang at the closing frame on the whole kubernetes plan."
 
-**Treat that as a lead, not a finding.** It is one sentence, from one
-repository, from an interrupted run that verified nothing, had not touched
-Linux, and had not compared the streamed plan against the whole one — which was
-the comparison that would have made it mean something.
+**Resolved after the pause: the line is true, and it explains nothing.** Zero
+overhang at the closing frame is the normal case — measured on whole plans
+(vscode 0, react 0) and on the streamed window the app assembles at the end of
+Kubernetes, where main's resident head is the newest landed node to the digit
+(impact 16377.490, x 14028321, separation 0.000 s). The resident-window
+artefact hypothesis is refuted, and the closing frame was the only place it
+could have applied.
 
-If it holds, it is the most consequential result in this whole thread: it would
-mean the lines a viewer sees running past MASTER at the closing frame are a
-**resident-window artefact**. A streamed plan holds only the pages around the
-playhead, so main's *resident* head can be earlier than other threads' resident
-nodes, and MASTER's plate is then not where main actually ends. Nothing would be
-wrong with the layout at all — only with what is loaded at that moment — and
-the fix would be different from, and cheaper than, either candidate the
-proposal recommends. It is question 1 of that proposal's §6 and the reason it
-was asked first.
+What the viewer is seeing happens **mid-playback**, where the overhang is real:
+up to 3,137 nodes on VS Code at 38.5% of its show, 383 on React, and **every
+one of them on a thread that eventually merges** — no `tip`, no `dormant`. It
+is committed work waiting on a merge. The camera deliberately keeps main's head
+between three fifths and seven tenths of the way across (`canvas.ts:1452`), so
+the 30-40% of frame between main's plate and the playhead is exactly that
+in-flight work, with nothing marking either end of the gap. See
+`proposal-present-and-parallel.md` 1d-1e.
 
-### Open questions nobody has answered
+The consequence of it being real rather than an artefact: the proposal's
+candidate B — carrying main's line to the present, drawn so it cannot be
+mistaken for commits — moves from "decoration with a bad precedent" to **the
+viewer's request satisfied honestly**. No commit moves, main gains no commits
+it does not have, and the in-flight work sits beside main instead of beyond
+it.
 
-`proposal-present-and-parallel.md` §6 lists six. All six are still open.
+### Open questions
+
+`proposal-present-and-parallel.md` §6 listed six. **Question 1 is settled**, as
+above; five remain.
 
 ### Two proposals awaiting a decision, neither implemented
 
