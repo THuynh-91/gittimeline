@@ -157,6 +157,17 @@ const MIN_LANE_PX = 26;
  */
 const SLOW_FRAME_SECONDS = 0.1;
 
+/**
+ * The widest shot a streamed performance may take, in world units.
+ *
+ * Not a taste decision: a windowed plan holds the pages around the playhead
+ * and nothing else, so a shot wider than this is a shot of stage with no
+ * geometry behind it -- empty canvas presented as the shape of a repository.
+ * The same number is `MAX_VIEW_WIDTH` in `controller.ts` and in the worker,
+ * which is why it is named here rather than spelled 16000 in three places.
+ */
+const MAX_VIEW_WIDTH = 16000;
+
 
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -956,12 +967,72 @@ export class StageRenderer {
     return { ...cue, x: r.cx, y: r.cy, w: r.w, h: r.h, rotation: 0, punch: 1 };
   }
 
+  /** Cached, because the tableau holds still for hundreds of frames. */
+  private tableauShot: { key: string; box: { minX: number; minY: number; maxX: number; maxY: number } } | null = null;
+
+  /**
+   * The box the closing tableau should frame.
+   *
+   * `nodesByX` is sorted, so the resident span is its two ends. On a plan held
+   * whole that span is the history, and the shot is the history. On a streamed
+   * one it is whatever pages are in hand, capped at `MAX_VIEW_WIDTH` and hung
+   * off the newest commit — because what a closing shot is of is the ending,
+   * and because a frame wider than the resident geometry is empty canvas
+   * presented as the shape of a repository.
+   *
+   * Deliberately *not* `window.minX/maxX`. Those are geometry-page bounds, and
+   * a single long edge carries a wide bounding box, so they read 0..137,222 on
+   * mdBook and 404,602..13,866,081 on kubernetes — the whole history in both
+   * cases, which is not what is drawable. Node positions are.
+   */
+  private tableauBox(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    const p = this.perf;
+    const n = this.nodesByX.length;
+    if (!p || !n) return null;
+    const firstX = p.nodes[this.nodesByX[0]!]!.x;
+    const headX = p.nodes[this.nodesByX[n - 1]!]!.x;
+    const key = `${p.planHash}:${p.window?.key ?? 'whole'}:${n}:${firstX}:${headX}`;
+    if (this.tableauShot?.key === key) return this.tableauShot.box;
+
+    const span = Math.max(1, headX - firstX);
+    const wanted = span * 1.06 + 80;
+    const width = p.window ? Math.min(wanted, MAX_VIEW_WIDTH) : wanted;
+    // A margin past the newest commit, so the head sits inside the frame
+    // rather than exactly on its edge. A proportion and not a fixed number of
+    // units, because the shot's width varies by four orders of magnitude
+    // across the shelf.
+    const maxX = headX + width * 0.05;
+    const minX = maxX - width;
+
+    // Vertically, only the lanes that are in the shot. The whole plan's `minY`
+    // and `maxY` describe every lane the history ever opened, which on a long
+    // one is a far taller box than the ending occupies — and a taller box is a
+    // wider shot, which is how the horizontal cap gets undone from the other
+    // direction.
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let i = n - 1; i >= 0; i--) {
+      const nd = p.nodes[this.nodesByX[i]!]!;
+      if (nd.x < minX) break;
+      if (nd.y < minY) minY = nd.y;
+      if (nd.y > maxY) maxY = nd.y;
+    }
+    if (!Number.isFinite(minY)) {
+      minY = p.bounds.minY;
+      maxY = p.bounds.maxY;
+    }
+    const padY = Math.max(40, (maxY - minY) * 0.09);
+    const box = { minX, maxX, minY: minY - padY, maxY: maxY + padY };
+    this.tableauShot = { key, box };
+    return box;
+  }
+
   private applyCamera(planned: CameraCue, dtReal: number, t: number) {
     const s = this.settings.safe;
     const safeW = Math.max(80, this.width - s.left - s.right);
     const safeH = Math.max(80, this.height - s.top - s.bottom);
     if (this.manual) {
-      if(this.perf?.window)this.manual.scale=Math.max(this.manual.scale,safeW/16000);
+      if(this.perf?.window)this.manual.scale=Math.max(this.manual.scale,safeW/MAX_VIEW_WIDTH);
       this.view = { scale: this.manual.scale, ox: s.left + safeW / 2, oy: s.top + safeH / 2, rotation: 0, cx: this.manual.x, cy: this.manual.y };
       return;
     }
@@ -1030,42 +1101,48 @@ export class StageRenderer {
      * about what the ending *is* rather than a bug to be fixed.
      */
     /**
-     * Only take the whole-history framing if the frame can actually hold it.
+     * The closing shot, framed from what this performance actually holds.
      *
-     * `perf.bounds` on a streamed plan describes the *whole* history — the
-     * summary carries it and `assembleWindow` keeps it — while the zoom floor
-     * a few lines down refuses any scale showing more than the 16,000 world
-     * units that are resident. Centring on the midpoint of bounds the frame
-     * cannot reach does not produce a wide shot of everything; it produces a
-     * 16,000-unit slice of the *middle*, with the last commit off screen and
-     * the head-band waiver removing the one rule that would have brought it
-     * back. On kubernetes the centre sat 7,014,201 units from the final
-     * commit — 0.11% of the history in frame, and none of it the ending.
+     * Three attempts. The first two are worth writing down, because both
+     * looked right under a test that was not the right test.
      *
-     * That is worse than the clamp it replaced, and it read as fixed because
-     * the frame is *full*: 151 nodes and 205 edges on mdBook, which is a
-     * healthy-looking picture of the wrong part of the repository. "Not blank"
-     * was the wrong test.
+     * Framing from `perf.bounds` on a streamed plan aims at the midpoint of
+     * the *whole* history — the summary carries those bounds and
+     * `assembleWindow` keeps them — while the zoom floor below refuses any
+     * scale showing more than is resident. So it produced a `MAX_VIEW_WIDTH`
+     * slice of the *middle*, and on kubernetes the frame centre sat 7,014,201
+     * units from the final commit: 0.11% of the history in frame, and none of
+     * it the ending. It read as fixed because the frame was *full* — 151 nodes
+     * on mdBook — which is a healthy-looking picture of the wrong part of the
+     * repository. "Not blank" was the wrong test.
      *
-     * So: compute the shot the bounds want, and keep it only if the floor
-     * permits it. Where it does not — every streamed entry — fall back to the
-     * cue and its head-band correction, which frames the ending, which is what
-     * the closing shot of a timelapse is for.
+     * Guarding that on whether the floor permitted the shot was worse. The
+     * condition needed a history narrower than about 15,000 units; the
+     * narrowest published entry is 137,706, so the branch was a constant
+     * `false`, every streamed entry fell through to the cue, and the cue's
+     * tail width is 2,600 units for all twelve. Coverage went *down* — mdBook
+     * 11.6% to 1.89%, eighteen nodes in frame. What caught it was measuring
+     * all twelve entries at four viewport shapes, which is also why the two
+     * previous attempts were not caught.
+     *
+     * What is actually true: a streamed plan can honestly show the span its
+     * resident nodes cover, up to the floor, and the shot has to *end* at the
+     * newest commit rather than be centred on anything. So take the resident
+     * span, cap its width, and hang it off the right-hand end. The head-band
+     * correction below is waived for a tableau on the grounds that the head is
+     * in frame by construction — which was false while the frame was centred
+     * on a midpoint, and is true again now.
+     *
+     * A plan held whole — the demo, and anything compiled from a pasted URL —
+     * has no window and no floor, and still frames its whole history.
      */
-    const whole = cue.state === 'tableau' && this.zoomLock == null ? this.perf?.bounds ?? null : null;
-    const floor = this.perf?.window ? safeW / 16000 : 0;
-    let bounds: typeof whole = null;
+    const tableau = cue.state === 'tableau' && this.zoomLock == null;
+    let bounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
     let fit: number;
-    if (whole) {
-      const w = Math.max(cue.w, (whole.maxX - whole.minX) * 1.06 + 80);
-      const h = Math.max(cue.h, (whole.maxY - whole.minY) * 1.18 + 80);
-      const wide = Math.min(safeW / w, safeH / h);
-      if (wide >= floor) {
-        bounds = whole;
-        fit = wide;
-      } else {
-        fit = Math.min(safeW / cue.w, safeH / cue.h);
-      }
+    const shot = tableau ? this.tableauBox() : null;
+    if (shot) {
+      bounds = shot;
+      fit = Math.min(safeW / Math.max(cue.w, shot.maxX - shot.minX), safeH / Math.max(cue.h, shot.maxY - shot.minY));
     } else {
       fit = Math.min(safeW / cue.w, safeH / cue.h);
     }
@@ -1092,7 +1169,7 @@ export class StageRenderer {
     // A tableau is exempt. That shot exists to show the whole shape at once
     // and is the one place a hairline picture is the point.
     const laneFloor = cue.state === 'tableau' ? 0 : MIN_LANE_PX / LANE_GAP;
-    const scale = Math.max(this.perf?.window?safeW/16000:0,(this.zoomLock ?? fit) * this.smoothedPunch, this.zoomLock != null ? 0 : laneFloor);
+    const scale = Math.max(this.perf?.window?safeW/MAX_VIEW_WIDTH:0,(this.zoomLock ?? fit) * this.smoothedPunch, this.zoomLock != null ? 0 : laneFloor);
     this.view = {
       scale,
       ox: s.left + safeW / 2,
