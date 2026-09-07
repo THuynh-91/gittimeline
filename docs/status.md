@@ -32,11 +32,54 @@ over unverified.
 
 ### Honesty — where the app says something that is not so
 
-1. **The date readout and the timeline disagree at the end of a run.** Read as
-   fourteen years apart at the final frame, and on Node.js the last eleven
-   seconds covered twelve years. *Carried over; not re-measured since the
-   playhead-vs-travel fix in `27ee1a8`, which addressed a different cause.*
-   Suspected: the mixed-resolution `timeMap` in a streamed assembly.
+1. **The date readout and the timeline disagreed at the end of a run — cause
+   found, and it was not the one on this list.** Measured on the deployed build:
+   Node.js 14.00 years apart, CPython 12.67, React 11.25, Chromium 6.43, mdBook
+   5.50; the built-in demo, the only plan on that list held whole, exactly 0.00.
+
+   This list said "suspected: the mixed-resolution `timeMap` in a streamed
+   assembly". **That is false and should not be investigated again.** Every
+   published `time` page was downloaded and decoded to rebuild each entry's
+   full-resolution map, then compared against the map the browser actually holds
+   at 201 playhead positions per entry: **worst error 0.00 years** on all four
+   entries tested. The page covering the playhead is always loaded and carries
+   its own window at full resolution, so the coarse year marks only ever govern
+   parts of the map nobody reads.
+
+   The real mechanism: the closing tableau's zoom floor left `worldW` at 16,000
+   against a history of 137,706 or more, so `ExploreBar` saw `visible ≈ 0.12`,
+   fell through the `>= 0.995` guard written to prevent exactly this, and set
+   `store.travelAt` **with no user input at all** — the caption said
+   "Travelling the finished history". `DateBar` then dutifully reported the date
+   wherever the camera was sitting, which on that build was the midpoint of the
+   history. The readout was not miscalculating; it had quietly stopped answering
+   the question it appears to answer. And the size of the error was whatever the
+   tableau happened to settle on: the same measurement against a differently
+   framed build gave 11.7 years on Node and 0.1 on mdBook, because there the
+   guard happened to fire. A constant mechanism producing a coin-toss number is
+   worse than a fixed error, not better.
+
+   **This is almost certainly the viewer's original complaint** — "it doesn't
+   make much sense to be in February and there are threads into the next year".
+   At mdBook's untouched final frame the hero read March 2021 while the stage
+   spanned about 1.1 calendar years. Threads into the next year, with a date
+   naming one month of it. A bug in the readout, not a missing axis.
+
+   *Status: believed fixed, on two independent grounds rather than a fresh
+   five-entry measurement.* `27ee1a8` made the guard
+   `!taken || visible >= 0.995`, where `taken` requires that somebody actually
+   travelled or took the camera — so the spurious travel is unreachable
+   regardless of how narrow the closing frame is, which is what made the old
+   error entry-dependent. And the closing shot no longer parks at the midpoint
+   (`8d79ded`). `catalog.spec.ts` asserts the date still describes the playhead
+   at the end, and it fails when the guard is reverted, which was checked.
+
+   The reviewer's numbers came from a deploy predating the first of those.
+   Re-running their five-entry probe against HEAD was started and abandoned:
+   it seeks a 53-minute history to its end over the remote shelf and had not
+   finished in ten minutes. Worth doing when there is time to spare, but the
+   guard being entry-independent is the reason this is not being carried as an
+   open defect.
 2. **A streamed entry's closing shot cannot show the whole history**, because
    only a window is resident, and nothing on screen says so. The shot is now
    honest about what it is (the resident span, ending at the newest commit)
@@ -194,13 +237,35 @@ the shot it claims to be. Costs a republish, and raises a real question this
 project has to answer rather than dodge: is a decimated shape still "honest
 topology", or is it a picture of something that never existed?
 
-**Background time ticks.** The stage's central claim is that horizontal
-position is time, and that claim is made nowhere on it — it is a chart with no
-axis, which is why "we are in February and there are threads into next year"
-reads as a contradiction rather than as parallel work. Faint calendar marks at
-a zoom-chosen interval would supply the missing reference. Proposal written at
-`x/proposal-ticks.md`. The open question a reviewer has to settle: should a
-tick be drawn for a date the show has not reached yet?
+**Background time ticks — proposed, reviewed, and rejected.** The idea was
+faint calendar marks behind the stage, at a zoom-chosen interval, to supply the
+time reference a chart with no axis is missing. A reviewer built it exactly as
+specified, ran it against the real shelf, and rejected it on four measured
+grounds. Full report: `x/ticks-review/VERDICT.md`.
+
+- **x is proportional to runtime, not to the calendar**, and ticks are a claim
+  about proportion. Per-year width across one history varies by up to
+  **213,610 : 1** (CPython), and 22 of its 36 years occupy under 0.05 s of
+  runtime. CPython's 1990–2005 are 5.5 world units each — sixteen years inside
+  56 px at playback zoom. "The largest unit whose spacing is at least 120 px"
+  has no well-defined input when spacing varies by thousands *within a single
+  frame*.
+- **It would be a third disagreeing time scale, not a reference.** At Node's
+  final frame the scrubber's rightmost label read 2015, the prototype's only
+  stage tick read 2020, and the date hero read September 2026 — three readouts,
+  three answers, each correct by its own rule. CPython's scrubber paints two
+  year labels for a history the top bar calls "1990–2026 · ENTIRE REPO".
+- **Built and looked at, it is invisible.** Differencing tick/bare frame pairs
+  column by column: never more than **two pixel columns** changed on a 1600 px
+  stage, peak added luminance **1 to 8 levels out of 255** on a near-black field
+  with bloom over it. On CPython, at all four depths tested, the ladder found no
+  qualifying interval and **nothing was drawn at all**.
+- **And the calibration argument was arithmetically backwards** — the proposal
+  described `0.055` as "about half the weight" of an existing `0.05`.
+
+The goal is still worth keeping; this specification is not buildable as written,
+and building it first would have been building on top of the date bug above,
+which is what the complaint that motivated it actually was.
 
 **Speculative prefetch.** The worker cancels its previous request on every
 message, so the next window cannot be warmed while the current one plays. A
