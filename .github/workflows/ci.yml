@@ -27,6 +27,26 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # The sign-in Worker, whose suite is not reachable from the root config.
+      #
+      # `worker/` has its own `vitest.config.mjs`, so the root `npm test` never
+      # saw it and these twenty-seven tests ran only when somebody remembered
+      # to run them by hand. They cover the one control that stops the Worker
+      # minting a token into a site that is not this one: `ALLOWED_ORIGINS`,
+      # which has to match on path as well as origin because
+      # `thuynh-91.github.io` is a GitHub Pages *user* origin serving every
+      # project on the account. A review has already demonstrated that guard
+      # accepting a neighbouring site when it was origin-only. That is not a
+      # thing to leave to memory.
+      #
+      # No install step: `worker/package.json` lists only wrangler, which the
+      # tests do not use, and vitest resolves from the root tree by Node's
+      # parent lookup. Verified by deleting `worker/node_modules` entirely and
+      # running this — twenty-seven passed. So it depends on the root `npm ci`
+      # above having run, which in this job it has.
+      - name: Sign-in Worker tests
+        working-directory: worker
+        run: npm test
       - run: npm run build
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
