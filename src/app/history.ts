@@ -22,8 +22,29 @@ import { store } from './store';
 const HASHES = { landing: '', catalog: '#selection', signin: '#sign-in', repos: '#your-repositories' } as const;
 type Routed = keyof typeof HASHES;
 
-const routeOf = (hash: string): Routed =>
-  hash === '#selection' ? 'catalog' : hash === '#sign-in' ? 'signin' : hash === '#your-repositories' ? 'repos' : 'landing';
+/**
+ * Which page a hash names, forgivingly.
+ *
+ * This was exact string equality, so `#your-repositories/`,
+ * `#Your-Repositories` and `#your-repositories&repo=acme/widget` all rendered
+ * the *landing* page while the address bar went on saying
+ * `#your-repositories`. A URL that is nearly right is what you get from a
+ * pasted link with a trailing slash, a mail client that title-cased it, or a
+ * share link that grew a parameter — and a page that quietly disagrees with
+ * its own address is worse than one that redirects.
+ *
+ * Anything after `&` belongs to a share link, which `boot()` reads separately;
+ * only the route part is matched here. A hash naming no route we own is still
+ * the landing page, and `ours` below is what stops us rewriting somebody
+ * else's URL.
+ */
+const routeOf = (hash: string): Routed => {
+  const name = hash.replace(/^#/, '').split('&')[0]!.replace(/\/+$/, '').toLowerCase();
+  if (name === 'selection') return 'catalog';
+  if (name === 'sign-in') return 'signin';
+  if (name === 'your-repositories') return 'repos';
+  return 'landing';
+};
 
 const urlFor = (r: Routed) => `${location.pathname}${location.search}${HASHES[r]}`;
 

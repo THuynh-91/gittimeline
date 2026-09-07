@@ -14,17 +14,30 @@ import { listMyRepositories, ListShapeError, type MyRepoList } from '@/github/re
  * list.
  *
  * It asks `GET /user/repos`, which answers according to what the credential is
- * entitled to see and nothing more — see `src/github/repos.ts`. With the OAuth
- * app's scopeless token that is public repositories only. A private one
- * appears here when, and only when, a GitHub App has been installed on it by
- * hand; there is no request this app can make that would widen that.
+ * entitled to see and nothing more — see `src/github/repos.ts`. Signing in
+ * gives a scopeless OAuth token, so what comes back is public repositories
+ * only, and there is no request this app can make that would widen it.
+ *
+ * A private repository would appear here if the credential could see one, and
+ * today none can: that needs a separate, deliberate per-repository grant which
+ * has not been built. The `private` tag and the counts that mention it are
+ * therefore currently unreachable rather than wrong, and this paragraph used
+ * to describe a GitHub App in the present tense as though it existed.
  */
 const fmtWhen = (iso: string | null): string => {
-  if (!iso) return '';
+  // An empty column says "this repository has no last-pushed time", which is
+  // not what a missing or unparseable field means — that is "GitHub did not
+  // tell us", and the two are worth telling apart when the column is the thing
+  // the list is sorted by.
+  if (!iso) return 'unknown';
   const then = Date.parse(iso);
-  if (!Number.isFinite(then)) return '';
+  if (!Number.isFinite(then)) return 'unknown';
   const days = Math.floor((Date.now() - then) / 86_400_000);
-  if (days <= 0) return 'today';
+  // Clock skew, or a mirror with a bad timestamp. A repository stamped four
+  // hundred days ahead was reported as pushed today, because the arithmetic
+  // went negative and `days <= 0` swallowed it.
+  if (days < 0) return 'dated ahead';
+  if (days === 0) return 'today';
   if (days === 1) return 'yesterday';
   if (days < 30) return `${days} days ago`;
   if (days < 365) {
@@ -199,7 +212,15 @@ export function MyRepos() {
                 <button
                   type="button"
                   onClick={() => {
-                    store.input.value = r.slug;
+                    // The landing page's box, but only for a public one.
+                    //
+                    // Filling it is a convenience — it shows what is playing
+                    // and makes a second look easy. For a private repository
+                    // it is the same exposure the recents row was excluded
+                    // for, by a different route: pressing Back put the name in
+                    // plain sight on the landing page, where it survived
+                    // navigation, for whoever next looked at the screen.
+                    if (!r.private) store.input.value = r.slug;
                     void loadRepo(r.slug, { autoplay: true });
                   }}
                   data-testid={`my-repo-${r.slug.replace('/', '-')}`}

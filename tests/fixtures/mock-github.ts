@@ -167,6 +167,25 @@ function simpleHash(s: string): string {
 }
 
 /** Small branchy repository used by the browser tests. */
+/**
+ * A linear repository of `n` commits.
+ *
+ * Here rather than in one spec file because two now need it, and because the
+ * size probe reads its count off the `Link` header of `commits?per_page=1` —
+ * so a repository big enough to raise the scope question costs one small
+ * response rather than the history.
+ */
+export function bigRepo(n: number): MockRepo {
+  const shas: string[] = [];
+  const commits: MockCommit[] = [];
+  for (let i = 0; i < n; i++) {
+    const sha = (i + 7).toString(16).padStart(40, '0');
+    shas.push(sha);
+    commits.push({ sha, parents: i ? [shas[i - 1]!] : [], message: `commit ${i}`, author: { name: `Dev ${i % 4}`, login: `dev${i % 4}`, id: i % 4, date: new Date(Date.UTC(2018, 0, 1, i)).toISOString() } });
+  }
+  return { owner: 'acme', name: 'widget', defaultBranch: 'main', commits, branches: [{ name: 'main', sha: shas[n - 1]! }], tags: [] };
+}
+
 export function sampleRepo(): MockRepo {
   const sha = (n: number) => n.toString(16).padStart(40, 'a');
   const d = (day: number, hour = 0) => new Date(Date.UTC(2019, 2, 1 + day, hour)).toISOString();

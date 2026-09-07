@@ -32,6 +32,67 @@ function runtime(seconds: number): string {
  * the clock told where to start and where to stop — and the whole history is
  * the primary action, because it is the offer.
  */
+/**
+ * Keyboard focus, held inside a dialog while it is open.
+ *
+ * `aria-modal` is a promise made to assistive technology and to nothing else:
+ * the browser still lets Tab walk straight out of the card and into the page
+ * behind it, which is dimmed, inert to the eye and fully reachable by the
+ * keyboard. Someone tabbing through this had to cross the whole landing page
+ * to reach the control they wanted, and could leave the dialog without ever
+ * knowing they had.
+ *
+ * Focus goes to the card rather than to a control, so a screen reader reads
+ * the title and the cost before the question, and it goes back where it came
+ * from on close — otherwise dismissing this drops focus onto `<body>` and the
+ * next Tab starts again from the top of the document.
+ *
+ * A hook rather than a block inside one component, because this file holds two
+ * dialogs and only one of them had any of it. The other is the one a large or
+ * dense repository raises — including a private one, which is the path where
+ * the question of what happens when somebody cancels actually matters — and it
+ * had no `aria-modal`, no trap, focus starting on `<body>`, no backdrop
+ * dismissal and no test id on its Cancel, which is why no test pressed it.
+ */
+function useModalCard(card: { current: HTMLDivElement | null }) {
+  useEffect(() => {
+    const root = card.current;
+    if (!root) return;
+    const previous = document.activeElement as HTMLElement | null;
+    root.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const stops = Array.from(root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(
+        (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
+      );
+      if (!stops.length) {
+        e.preventDefault();
+        return;
+      }
+      const first = stops[0]!;
+      const last = stops[stops.length - 1]!;
+      const here = document.activeElement;
+      // Coming off the card itself, Tab has nowhere to have been, so it goes
+      // to the first control and Shift+Tab to the last.
+      if (here === root) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && here === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && here === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    root.addEventListener('keydown', onKey);
+    return () => {
+      root.removeEventListener('keydown', onKey);
+      previous?.focus?.();
+    };
+  }, [card]);
+}
+
 function CatalogScope({ q }: { q: CatalogQuestion }) {
   const years = q.years.map(([y]) => y).sort((x, y) => x - y);
   const first = years.length ? years[0]! : null;
@@ -98,57 +159,7 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   const dragged = useRef(false);
   const card = useRef<HTMLDivElement>(null);
 
-  /**
-   * Keyboard focus, held inside the dialog while it is open.
-   *
-   * `aria-modal` is a promise made to assistive technology and to nothing
-   * else: the browser still lets Tab walk straight out of the card and into
-   * the page behind it, which is dimmed, inert to the eye and fully reachable
-   * by the keyboard. Someone tabbing through this had to cross the whole
-   * landing page to reach the year they wanted, and could leave the dialog
-   * without ever knowing they had.
-   *
-   * Focus goes to the card rather than to a control, so a screen reader reads
-   * the title and the cost before the question, and it goes back where it came
-   * from on close — otherwise dismissing this drops focus onto `<body>` and
-   * the next Tab starts again from the top of the document.
-   */
-  useEffect(() => {
-    const root = card.current;
-    if (!root) return;
-    const previous = document.activeElement as HTMLElement | null;
-    root.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const stops = Array.from(root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(
-        (el) => !el.hasAttribute('disabled') && el.offsetParent !== null,
-      );
-      if (!stops.length) {
-        e.preventDefault();
-        return;
-      }
-      const first = stops[0]!;
-      const last = stops[stops.length - 1]!;
-      const here = document.activeElement;
-      // Coming off the card itself, Tab has nowhere to have been, so it goes
-      // to the first control and Shift+Tab to the last.
-      if (here === root) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-      } else if (e.shiftKey && here === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && here === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    root.addEventListener('keydown', onKey);
-    return () => {
-      root.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, []);
+  useModalCard(card);
   const [dragging, setDragging] = useState(false);
   // Pointer capture sends every subsequent event to the track, so the year
   // under the pointer has to be found by hit-testing rather than read off the
@@ -311,6 +322,11 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
  */
 export function ScopeChooser() {
   const scope = store.scope.value;
+  // Before the early return, because hooks are not conditional. `useModalCard`
+  // below does nothing until the ref is attached, which is exactly when there
+  // is a dialog to hold focus inside.
+  const card = useRef<HTMLDivElement>(null);
+  useModalCard(card);
   if (!scope) return null;
   // A catalog entry is the same question about a history that has already been
   // composed, so it is answered from measurements rather than from a forecast.
@@ -334,8 +350,21 @@ export function ScopeChooser() {
       : null;
 
   return (
-    <div class="prelude" role="dialog" aria-labelledby="scope-title" data-testid="scope-chooser">
-      <div class="error-card scope-card">
+    <div
+      class="prelude"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scope-title"
+      data-testid="scope-chooser"
+      // Dismissed by the backdrop as well as by Escape and the button, like
+      // the other dialog in this file. `mousedown` and a target check rather
+      // than `click`, so a drag that starts on the card and ends on the
+      // backdrop does not dismiss it.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) cancel();
+      }}
+    >
+      <div class="error-card scope-card" ref={card} tabIndex={-1}>
         <h2 id="scope-title">{displayName} has about {approx} commits</h2>
         {reason === 'dense' ? (
           <p>
@@ -372,7 +401,7 @@ export function ScopeChooser() {
           <button type="button" class="btn" onClick={() => chooseScope({ since: null, until: null, label: 'the full history' })} data-testid="scope-full">
             {reason === 'dense' && fullMinutes ? `Everything · up to ${fullMinutes} min` : 'Everything'}
           </button>
-          <button type="button" class="btn" onClick={cancel}>
+          <button type="button" class="btn" onClick={cancel} data-testid="scope-cancel">
             Cancel
           </button>
         </div>

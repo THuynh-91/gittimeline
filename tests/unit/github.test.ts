@@ -46,6 +46,22 @@ describe('rate-limit and pagination headers', () => {
     expect(l.next).toContain('page=2');
     expect(l.lastPage).toBe(9);
     expect(parseLinkHeader(null)).toEqual({ next: null, last: null, lastPage: null });
+
+    /**
+     * A comma inside a URL does not end the entry.
+     *
+     * This used to `split(',')`, which is correct only because GitHub
+     * percent-encodes commas on the way back — and the URL this app asks with
+     * carries three of them, in
+     * `affiliation=owner,collaborator,organization_member`. A server that did
+     * not encode them would have ended pagination after the first page, with
+     * every page arriving, looking complete, and the history truncated.
+     */
+    const commas = parseLinkHeader(
+      '<https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&page=2>; rel="next", <https://api.github.com/user/repos?affiliation=owner,collaborator&page=7>; rel="last"',
+    );
+    expect(commas.next).toBe('https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&page=2');
+    expect(commas.lastPage).toBe(7);
   });
   it('formats reset times', () => {
     expect(formatReset(null)).toMatch(/GitHub resets/);

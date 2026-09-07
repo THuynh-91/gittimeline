@@ -1,5 +1,7 @@
 import { expect, test } from './muted';
-import { shelfPresent, waitForReady } from './helpers';
+import type { Page } from '@playwright/test';
+import { routeGitHub, shelfPresent, waitForReady } from './helpers';
+import { bigRepo } from '../fixtures/mock-github';
 
 /**
  * A small window and a zoomed window are the same width.
@@ -82,5 +84,60 @@ test.describe('a narrow window', () => {
     // The route to Help is what the badge does as well as what it says.
     await page.getByTestId('quality-badge').click();
     await expect(page.getByTestId('panel-help')).toBeVisible();
+  });
+});
+
+test.describe('the question a large repository asks', () => {
+  /**
+   * `ScopeChooser.tsx` holds two dialogs, and only one of them was a dialog.
+   * The catalog one has `aria-modal`, a focus trap, focus placed on the card
+   * and restored on close, and backdrop dismissal. The other — the one a large
+   * or dense repository raises, including a private one, which is the path
+   * where "what happens if you cancel" actually matters — had none of them:
+   * Tab walked straight out into the dimmed page behind, focus started on
+   * `<body>`, clicking the backdrop did nothing, and its Cancel had no test id,
+   * which is why no test had ever pressed it.
+   */
+  const raise = async (page: Page) => {
+    // Over `SCOPE_THRESHOLD`, so the question is asked rather than the history
+    // simply played. The probe reads the count off a `Link` header, so this
+    // costs one small response and not four thousand commits.
+    await routeGitHub(page, bigRepo(4000));
+    await page.goto('/');
+    await waitForReady(page);
+    await page.getByTestId('url-input').fill('acme/widget');
+    await page.getByTestId('play-button').click();
+    await expect(page.getByTestId('scope-chooser')).toBeVisible({ timeout: 30_000 });
+  };
+
+  test('is a dialog: it holds focus, and it can be left', async ({ page }) => {
+    await raise(page);
+    const dialog = page.getByTestId('scope-chooser');
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    // Focus starts on the card, so the title and the cost are read before the
+    // question rather than after it.
+    const onCard = await page.evaluate(() => document.activeElement?.classList.contains('scope-card') ?? false);
+    expect(onCard, 'focus starts inside the dialog').toBe(true);
+
+    // Tab enough times to have escaped a four-control dialog several times
+    // over, then check we are still in it.
+    for (let i = 0; i < 12; i++) await page.keyboard.press('Tab');
+    const inside = await page.evaluate(() => !!document.activeElement?.closest('[data-testid="scope-chooser"]'));
+    expect(inside, 'and stays inside it').toBe(true);
+
+    await expect(page.getByTestId('scope-cancel')).toBeVisible();
+    await page.getByTestId('scope-cancel').click();
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test('the backdrop is a way out, not a dead end', async ({ page }) => {
+    await raise(page);
+    const dialog = page.getByTestId('scope-chooser');
+    // The corner, which is backdrop on any viewport.
+    await page.mouse.move(6, 6);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(dialog).toHaveCount(0);
   });
 });

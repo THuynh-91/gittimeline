@@ -1,17 +1,6 @@
 import { expect, test } from './muted';
 import { routeGitHub, waitForReady } from './helpers';
-import { sampleRepo, type MockRepo } from '../fixtures/mock-github';
-
-function bigRepo(n: number): MockRepo {
-  const shas: string[] = [];
-  const commits = [];
-  for (let i = 0; i < n; i++) {
-    const sha = (i + 7).toString(16).padStart(40, '0');
-    shas.push(sha);
-    commits.push({ sha, parents: i ? [shas[i - 1]!] : [], message: `commit ${i}`, author: { name: `Dev ${i % 4}`, login: `dev${i % 4}`, id: i % 4, date: new Date(Date.UTC(2018, 0, 1, i)).toISOString() } });
-  }
-  return { owner: 'acme', name: 'widget', defaultBranch: 'main', commits, branches: [{ name: 'main', sha: shas[n - 1]! }], tags: [] };
-}
+import { bigRepo, sampleRepo } from '../fixtures/mock-github';
 
 test.describe('public repository ingestion (mocked GitHub)', () => {
   test('happy path: URL → prelude → truthful exact performance', async ({ page }) => {

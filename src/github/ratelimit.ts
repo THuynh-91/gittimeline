@@ -39,9 +39,23 @@ export interface LinkRels {
 export function parseLinkHeader(link: string | null): LinkRels {
   const out: LinkRels = { next: null, last: null, lastPage: null };
   if (!link) return out;
-  for (const part of link.split(',')) {
-    const m = part.match(/<([^>]+)>\s*;\s*rel="([^"]+)"/);
-    if (!m) continue;
+  /**
+   * Matched rather than split.
+   *
+   * `link.split(',')` assumes no comma appears inside a URL, and this app's
+   * own request URL carries three: `affiliation=owner,collaborator,organization_member`.
+   * GitHub percent-encodes them on the way back — verified against the real
+   * API — so the header it actually sends is safe, and the split was correct
+   * only because of a courtesy at the other end. Anything else that speaks
+   * this dialect, or a change of mind at GitHub, would have quietly ended
+   * pagination after the first page: every page arriving, looking complete,
+   * and the history truncated with nothing to see.
+   *
+   * Scanning for the `<url>; rel="name"` shape needs no assumption about what
+   * is inside the angle brackets, which is where a URL is allowed to have
+   * commas in the first place.
+   */
+  for (const m of link.matchAll(/<([^>]+)>\s*;\s*rel="([^"]+)"/g)) {
     const url = m[1]!;
     const rel = m[2]!;
     if (rel === 'next') out.next = url;

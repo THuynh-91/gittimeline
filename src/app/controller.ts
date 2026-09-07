@@ -2410,6 +2410,17 @@ export function handleKey(e: KeyboardEvent): boolean {
     }
     case 'm':
     case 'M':
+      /**
+       * Only where there is something to hear.
+       *
+       * This had no guard at all, so pressing `m` with a repository row
+       * focused wrote `muted: true` into stored settings and raised the toast
+       * "Sound off" — on a page with no player, no music and no obvious
+       * relationship to sound. `hasPerf` is the wrong guard for it, because
+       * the landing page keeps a demo compiled behind the form and so it is
+       * always true; the mode is the question.
+       */
+      if (store.mode.peek() !== 'player') return false;
       toggleMute();
       return true;
     case 'c':
