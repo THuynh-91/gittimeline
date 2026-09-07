@@ -1988,7 +1988,19 @@ export class StageRenderer {
       // the arithmetic is the old arithmetic; below it the line stops
       // disappearing. The floor is in CSS pixels because that is the unit the
       // problem is in.
-      const px = 1 / v.scale;
+      //
+      // A *device* pixel, though, once the stage is drawing fewer pixels than
+      // the window has. `1 / v.scale` is one CSS pixel in world units, and at
+      // a render scale of 0.6 that lands on 0.6 of a device pixel — below what
+      // a rasteriser can put down as a line. Measured at the same moment and
+      // camera, the 1px spine survived the drop intact but lane-pair
+      // modulation collapsed from 0.455 to 0.060, an 87% loss, where lanes sit
+      // five pixels apart: the lines were still being drawn and were no longer
+      // landing on anything. `Math.min(1, dpr)` is a no-op at one or two
+      // device pixels per CSS pixel, so this changes nothing above the floor
+      // and widens the floor itself only where the picture is being
+      // undersampled.
+      const px = 1 / (v.scale * Math.min(1, this.dpr));
       const wCase = Math.max(9 + 2 * heft, 6 * px);
       const wHalo = Math.max(7 + 1.6 * heft, 4.6 * px);
       const wCore = Math.max(2.6 + 0.8 * heft, 1.7 * px);

@@ -125,6 +125,19 @@ five more that a review found while checking them.
    87% — where lanes are five pixels apart, a difference of 2.7 levels out of
    255. The floor was justified on the lane glow and only the spine was
    checked.
+
+   Partly addressed and not closed. The stroke-width floor was expressed in CSS
+   pixels — `1 / v.scale` — so at a render scale of 0.6 a floored line landed on
+   0.6 of a device pixel, below what a rasteriser can put down; it is a device
+   pixel now, which is a no-op at one or two device pixels per CSS pixel and
+   widens the floor only where the picture is undersampled. Measured effect:
+   mean vertical luminance gradient over the stage at scale 0.6 goes from 1.834
+   to 1.982, **8% better**. That is not a recovery of an 87% loss, and the
+   measurement is not the same one: this averages the whole frame, and the
+   finding measured two lanes five pixels apart. **The lane-pair measurement is
+   still owed**, and until it is taken the bottom rung is a deliberate trade —
+   a device that has spent every other rung is choosing frames over fidelity,
+   and three frames a second is the alternative.
 5. **Following a contributor: diagnosed, improved, and the improvement is
    unverified.** Reported as "select a contributor isn't too accurate to
    follow". The Help panel offers a list under "select one to follow their work
