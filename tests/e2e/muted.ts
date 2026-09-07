@@ -30,14 +30,32 @@ import { test as base, expect } from '@playwright/test';
 export const test = base.extend({
   page: async ({ page }, use) => {
     await page.addInitScript(() => {
-      const proto = HTMLMediaElement.prototype as unknown as Record<string, unknown>;
+      const proto = HTMLMediaElement.prototype;
+      const volume = Object.getOwnPropertyDescriptor(proto, 'volume')!;
+      const muted = Object.getOwnPropertyDescriptor(proto, 'muted')!;
+      const play = proto.play;
+      // A getter returning zero does not silence the native media player.
+      // Use its setters, including before play() for elements that start
+      // without receiving a volume assignment.
       Object.defineProperty(proto, 'volume', {
         configurable: true,
-        get: () => 0,
-        set: () => {
-          /* refused */
+        get: volume.get,
+        set(this: HTMLMediaElement) {
+          volume.set!.call(this, 0);
         },
       });
+      Object.defineProperty(proto, 'muted', {
+        configurable: true,
+        get: muted.get,
+        set(this: HTMLMediaElement) {
+          muted.set!.call(this, true);
+        },
+      });
+      proto.play = function () {
+        volume.set!.call(this, 0);
+        muted.set!.call(this, true);
+        return play.call(this);
+      };
     });
     await use(page);
   },

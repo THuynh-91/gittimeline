@@ -51,15 +51,15 @@ export default defineConfig({
    * added to the WebKit project.
    *
    * So the real silencing is a fixture: `tests/e2e/muted.ts`, imported instead
-   * of `@playwright/test`. It refuses `HTMLMediaElement.volume` on every page
-   * on every engine, below the app, so the stored settings and the volume
+   * of `@playwright/test`. It forces native media volume to zero and mutes
+   * playback on every engine, below the app, so the stored settings and the volume
    * control behave exactly as they always did. These two switches stay as
    * belt and braces.
    */
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: { args: ['--mute-audio'] } } },
     /**
-     * Three specs run everywhere; the rest would only triple CI for nothing.
+     * The interaction, fallback, clock and mute checks run on every engine.
      *
      * The travel slider is a styled range input, the one control whose
      * furniture every browser draws differently. The fallback ladder is the
@@ -67,8 +67,10 @@ export default defineConfig({
      * guards — a slow frame costing the show real time — was measured at 0.41x
      * on WebKit and 0.49x on Firefox and never once reproduced on Chromium.
      * Covering it on the fast engine only would have been covering it nowhere.
+     * The mute regression reads native media state because a getter that says
+     * zero does not establish silence, especially on WebKit.
      */
-    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback|clock)\.spec\.ts/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback|clock)\.spec\.ts/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback|clock|muted)\.spec\.ts/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback|clock|muted)\.spec\.ts/ },
   ],
 });
