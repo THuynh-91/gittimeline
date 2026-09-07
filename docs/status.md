@@ -10,6 +10,41 @@ time anyone read it again.
 
 ---
 
+## 0a. Resumed, and the viewer was right — 2026-09-07
+
+**Merge strokes were being drawn in the future.** Candidates A (a labelled rule
+at the playhead) and B (main's line carried dotted to the present) were built
+behind a `showPresent` setting, and drawing A immediately disproved the claim it
+was meant to communicate: ink carried on past the rule. Measured on the
+streamed packages, bright ink reached the frame's right edge at **all six**
+points sampled across Kubernetes' show, and at VS Code's overhang peak. Cause:
+`travelU`'s merge easing sat above the diagonal — up to 0.0180 of the path
+ahead of linear progress — which on a merge spanning a million world units put
+the revealed prefix 7,600 px past the playhead. The second half of `48ca9d7`,
+which bounded the path but left the clock reading it able to overshoot.
+
+Fixed two ways: `travelEase` is now a pure exported function at or below the
+diagonal everywhere, and `drawPolyline` clips every stroke at the present so no
+future easing change can reintroduce it. `tests/unit/reveal.test.ts` asserts
+the property at 2,001 points per kind per motion mode. Suite: 14 files, 186
+passed, 1 skipped; `tsc` and `eslint` clean.
+
+**This falsifies §1a of `proposal-present-and-parallel.md`** and, with it, the
+explanation in 1e quoted further down this section. The overhang measurements
+themselves stand — they were just answering a different question from the one
+the screenshot asked. Full account, evidence and the list of falsified claims:
+`reviews/strokes-in-the-future.md`.
+
+Two things it opens: **35% of the frame is now empty** (bright ink stops at 65%
+of the width and the rightmost lit object is MASTER's nameplate), because the
+head band was calibrated against a picture that was drawing the future — the
+same camera question Codex's closing-shot prototype is open on; and the
+Kubernetes 40% frame carries the caption "51 commits converge" **ten times**
+along main, every one the same number.
+
+Still undecided: whether to keep B, which is now hard to judge because there is
+barely a gap left for it to carry.
+
 ## 0. Paused here — 2026-09-07
 
 Work stopped mid-investigation, deliberately. This section says exactly what
@@ -31,6 +66,12 @@ Kubernetes, where main's resident head is the newest landed node to the digit
 (impact 16377.490, x 14028321, separation 0.000 s). The resident-window
 artefact hypothesis is refuted, and the closing frame was the only place it
 could have applied.
+
+**Superseded by 0a: this is not what the viewer was seeing.** The overhang
+below is real and measured, but the picture that produced the screenshot was
+merge strokes drawn past the playhead, and main's head turns out to sit nine
+pixels from the present rather than a third of a frame from it. Kept as
+written because the overhang finding is still true and still worth showing.
 
 What the viewer is seeing happens **mid-playback**, where the overhang is real:
 up to 3,137 nodes on VS Code at 38.5% of its show, 383 on React, and **every

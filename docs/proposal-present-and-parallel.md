@@ -1,7 +1,19 @@
 # Proposal: mark the present, and stop main looking overtaken
 
-Status: **open — assessment requested.** Written 2026-09-07, from a viewer's
-question that reframed the problem.
+Status: **A and B built; §1a of this document was wrong and building A is what
+proved it.** Written 2026-09-07, from a viewer's question that reframed the
+problem, and corrected the same day.
+
+> **Correction, before anything below is read.** §1a claimed nothing is drawn
+> right of the playhead, "structurally". That is true of *nodes* and false of
+> the *frame*: merge strokes were revealed by an easing curve that ran ahead of
+> linear progress, and on streamed Kubernetes they reached the frame's right
+> edge at all six points sampled across the show — the worst stroke 7,600 px
+> past the playhead. The viewer's "strings go in the future" was a literal and
+> accurate description of the renderer. Found, fixed, measured and tested in
+> `reviews/strokes-in-the-future.md`; §5 of that document lists which claims
+> here it falsifies. The overhang measurements in §1c–1d stand, but they answer
+> a different question from the one the screenshot asked.
 
 > "It's confusing seeing strings go in the future so it's hard to understand
 > what the present is. Why can't they just go in parallel at the same speed and
@@ -24,11 +36,20 @@ the one labelled landmark near the right of the frame — MASTER's nameplate —
 to *be* the present. Everything drawn to its right then reads as the future,
 which would indeed be nonsense.
 
-### 1a. Nothing is drawn in the future. This is structural.
+### 1a. ~~Nothing is drawn in the future. This is structural.~~ Wrong — nodes only
 
-`canvas.ts:1830`: `if (nd.impact > t + 0.001) continue`. No node whose moment
-has not arrived is drawn, and `x = impact * xScale`, so **nothing is drawn to
-the right of the playhead**. The rightmost ink in any frame *is* the present.
+`canvas.ts`: `if (nd.impact > t + 0.001) continue`. No node whose moment has
+not arrived is drawn, and `x = impact * xScale`, so no *node* is drawn right of
+the playhead.
+
+**But nodes are not the only ink, and the conclusion drawn from this was
+false.** Edges are strokes along a path, bounded by a reveal fraction rather
+than by that guard, and the reveal for merges ran ahead of the clock. The
+rightmost ink in a frame was *not* the present: on streamed Kubernetes it was
+the right edge of the frame, at every point sampled. See
+`reviews/strokes-in-the-future.md`. Now true, after the fix recorded there —
+and true because of a clip that enforces it, rather than as a property inferred
+from one pass.
 
 ### 1b. But the present is not marked, anywhere
 
@@ -223,14 +244,20 @@ of.
    thousands mid-show. Two entries measured on whole plans plus the streamed
    closing window. Kubernetes and Linux whole-plan sweeps are still worth
    taking for completeness.
-2. **Whether a full-height rule survives dense playback.** It has never been
-   drawn. Kubernetes has 125,973 visible nodes; a vertical line through a dense
-   frame may read as a seam or a tear.
+2. ~~Whether a full-height rule survives dense playback.~~ **Drawn, and it
+   earned its place immediately** — it made a violated invariant visible in one
+   screenshot after two documents of offline measurement had missed it
+   (`reviews/strokes-in-the-future.md`). Legibility in a dense frame is still
+   unjudged by a viewer, but it is no longer unmeasured: right of the rule, only
+   the word `NOW` and MASTER's plate remain lit.
 3. **Whether "main has not caught up" is what a viewer reads** once the present
    is marked, or whether it reads as "main is broken".
 4. **Whether B can be drawn unmistakably.** A dashed continuation is a
    convention; whether it survives the bloom pass, reduced motion, high
-   contrast and a render scale of 0.6 is unmeasured.
+   contrast and a render scale of 0.6 is unmeasured. Harder to judge than
+   expected, because with the future no longer drawn there is barely a gap for
+   B to carry: main's head sits at 1113 and the playhead at 1114-1175 in every
+   frame sampled on Kubernetes, VS Code and React.
 5. **What this costs per frame.** A is one line and a text draw. B is a stroke
    whose length varies. Neither is measured.
 6. **Whether marking the present makes the pacing defect worse.** On Node the

@@ -33,6 +33,8 @@ export interface RenderSettings {
   selectedThread: number | null;
   showGlyphs: boolean;
   showSpineLabel: boolean;
+  /** The rule at the playhead, and main's line carried to it. */
+  showPresent: boolean;
   /** Screen-space safe insets (top chrome, bottom timeline). */
   safe: { top: number; bottom: number; left: number; right: number };
 }
@@ -71,6 +73,36 @@ const MAX_EDGE_BUCKET_SPAN = 48;
  * `enabled` on, run some frames, read `ms` and `counts`, and optimise the line
  * the numbers name rather than the line the intuition does.
  */
+/**
+ * How much of an edge's path is revealed at linear progress `f`.
+ *
+ * Exported, and a pure function of `f`, so the one property that matters about
+ * it can be asserted without a canvas: **it must never exceed `f`**. The
+ * reveal is what draws the path, so a curve above the diagonal draws the path
+ * before the body has travelled it — the future, on a stage whose single rule
+ * is that nothing is drawn before it happens.
+ *
+ * The merge curve used to be above the diagonal everywhere:
+ * `f*f*(3-2f)*0.6 + 0.4*f^1.7`, which returns 0.829 at f=0.815. Measured on
+ * streamed Kubernetes at 40%, twenty-nine merge strokes in one frame reached
+ * past the playhead, the worst 7,600 px past it — off the right of the frame,
+ * which is why it read as lines running into the future. A viewer reported
+ * exactly that and was right about the picture in a way this renderer was not.
+ * `48ca9d7` had fixed the same fault in its other half, where the whole path
+ * was stroked with no bound at all; bounding the path was not enough while the
+ * clock reading it could overshoot.
+ *
+ * Arrivals still read as hits: `f^k` for `k > 1` has a rising derivative, so
+ * both curves still accelerate into the landing, and both reach exactly 1 at
+ * f = 1, so a body lands on its merge commit on the frame that commit appears.
+ * Merges keep the snappier of the two exponents.
+ */
+export function travelEase(kind: string, f: number, reducedMotion = false): number {
+  const c = Math.max(0, Math.min(1, f));
+  if (reducedMotion) return c; // steady reveal
+  return kind === 'merge' ? Math.pow(c, 1.25) : Math.pow(c, 1.6);
+}
+
 export const renderProfile = {
   enabled: false,
   frames: 0,
@@ -411,12 +443,150 @@ export class StageRenderer {
   get spineLabel(): { x: number; y: number } | null {
     return this.mainLabelAt;
   }
+  /**
+   * Where the present was marked last frame, for measurement — same reason as
+   * the plate above, and the same shape of answer.
+   *
+   * The claim the rule is supposed to make is "nothing is right of this", and
+   * that claim is checkable only against a number: a photograph of a dense
+   * frame cannot distinguish a hairline at 1120 px from one at 1140. `nowX` is
+   * the rule; `tipX` is where main's drawn head is, so the gap between them is
+   * the in-flight work the rule is meant to explain. Null when the rule was
+   * not drawn - off frame, or the setting is off.
+   */
+  private presentMarkAt: { nowX: number; tipX: number; tipY: number } | null = null;
+  get presentMark(): { nowX: number; tipX: number; tipY: number } | null {
+    return this.presentMarkAt;
+  }
+
+  /**
+   * Check the rule's claim against the nodes, rather than against a photograph.
+   *
+   * A capture of streamed Kubernetes at 40% showed commit dots and thread
+   * lines running to the frame's right edge, 730 px right of the rule, while
+   * every travelling body was left of it. That cannot happen if x is monotone
+   * in impact and the draw guard holds, so one of those is not true, and this
+   * reports which: the fit's own residual, how many drawn nodes sit right of
+   * the rule in world space, and the camera rotation that would move a node's
+   * screen x away from its world x.
+   */
+  presentAudit(t: number) {
+    const p = this.perf;
+    const n = this.nodesByX.length;
+    if (!p || n < 2) return null;
+    const worldX = this.xAtTime(t);
+    const a = p.nodes[this.nodesByX[0]!]!;
+    const b = p.nodes[this.nodesByX[n - 1]!]!;
+    let residual = 0;
+    let landed = 0;
+    let beyondWorld = 0;
+    let maxLandedX = -Infinity;
+    let maxLandedImpact = -Infinity;
+    let nonMonotone = 0;
+    let prevX = -Infinity;
+    let prevImpact = -Infinity;
+    const worst: Array<{ x: number; impact: number; kind: string; y: number }> = [];
+    for (let i = 0; i < n; i++) {
+      const nd = p.nodes[this.nodesByX[i]!]!;
+      if (nd.x < prevX) nonMonotone++;
+      if (nd.impact < prevImpact) nonMonotone++;
+      prevX = nd.x;
+      prevImpact = nd.impact;
+      const di = b.impact - a.impact;
+      if (Math.abs(di) > 1e-9) {
+        const pred = a.x + ((nd.impact - a.impact) * (b.x - a.x)) / di;
+        residual = Math.max(residual, Math.abs(pred - nd.x));
+      }
+      if (nd.impact <= t + 0.001) {
+        landed++;
+        if (nd.x > maxLandedX) maxLandedX = nd.x;
+        if (nd.impact > maxLandedImpact) maxLandedImpact = nd.impact;
+        if (worldX != null && nd.x > worldX + 1) {
+          beyondWorld++;
+          if (worst.length < 6) worst.push({ x: nd.x, impact: nd.impact, kind: nd.kind, y: nd.y });
+        }
+      }
+    }
+    // Resident-but-not-yet-happened nodes that fall inside the frame. If the
+    // ink right of the rule is nodes, these are the nodes, and their screen x
+    // will line up with the lit columns. If the nearest one is off the frame,
+    // the ink is something else and the node pass is exonerated.
+    let unlandedInFrame = 0;
+    let minUnlandedScreenX = Infinity;
+    const unlandedSample: Array<{ sx: number; sy: number; impact: number; kind: string }> = [];
+    // Edges that are drawn this frame and whose *path* reaches right of the
+    // rule, which the impact guard on nodes says nothing about.
+    let edgesPastRule = 0;
+    let maxEdgeScreenX = -Infinity;
+    const edgeSample: Array<{ sx: number; kind: string; start: number; end: number; settled: boolean; u: number; pts: number }> = [];
+    if (worldX != null) {
+      for (let i = 0; i < n; i++) {
+        const nd = p.nodes[this.nodesByX[i]!]!;
+        if (nd.impact <= t + 0.001) continue;
+        const s = this.worldToScreen(nd.x, nd.y);
+        if (s.x >= 0 && s.x <= this.width && s.y >= 0 && s.y <= this.height) {
+          unlandedInFrame++;
+          if (s.x < minUnlandedScreenX) minUnlandedScreenX = s.x;
+          if (unlandedSample.length < 6) unlandedSample.push({ sx: +s.x.toFixed(1), sy: +s.y.toFixed(1), impact: nd.impact, kind: nd.kind });
+        }
+      }
+      // The *drawn* tip of every edge on the stage, by drawPolyline's own
+      // arithmetic: `u` indexes the point list, so the tip is the point at
+      // `floor(u*(count-1))` plus the fractional part of the next segment.
+      // A settled edge is drawn whole, so its tip is its last point.
+      for (const e of p.edges) {
+        if (e.start > t) continue;
+        const count = e.pts.length >> 1;
+        if (count < 2) continue;
+        const settled = e.end <= t;
+        const u = settled ? 1 : Math.max(0, Math.min(1, this.travelU(e, t)));
+        const f = u * (count - 1);
+        const full = Math.min(count - 1, Math.floor(f));
+        let tipX = e.pts[full * 2]!;
+        if (full < count - 1) tipX += (e.pts[full * 2 + 2]! - e.pts[full * 2]!) * (f - full);
+        // The widest x anywhere in the drawn prefix, not just its end: a
+        // merge curve can turn back on itself.
+        let widest = tipX;
+        for (let k = 0; k <= full; k++) widest = Math.max(widest, e.pts[k * 2]!);
+        if (widest > worldX + 1) {
+          edgesPastRule++;
+          const sx = this.worldToScreen(widest, 0).x;
+          if (sx > maxEdgeScreenX) maxEdgeScreenX = sx;
+          if (edgeSample.length < 8) edgeSample.push({ sx: +sx.toFixed(1), kind: e.kind, start: +e.start.toFixed(1), end: +e.end.toFixed(1), settled, u: +u.toFixed(3), pts: count });
+        }
+      }
+    }
+    return {
+      t,
+      resident: n,
+      landed,
+      fitResidualWorld: residual,
+      worldX,
+      maxLandedX,
+      maxLandedImpact,
+      beyondWorld,
+      worst,
+      nonMonotone,
+      unlandedInFrame,
+      minUnlandedScreenX,
+      unlandedSample,
+      edgesPastRule,
+      maxEdgeScreenX,
+      edgeSample,
+      rotation: this.view.rotation,
+      viewScale: this.view.scale,
+      spanImpact: [a.impact, b.impact],
+      spanX: [a.x, b.x],
+    };
+  }
   /** How much of each spark's comet to draw this frame; see the body loop. */
   private bodyDetail = 1;
   /** How much of each thread's energy trail to draw this frame; see the body loop. */
   private edgeDetail = 1;
   private clipX0 = -Infinity;
   private clipX1 = Infinity;
+  /** World x of the playhead this frame; see `drawPolyline` and `xAtTime`. */
+  private presentX = Infinity;
   /** Held framing while the plan's own cues are unusable; null when they are not. */
   private rescueView: { cx: number; cy: number; w: number; h: number } | null = null;
   private frameCounter = 0;
@@ -450,6 +620,7 @@ export class StageRenderer {
     selectedThread: null,
     showGlyphs: true,
     showSpineLabel: true,
+    showPresent: true,
     safe: { top: 56, bottom: 150, left: 24, right: 24 },
   };
   manual: ManualCamera | null = null;
@@ -1757,6 +1928,10 @@ export class StageRenderer {
       glow.translate(-v.cx, -v.cy);
     }
 
+    // Where the present is, in world units, for the stroke clip in
+    // `drawPolyline`. Once a frame rather than per edge: it depends only on t.
+    this.presentX = this.xAtTime(t) ?? Infinity;
+
     // Where the history-sweep light is right now: a slow pass over everything
     // that has already been drawn, repeating every twelve seconds.
     if (!this.settings.reducedMotion && p.nodes.length) {
@@ -2059,6 +2234,8 @@ export class StageRenderer {
     lap('glow');
 
     // --- Screen-space labels & selection ---
+    // Before the labels, so a nameplate is never drawn under the rule.
+    this.drawPresent(ctx, t);
     this.drawLabels(ctx, t);
     if (this.attenuation < 1) {
       ctx.fillStyle = rgba(PALETTE.ink, 1 - this.attenuation);
@@ -2179,6 +2356,20 @@ export class StageRenderer {
     if (count < 2) return;
     const x0 = this.clipX0;
     const x1 = this.clipX1;
+    // No stroke may cross the present. `u` bounds how far along the point list
+    // the reveal has got, which is only the same thing as "how far along in
+    // time" when the points are spaced evenly in x — and on a merge they are
+    // not: a long lane run is sampled at a fixed spacing and capped at 200
+    // points, then the turn into the landing adds twenty more over a few
+    // hundred units. So the fraction of *points* revealed can be well past the
+    // fraction of *x* the clock has reached, and a correct `u` still overshot.
+    //
+    // Clipping here rather than at each caller because it is the invariant, not
+    // a property of one pass: every stroke on the stage goes through this
+    // function, and a future change to any easing cannot reintroduce the
+    // fault. Infinity when the playhead's x is unknown, which is the case
+    // before a plan is resident.
+    const front = this.presentX;
     const f = u * (count - 1);
     const full = Math.min(count - 1, Math.floor(f));
     // `begin` lets a caller collect several runs into one path. Stroking a
@@ -2193,6 +2384,19 @@ export class StageRenderer {
       if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1)) {
         penAt = -1;
         return;
+      }
+      if (ax > front) {
+        penAt = -1;
+        return;
+      }
+      if (bx > front) {
+        const d = bx - ax;
+        const k = Math.abs(d) > 1e-9 ? (front - ax) / d : 0;
+        bx = front;
+        by = ay + (by - ay) * k;
+        // -2 lifts the pen: the next segment cannot continue from a point that
+        // was interpolated rather than reached.
+        bi = -2;
       }
       if (penAt !== ai) ctx.moveTo(ax, ay);
       ctx.lineTo(bx, by);
@@ -2268,11 +2472,10 @@ export class StageRenderer {
     ctx.stroke();
   }
 
+  /** How much of an edge's path has been travelled; see `travelEase`. */
   private travelU(e: EdgeGeom, t: number): number {
-    const f = Math.max(0, Math.min(1, (t - e.start) / Math.max(1e-6, e.end - e.start)));
-    if (this.settings.reducedMotion) return f; // steady reveal
-    // accelerate into the landing so arrivals read as hits
-    return e.kind === 'merge' ? f * f * (3 - 2 * f) * 0.6 + 0.4 * Math.pow(f, 1.7) : Math.pow(f, 1.6);
+    const f = (t - e.start) / Math.max(1e-6, e.end - e.start);
+    return travelEase(e.kind, f, this.settings.reducedMotion);
   }
 
   private drawActiveEdge(ctx: CanvasRenderingContext2D, glow: CanvasRenderingContext2D | null, e: EdgeGeom, t: number, ivory: string, slateBase: string, focusIdx: number) {
@@ -2825,6 +3028,121 @@ export class StageRenderer {
       } else hi = mid - 1;
     }
     return found;
+  }
+
+  /**
+   * The world x the playhead is at, derived rather than assumed.
+   *
+   * `x = naturalTime * X_PER_SECOND` and `naturalTime = (impact - HEAD) / scale`,
+   * so x is *affine* in impact — which means any two nodes determine the
+   * mapping and no constant from the compiler needs to be repeated here. Two
+   * nodes far apart in impact give the best conditioning, so the first and the
+   * last are used.
+   *
+   * Worth deriving rather than importing: `X_PER_SECOND` and the clock's scale
+   * live in the compiler, they are already baked into the geometry, and a
+   * second copy of them here would be a second thing to keep in step.
+   */
+  private xAtTime(t: number): number | null {
+    const p = this.perf;
+    const n = this.nodesByX.length;
+    if (!p || n < 2) return null;
+    const a = p.nodes[this.nodesByX[0]!]!;
+    const b = p.nodes[this.nodesByX[n - 1]!]!;
+    const di = b.impact - a.impact;
+    if (!(Math.abs(di) > 1e-9)) return null;
+    return a.x + ((t - a.impact) * (b.x - a.x)) / di;
+  }
+
+  /**
+   * A rule at the present, and main's line carried up to it.
+   *
+   * Two halves of one answer to a viewer's question — "it's confusing seeing
+   * strings go in the future so it's hard to understand what the present is".
+   *
+   * Nothing is ever drawn in the future: the node pass refuses anything with
+   * `impact > t`, so the rightmost ink *is* the present. But nothing said so.
+   * The stage's only moving mark was `sweepX`, a light that travels repeatedly
+   * over already-drawn history, and the date and the scrubber are both in the
+   * chrome. So a viewer hunting for "now" found one labelled thing near the
+   * right of the frame — MASTER's plate — and read everything past it as the
+   * future.
+   *
+   * What is past it is real and is not the future. The camera keeps main's head
+   * between three fifths and seven tenths of the way across (see the head band
+   * below), so during playback the third of the frame between main's plate and
+   * the playhead holds committed work that has not been merged yet. Measured on
+   * whole plans: up to 3,137 such commits on VS Code, 383 on React, and *every
+   * one of them* on a branch that eventually merges. Zero at the closing frame,
+   * where main has absorbed everything.
+   *
+   * So: mark the present, and let main reach it. Main's ref exists
+   * continuously — it simply has no commit at this moment — and a line that
+   * stops at its newest commit implies it stopped existing. Carrying it forward
+   * puts the in-flight work *beside* main instead of *beyond* it, which is what
+   * the viewer asked for, without moving a single commit.
+   *
+   * The continuation must not read as commits. That is the trap `48ca9d7`
+   * climbed out of: merges were drawn as S-curves that painted main's own path
+   * ahead of where main had got to. Hence a dotted hairline at a third of the
+   * line's weight, and no dots on it.
+   */
+  private drawPresent(ctx: CanvasRenderingContext2D, t: number) {
+    const p = this.perf;
+    if (!p || !this.settings.showPresent) return;
+    const worldX = this.xAtTime(t);
+    if (worldX == null) return;
+    const s = this.settings.safe;
+    const nowX = this.worldToScreen(worldX, 0).x;
+    // Off the frame is the usual case on a long history mid-seek, and a rule
+    // clamped to the edge would be a rule in the wrong place.
+    if (nowX < s.left || nowX > this.width - s.right) {
+      this.presentMarkAt = null;
+      return;
+    }
+
+    const hc = this.settings.highContrast;
+    const ivory = hc ? PALETTE.highContrast.ivory : PALETTE.ivory;
+    ctx.save();
+
+    // Main's line, carried from its drawn head to the present.
+    const tip = this.spineTip(t);
+    const tipScreen = tip ? this.worldToScreen(tip.x, tip.y) : null;
+    this.presentMarkAt = { nowX, tipX: tipScreen ? tipScreen.x : NaN, tipY: tipScreen ? tipScreen.y : NaN };
+    if (tip) {
+      const from = this.worldToScreen(tip.x, tip.y);
+      if (nowX - from.x > 2) {
+        ctx.beginPath();
+        ctx.setLineDash([2, 5]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(ivory, hc ? 0.5 : 0.3);
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(nowX, from.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    // The rule itself, and its one word.
+    ctx.beginPath();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(ivory, hc ? 0.34 : 0.16);
+    ctx.moveTo(nowX, s.top);
+    ctx.lineTo(nowX, this.height - s.bottom);
+    ctx.stroke();
+
+    // "NOW" and not the date. The date is already on the hero directly below
+    // and describes this same moment, so a second copy of it would be two
+    // dates on one screen — the shape of a defect this app has had once, when
+    // the readout was fourteen years out because it silently described the
+    // camera instead of the clock.
+    ctx.font = '600 8.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = nowX > this.width - s.right - 40 ? 'right' : 'left';
+    ctx.fillStyle = rgba(ivory, hc ? 0.7 : 0.42);
+    const pad = ctx.textAlign === 'right' ? -5 : 5;
+    ctx.fillText('NOW', nowX + pad, s.top + 4);
+    ctx.restore();
   }
 
   private drawLabels(ctx: CanvasRenderingContext2D, t: number) {

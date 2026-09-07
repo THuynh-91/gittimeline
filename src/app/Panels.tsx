@@ -356,6 +356,16 @@ function SettingsPanel() {
         onChange={(v) => { updateSettings({ showSpineLabel: v }); applySettingsToRuntime(); }}
         testId="spine-label-toggle"
       />
+      {/* Its own switch, next to the main line's name, because it is the same
+          kind of object: one mark that is always in the same place. Somebody
+          who has understood where the present is will not want to be told
+          again for four and a half hours. */}
+      <Toggle
+        label="Mark the present"
+        value={s.showPresent}
+        onChange={(v) => { updateSettings({ showPresent: v }); applySettingsToRuntime(); }}
+        testId="present-toggle"
+      />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
       {/* Next to "No flashes" because they are the same kind of request, and
           separate from reduced motion because that also stops the travelling

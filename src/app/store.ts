@@ -122,6 +122,14 @@ export interface Settings {
    * picture, so it comes off.
    */
   showSpineLabel: boolean;
+  /**
+   * Mark the present, and carry main's line up to it.
+   *
+   * A viewer could not tell where "now" was: nothing on the stage marked the
+   * playhead, so MASTER's plate — the only label near the right of the frame —
+   * was read as the present, and the in-flight work past it as the future.
+   */
+  showPresent: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -136,6 +144,7 @@ export const DEFAULT_SETTINGS: Settings = {
   labels: 'landmarks',
   showGlyphs: true,
   showSpineLabel: true,
+  showPresent: true,
   autoCamera: true,
   quality: 'full',
   includeBranches: true,

@@ -579,6 +579,7 @@ function syncRendererSettings() {
     labels: shopWindow ? 'minimal' : s.labels,
     showGlyphs: s.showGlyphs,
     showSpineLabel: s.showSpineLabel,
+    showPresent: s.showPresent,
     contributorFocus: store.contributorFocus.value,
     selectedNode: store.selectedNode.value,
     hoverNode: store.hoverNode.value,
@@ -2712,6 +2713,12 @@ export function installDebugHook() {
     get spineLabel() {
       return renderer?.spineLabel ?? null;
     },
+    /** Where the present was marked last frame, and where main's head is. */
+    get presentMark() {
+      return renderer?.presentMark ?? null;
+    },
+    /** Check the NOW rule's claim against the nodes; see `presentAudit`. */
+    presentAudit: () => renderer?.presentAudit(player.t) ?? null,
     get music() {
       const now = audio.nowPlaying;
       return now ? { title: now.title, artist: now.artist, playing: audio.playing } : null;
