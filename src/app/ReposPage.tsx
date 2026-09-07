@@ -66,11 +66,25 @@ export function ReposPage() {
             `<section>` with no accessible name is not one. */}
         <section class="repos-note" aria-labelledby="repos-note-heading">
           <h2 id="repos-note-heading">Why a private repository is not in this list</h2>
+          {/* Present tense, for something that does not exist.
+              This read "making one visible is a separate, deliberate act: a
+              read-only grant on the specific repositories you choose,
+              revocable one at a time" — which describes a capability nobody
+              has built. There is no grant to make and no field to paste a
+              token into. The sign-in page had already got this right, opening
+              with "Not yet — this is what it will be"; this page had not, and
+              a page that promises a thing it cannot do is the one failure this
+              project treats as unacceptable. */}
           <p>
             The connection above asks GitHub for <b>no permissions</b>, so a private repository is invisible to it —
-            GitHub answers as though it does not exist, which is the same answer a stranger gets. Making one visible
-            is a separate, deliberate act: a read-only grant on <b>the specific repositories you choose</b>, revocable
-            one at a time, and nothing else becomes visible with it.
+            GitHub answers as though it does not exist, which is the same answer a stranger gets. <b>Watching a private
+            repository is not possible yet.</b> There is no second authorization to grant and nowhere to paste a token;
+            signing in raises how many requests you may make and widens nothing.
+          </p>
+          <p class="dim">
+            When it exists it will be a read-only grant on <b>the specific repositories you choose</b>, revocable one
+            at a time, with nothing else becoming visible alongside it — the terms the sign-in page sets out. Until
+            then this list holds your public repositories.
           </p>
           <p>
             Whatever is granted, a private history is never written to this device — not its commits, not its name,

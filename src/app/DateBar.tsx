@@ -48,6 +48,17 @@ export function DateBar() {
    * screen — the same reason the era and the caption go quiet above.
    */
   const open = travelling ? 0 : perf.threads.reduce((n, th) => n + (th.start <= t && (th.ending !== 'merged' || th.end > t) ? 1 : 0), 0);
+  /**
+   * Shown only when it says something the picture does not.
+   *
+   * "1 branch open" is a readout announcing that main exists. The interesting
+   * value is a high one — that is the fact a topological tool cannot state —
+   * and one is the value it takes for most of a linear stretch, so it was
+   * noise in the chrome for most of every quiet history. The scrubber tooltip
+   * already had this right: `Timeline.tsx` mentions concurrency only when
+   * `activeThreadCount > 1`.
+   */
+  const showOpen = open > 1;
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
@@ -98,7 +109,7 @@ export function DateBar() {
             entries it was a flat absurdity: "99 of 1033 branches are open at
             this point; the busiest moment of this history has 16." Both
             numbers were right, about different questions. */}
-        {open > 0 && (
+        {showOpen && (
           <span class="open-threads" data-testid="open-threads" title={`${open} of this history's ${perf.stats.threads} branches have started by this point and have not been merged.`}>
             <b>{open}</b> {open === 1 ? 'branch' : 'branches'} open
           </span>

@@ -22,7 +22,9 @@ test.describe('what the time axis knows', () => {
     const readAt = async (f: number) => {
       await page.evaluate((t: number) => window.__gittimeline.seek(t), duration * f);
       const el = page.getByTestId('open-threads');
-      if ((await el.count()) === 0) return 0;
+      // Absent means one or none: the readout is gated above one, so its
+      // absence is a reading rather than a failure to find it.
+      if ((await el.count()) === 0) return 1;
       const text = (await el.textContent()) ?? '';
       return Number(text.match(/\d+/)?.[0] ?? 0);
     };
@@ -36,11 +38,16 @@ test.describe('what the time axis knows', () => {
     expect(Math.max(...counts), 'and never more than the plan says ever were').toBeLessThanOrEqual(peak);
     expect(new Set(counts).size, 'the number is a reading, not a constant').toBeGreaterThan(1);
 
-    // Grammar, because a bare plural on "1" is the kind of thing nobody fixes.
-    const one = counts.indexOf(1);
-    if (one >= 0) {
-      await readAt([0.05, 0.3, 0.5, 0.7, 0.95][one]!);
-      await expect(page.getByTestId('open-threads')).toContainText(/\b1 branch open/);
+    // And it stays quiet when it would only say that main exists.
+    //
+    // "1 branch open" is a readout announcing the obvious, and one is the
+    // value it takes for most of a linear stretch. The scrubber tooltip
+    // already had this rule — it mentions concurrency only above one — so
+    // the chrome agrees with it now.
+    const quiet = counts.indexOf(1);
+    if (quiet >= 0) {
+      await readAt([0.05, 0.3, 0.5, 0.7, 0.95][quiet]!);
+      await expect(page.getByTestId('open-threads'), 'one open branch is not news').toHaveCount(0);
     }
   });
 
