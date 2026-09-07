@@ -3957,3 +3957,15 @@ kbd {
   font-size: 11px;
   letter-spacing: 0.04em;
 }
+
+/* "the show has reached" — what the big date is a date *of*. Quiet, and ahead
+   of the caption on the same line, because it labels the hero above rather
+   than competing with it. See `DateBar`. */
+.date-of {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  margin-right: 8px;
+}

@@ -47,7 +47,31 @@ export function DateBar() {
    * the number would describe the last frame rather than the picture on
    * screen — the same reason the era and the caption go quiet above.
    */
-  const open = travelling ? 0 : perf.threads.reduce((n, th) => n + (th.start <= t && (th.ending !== 'merged' || th.end > t) ? 1 : 0), 0);
+  /**
+   * A thread with nothing drawn cannot be open, and this counted them forever.
+   *
+   * `compile.ts:371` gives a fully collapsed thread — every one of its commits
+   * absorbed into an aggregated run — `start: 0` and `end: 0`, because there
+   * is no first or last visible node to take an impact from. Those two zeroes
+   * met `start <= t` on the very first frame and, having never merged, never
+   * closed. Measured on a whole-plan mdBook: **"607 branches open" beside a
+   * hero reading July 2015**, where the true count is zero. Kubernetes
+   * whole-plan read 1,636 against 0.
+   *
+   * The published shelf escapes it, because a windowed plan carries only the
+   * threads its pages hold — Kubernetes reads 93 at a quarter through, which
+   * is exactly right. The whole-plan path is what "paste a GitHub URL" uses,
+   * so the number was wrong precisely where somebody brought their own
+   * repository.
+   *
+   * Counted here rather than repaired in the compiler because this readout is
+   * a claim about what is *on the stage*: a thread with no visible node is not
+   * on it, whatever its bounds say. Repairing the bounds would also need a
+   * republish to reach the twelve packaged entries.
+   */
+  const open = travelling
+    ? 0
+    : perf.threads.reduce((n, th) => n + (th.nodeIdxs.length > 0 && th.start <= t && (th.ending !== 'merged' || th.end > t) ? 1 : 0), 0);
   /**
    * Shown only when it says something the picture does not.
    *
@@ -76,6 +100,18 @@ export function DateBar() {
         )}
       </div>
       <div class="date-meta">
+        {/* What the big date is a date *of*.
+            Nothing said, and "the date" is not a thing this app has — the
+            hero is `historicalAt(t)`, the playhead, and the node pass refuses
+            anything ahead of the clock, so it is the date of the newest thing
+            on the stage. A viewer asked whether it was master's date or the
+            branches'; it is neither, and two words settle it. While
+            travelling, the caption beside this already says so. */}
+        {!travelling && (
+          <span class="date-of" data-testid="date-of">
+            {spansYears ? 'the show has reached' : 'reached'}
+          </span>
+        )}
         <span class="caption-line" data-testid="caption">
           {travelling && <b>Travelling the finished history</b>}
           {era && <b>{era.label}</b>}

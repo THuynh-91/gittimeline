@@ -1,8 +1,22 @@
 # What the date means, and why branches appear to pass MASTER
 
 Two questions that keep coming back, answered from the code rather than from
-impressions. Both have the same root: **x is the clock**, and almost nothing
-else in this field works that way.
+impressions. Both have the same root: **x is a clock**, and almost nothing else
+in this field works that way.
+
+One correction to make up front, because it undercuts an argument this project
+has leaned on. x is not the *author's* clock. It is **presentation time**:
+author dates rewritten until they respect ancestry, so that a child is always
+drawn to the right of its parent — `tests/unit/shared.ts` asserts
+`child.x > parent.x` on every edge of every fixture. Measured on the published
+plans, **734,221 of Linux's 1,481,850 commits (49.5%)** and 46.4% of Node's
+have their stamp moved by more than a day to make that hold.
+
+So "the picture never draws a commit at a time it did not happen" is false, and
+was false before anyone proposed changing the layout. It is a deliberate
+choice, guarded by a test, and it is the right one — a rebased or cherry-picked
+commit carries a date that would otherwise place it before its own parent. But
+it cannot be used as an argument against anything.
 
 ---
 
@@ -18,7 +32,8 @@ reached September 2023**. It is a property of the playhead alone.
 That is a stronger statement than it looks, because of two facts that hold
 together:
 
-- `x = impact * xScale` (`src/layout/layout.ts`). Horizontal position *is* time.
+- `x = impact * xScale` (`src/layout/layout.ts`) — affine in presentation time,
+  not proportional to it: `impact` is `(authored − HEAD) / clock.scale`.
 - The node pass refuses to draw anything ahead of the clock:
   `if (nd.impact > t + 0.001) continue` (`src/renderer/canvas.ts`). This is the
   project's hardest invariant — nothing is drawn before it happens.
@@ -62,18 +77,27 @@ This is the differentiator. gitk, `git log --graph`, GitKraken and GitHub's
 network graph all place commits by ancestry, so "this branch has been open for
 five months and main has moved on twice since" is not a picture they can draw.
 
-How far ahead does it actually get? Measured after the routing fix below,
-counting landed commits later than main's newest:
+How far ahead does it actually get? **Much further than this document used to
+say, and the old figure was measured at three points.** Exhaustively over all
+twelve published plans:
 
-| | commits ahead of main |
+| | ahead of main's head |
 |---|---|
-| kubernetes @25% / @50% / @75% | 2 / 0 / 0 |
-| cpython @25% / @50% / @75% | 1 / 0 / 1 |
+| microsoft/vscode | **3,275 nodes / 441 s** at its worst |
+| torvalds/linux | 637 at worst, p90 45 |
+| facebook/react | 399 at worst |
+| rust-lang/rust | p90 18 |
 
-Nearly always zero or one. These projects merge constantly, and **every merge
-is a commit on main**, so main is never far behind in commit count. That result
-killed a proposed "N commits ahead of main" readout: it would have shown `0`
-almost always. See `PROPOSAL-mainline.md`.
+And **something is drawn to the right of main's head for 53–88% of every show**
+on ten of the twelve entries. The earlier claim — "nearly always zero or one",
+from three sample points on two entries — was sound method on a sample far too
+small, and it killed a proposed "N commits ahead of main" readout on the
+grounds that it would show `0` almost always. It would not. That readout is
+back under consideration; see `docs/status.md`.
+
+These projects do merge constantly, and every merge *is* a commit on main, so
+main is never far behind in a way that matters for ancestry. It is frequently
+far behind in *time*, which is what this axis draws.
 
 ### (b) A routing bug that painted main's own path ahead of itself — fixed
 
@@ -96,7 +120,15 @@ the fewer screen pixels that gap becomes. Measured on Kubernetes at one moment:
 | 1440x900 | 27.4 px |
 | 1855x620 | **16.4 px** |
 
-Add each line's glow to a 16-pixel gap and neighbouring lanes stop reading as
+Those three were re-measured and the first two hold; the third does not, and
+what replaced it is worse. `MIN_LANE_PX = 26` now floors the zoom during
+playback — at 1855x620 the spacing is a flat 26.00 px for a whole performance —
+**but the closing tableau is deliberately exempt from that floor**, and settled
+at the end of the show Kubernetes at 1855x620 measures **6.10 px between
+lanes**. That is 2.7 times tighter than the worst case quoted above, and it is
+the last frame of every performance: the one a viewer looks at longest.
+
+Add each line's glow to a six-pixel gap and neighbouring lanes stop reading as
 two lines. **Nothing is drawn at the spine's height beyond its tip** — the
 draw guard in §1 makes that structural — so a line that appears to continue
 past main's head is its neighbour, too close to tell apart. There is now a
