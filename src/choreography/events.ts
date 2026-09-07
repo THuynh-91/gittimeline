@@ -30,6 +30,8 @@ export interface EventContext {
   eras: Era[];
   mergeSalience: Float32Array; // per node
   mergeVolume: Int32Array; // per node
+  /** Per node: the volume above is a lower bound, not a count. See `compile.ts`. */
+  mergeVolumeCapped: Uint8Array;
   beatLen: Float32Array; // per node
   gaps: Map<number, number>; // node idx → historical gap ms
   presentation: Float64Array; // per commit
@@ -214,7 +216,15 @@ export function buildEvents(ctx: EventContext): EventPlan {
       const volume = ctx.mergeVolume[nd.idx] ?? 0;
       const release = bl * (1.5 + 2 * sal) * (1 + Math.min(1.2, Math.log2(1 + volume) * 0.16));
       const scaleWord = type === 'OCTOPUS_MERGE' ? `Octopus merge of ${parents.length} parents` : type === 'MAJOR_MERGE' ? 'Major merge' : 'Merge';
-      const volumeWord = volume > 0 ? ` · ${volume} commit${volume === 1 ? '' : 's'} converge` : '';
+      // "at least", when the ancestry walk ran out of budget rather than out
+      // of ancestors. Without it every large merge in a repository claims the
+      // same number — 51 on Kubernetes, 32 on Linux — which is a fact about
+      // the budget and reads as a fact about the merge.
+      // "1 commit converge" was the old reading, and the verb has to agree
+      // too. "At least one" is always plural, because the bound is not the
+      // count.
+      const capped = ctx.mergeVolumeCapped[nd.idx] === 1;
+      const volumeWord = volume > 0 ? ` · ${capped ? 'at least ' : ''}${volume} commit${volume === 1 && !capped ? ' converges' : 's converge'}` : '';
       const ev = push(type, nd.impact - 0.2, nd.impact, nd.impact + release, subjects, sal, `${scaleWord}${volumeWord} · ${who(nd)} · ${subjectOf(nd)} · ${fmtDate(h)}`, {
         historicalTime: h,
         beat: nd.beat,

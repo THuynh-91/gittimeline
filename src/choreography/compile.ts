@@ -119,6 +119,21 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   const mergeRaw = new Float32Array(n);
   const mergeVolume = new Int32Array(n);
+  /**
+   * The merges whose side branch was bigger than we were willing to walk.
+   *
+   * `ancestryBudget` is `MERGE_ANCESTRY_VISITS / mergeCount`, so it is a
+   * property of the *repository* and not of the merge — and any side branch at
+   * least that big returns exactly the budget. On Kubernetes the budget works
+   * out to 3,000,000 / 57,863 = **51**, so every substantial merge reported
+   * "51 commits converge" and five of those captions were on screen at once.
+   * On Linux it is 32, on VS Code 170, on React 1,151.
+   *
+   * The count was not a count. It is still worth stating as a lower bound —
+   * "at least 51" is true and useful — but stating it as exact is the kind of
+   * false precision `docs/data-truth.md` exists to forbid.
+   */
+  const mergeVolumeCapped = new Uint8Array(n);
   const ancestry = new UniqueAncestryWalker(g);
   let maxMergeRaw = 0;
   for (let i = 0; i < n; i++) {
@@ -129,6 +144,10 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     let oldest = presentation[i]!;
     for (let k = 1; k < ps.length; k++) {
       const side = ancestry.walk(ps[k]!, ps[0]!, ancestryBudget);
+      // `walk` stops at `out.length < limit`, so reaching the limit means it
+      // gave up rather than finished. A branch of exactly the budget is
+      // indistinguishable from a larger one, and "at least" is true of both.
+      if (side.length >= ancestryBudget) mergeVolumeCapped[i] = 1;
       unique += side.length;
       for (const s of side) {
         contribs.add(contributorOf[s]!);
@@ -512,11 +531,13 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
 
   onProgress('events');
   const mergeVolumeN = new Int32Array(nodes.length);
+  const mergeVolumeCappedN = new Uint8Array(nodes.length);
   const mergeSalienceN = new Float32Array(nodes.length);
   const gapsN = new Map<number, number>();
   nodes.forEach((nd, nid) => {
     mergeSalienceN[nid] = mergeSalienceC[commitOfNode[nid]!]!;
     mergeVolumeN[nid] = mergeVolume[commitOfNode[nid]!]!;
+    mergeVolumeCappedN[nid] = mergeVolumeCapped[commitOfNode[nid]!]!;
     const gap = clock.gaps.get(nid);
     if (gap !== undefined) gapsN.set(nid, gap);
   });
@@ -533,6 +554,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
     eras,
     mergeSalience: mergeSalienceN,
     mergeVolume: mergeVolumeN,
+    mergeVolumeCapped: mergeVolumeCappedN,
     beatLen: beatLenN,
     gaps: gapsN,
     presentation,
