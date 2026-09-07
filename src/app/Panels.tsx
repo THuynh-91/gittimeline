@@ -69,7 +69,24 @@ function Inspector() {
   const contributor = perf.contributors[nd.contributorIdx];
   const thread = perf.threads[nd.threadIdx];
   const incoming = perf.edges.filter((e) => e.child === nd.idx);
-  const parents = commit?.parentShas ?? [];
+  /**
+   * Parents, from whichever of the two sources this performance has.
+   *
+   * `parentShas` comes from the ingested dataset, and a streamed catalog entry
+   * has no dataset — only a window of the compiled plan. Reading that absence
+   * as "no parents" told the viewer that every commit of every packaged
+   * history was a root, merges included, which rendered as the flat
+   * contradiction `none (root) · merge`. Twelve histories, every commit.
+   *
+   * The topology was never missing: `nd.parentCount` is the real count, and
+   * the incoming edges carry the parents that are resident. An edge of kind
+   * `unknown` is one whose parent is outside the loaded window — a boundary,
+   * which is exactly the thing this project promises never to draw as a root.
+   */
+  const parents = commit?.parentShas ?? incoming.filter((e) => e.parent >= 0).map((e) => perf.nodes[e.parent]!.sha);
+  const isRoot = commit ? parents.length === 0 : nd.parentCount === 0;
+  /** Parents that exist but are not in the part of the history now in hand. */
+  const unloadedParents = Math.max(0, nd.parentCount - parents.length);
   const agg = nd.aggregateIdx != null ? perf.aggregates[nd.aggregateIdx] : null;
   const committerDiffers = !!commit && !!commit.committerIdentityId && commit.committerIdentityId !== commit.authorIdentityId;
   return (
@@ -114,7 +131,24 @@ function Inspector() {
         )}
         <dt>Parents</dt>
         <dd>
-          {parents.length === 0 ? 'none (root)' : parents.map((p, i) => <code key={p}>{i ? ', ' : ''}{p.slice(0, 7)}{perf.nodes.some((n) => n.sha === p) || ds?.commits.some((c) => c.sha === p) ? '' : ' (not loaded)'}</code>)}
+          {isRoot
+            ? 'none (root)'
+            : parents.map((p, i) => (
+                <code key={p}>
+                  {i ? ', ' : ''}
+                  {p.slice(0, 7)}
+                  {perf.nodes.some((n) => n.sha === p) || ds?.commits.some((c) => c.sha === p) ? '' : ' (not loaded)'}
+                </code>
+              ))}
+          {/* Named, not omitted. A commit with two parents and one of them
+              off the edge of the loaded window has to say so, or the count
+              beside it reads as a contradiction. */}
+          {!isRoot && unloadedParents > 0 && (
+            <span class="dim">
+              {parents.length > 0 ? ', ' : ''}
+              {unloadedParents} not in the loaded part of this history
+            </span>
+          )}
           {nd.isMerge ? ' · merge' : ''}
           {nd.parentCount > 2 ? ' · octopus' : ''}
         </dd>

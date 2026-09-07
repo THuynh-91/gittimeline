@@ -88,6 +88,59 @@ test.describe('the performance clock', () => {
     expect(seen.rate, `${seen.rate.toFixed(2)}x at ${seen.fps.toFixed(1)} fps`).toBeGreaterThan(0.9);
   });
 
+  test('a device gives up the picture once there is no resolution left to give', async ({ page }) => {
+    /**
+     * Stepping the resolution down is the biggest single win available, so it
+     * was the only one: `watchFrameRate` returned immediately unless
+     * `dpr > 1`. On a display reporting `devicePixelRatio === 1` there is
+     * nothing there to give up, so a slow 1x device — a low-end laptop, an old
+     * integrated GPU — could not adapt at all, however badly it was doing. It
+     * ran at whatever it managed and nothing ever changed.
+     *
+     * The other two levers are not small: `reduced` drops the bloom, a second
+     * full-frame composite of every lit line, and `minimal` drops the drifting
+     * dust and shortens the trails.
+     *
+     * Written to hold at either starting resolution rather than asserting one.
+     * Chromium and Firefox open at dpr 1 here and step straight to the
+     * picture; WebKit's device descriptor is dpr 2, so it spends the
+     * resolution first and the picture second. Long enough for both, and what
+     * is asserted is the end of the ladder, which is the part that did not
+     * exist.
+     */
+    await load(page);
+    await page.evaluate(() => (window.__gittimeline.render.enabled = true));
+
+    const before = await page.evaluate(() => window.__gittimeline.render.counts.qualitySteppedDown);
+
+    // Twenty consecutive frames over a tenth of a second is one step, and the
+    // counter resets after each, so this is room for two with a margin.
+    await page.evaluate(async (blockMs: number) => {
+      const raf = window.requestAnimationFrame.bind(window);
+      let blocking = true;
+      window.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+        raf((ts) => {
+          if (blocking) {
+            const until = performance.now() + blockMs;
+            while (performance.now() < until) {
+              /* deliberately */
+            }
+          }
+          cb(ts);
+        })) as typeof window.requestAnimationFrame;
+      await new Promise<void>((done) => {
+        let n = 0;
+        const tick = () => (++n >= 75 ? done() : raf(tick));
+        raf(tick);
+      });
+      blocking = false;
+      window.requestAnimationFrame = raf;
+    }, 130);
+
+    const after = await page.evaluate(() => window.__gittimeline.render.counts.qualitySteppedDown);
+    expect(after - before, 'the picture gave something up').toBeGreaterThan(0);
+  });
+
   test('does not jump when a hidden tab comes back', async ({ page }) => {
     /**
      * `requestAnimationFrame` stops firing in a background tab, so the first

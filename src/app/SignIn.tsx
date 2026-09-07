@@ -5,6 +5,7 @@ import { store } from './store';
 import { AUTH_BASE, signInWithGitHub } from './auth';
 import { showLanding, clearStoredHistories } from './controller';
 import { Icons } from './icons';
+import { useCatalogEntries } from './Catalog';
 
 /**
  * Connecting a GitHub account.
@@ -28,10 +29,23 @@ import { Icons } from './icons';
  * hands the token back and forgets it; the token lives in this tab's memory,
  * is sent to api.github.com and nowhere else, and is gone when the tab closes.
  */
+/** Small numbers written out, to match the voice of the rest of the page. */
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const spell = (n: number): string => WORDS[n] ?? String(n);
+
 export function SignIn() {
   const [showSetup, setShowSetup] = useState(false);
   const connected = !!store.token.value;
   const configured = !!AUTH_BASE;
+  /**
+   * Counted, not written down. This said "eight more" when the shelf held
+   * twelve, and said the histories "ship with the site" when they are fetched
+   * from object storage on demand — both true when the sentence was written
+   * and both stale within a fortnight. A number in prose about a list that is
+   * fetched at runtime is a number that will be wrong again.
+   */
+  const { entries: shelf } = useCatalogEntries();
+  const others = shelf && shelf.length > 2 ? spell(shelf.length - 2) : null;
 
   return (
     <div class="page signin-page" data-testid="signin-page">
@@ -234,7 +248,8 @@ export function SignIn() {
           <button type="button" class="linkish" onClick={() => (store.mode.value = 'catalog')}>
             The ready-made histories
           </button>{' '}
-          — Linux, Chromium, and eight more, whole — ship with the site and cost no requests at all.
+          — Linux, Chromium{others != null ? ` and ${others} more` : ' and the rest'}, whole — are prepared in advance
+          and cost no GitHub requests at all.
         </p>
       </div>
       <SiteFoot />

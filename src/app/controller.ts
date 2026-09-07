@@ -787,10 +787,18 @@ export function startLoop() {
  * capping *every* frame at a tenth of a second, which stopped the jump and
  * also turned any device below ten frames a second into slow motion. Handling
  * the actual cause here is what let that cap move to `MAX_FRAME_SECONDS`.
+ *
+ * Either direction, without asking which. The first version only reset on the
+ * way back to `visibilityState === 'visible'`, which reads as the careful
+ * thing to do and cost nothing except that headless WebKit reports a page as
+ * hidden the whole time it is running — so the guard never passed and the
+ * reset never happened. Forgetting the timestamp is harmless going the other
+ * way too: at worst one frame is worth nothing, and a tab about to stop
+ * drawing has nothing to lose.
  */
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') lastFrame = 0;
+    lastFrame = 0;
   });
 }
 

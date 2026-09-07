@@ -16,6 +16,9 @@ import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
  */
 export type Quality = 'full' | 'reduced' | 'minimal';
 
+/** Ordered, so "whichever asks for less" is a comparison rather than a chain. */
+const QUALITY_RANK: Record<Quality, number> = { minimal: 0, reduced: 1, full: 2 };
+
 export interface RenderSettings {
   reducedMotion: boolean;
   noFlash: boolean;
@@ -100,6 +103,8 @@ export const renderProfile = {
     rescuedCues: 0,
     /** Times the stage gave up a resolution the device could not sustain. */
     dprSteppedDown: 0,
+    /** Times it gave up part of the picture, once resolution was spent. */
+    qualitySteppedDown: 0,
   },
   /** The last frame's world window, so a surprising count can be explained. */
   view: { scale: 0, x0: 0, x1: 0, y0: 0, y1: 0 },
@@ -234,6 +239,28 @@ export class StageRenderer {
    * made it fast, so recovery is evidence for the step, not against it.
    */
   private dprEarned = Infinity;
+  /**
+   * A ceiling on `quality` that this device has actually earned — the same
+   * idea as `dprEarned`, for the devices `dprEarned` could not help.
+   *
+   * Stepping the resolution down is the biggest single win available, and on a
+   * HiDPI display it is four times the fill. On a display that reports
+   * `devicePixelRatio === 1` there is nothing there to give up: the old
+   * `watchFrameRate` returned immediately unless `dpr > 1`, so a slow 1x
+   * device — a low-end laptop, an old integrated GPU, a phone in a browser
+   * that reports 1 — could not adapt at all, however badly it was doing. It
+   * ran at whatever frame rate it managed and nothing ever changed.
+   *
+   * There are two other levers and they are not small ones: `reduced` drops
+   * the bloom pass, which is a second full-frame composite of every lit line,
+   * and `minimal` drops the drifting dust and shortens the performer trails.
+   *
+   * Capped, not set: the viewer's own choice in Settings still wins when it is
+   * lower than this. Downwards only, and one notch at a time, for the reason
+   * given on `dprEarned` — the cheaper picture is what made it fast, so
+   * recovery is evidence for the step rather than against it.
+   */
+  private qualityEarned: Quality = 'full';
   private slowFrames = 0;
   private frameEma = 0;
   private view: ViewTransform = { scale: 1, ox: 0, oy: 0, rotation: 0, cx: 0, cy: 0 };
@@ -561,7 +588,7 @@ export class StageRenderer {
    * accumulate towards the same conclusion as a run of terrible ones.
    */
   private watchFrameRate(dtReal: number) {
-    if (this.dpr <= 1 || dtReal <= 0) return;
+    if (dtReal <= 0) return;
     this.frameEma = this.frameEma ? this.frameEma * 0.9 + dtReal * 0.1 : dtReal;
     // Ten frames a second, named here rather than inherited from the frame
     // loop's clamp. It used to be the clamp — `dtReal >= 0.0999` was reading
@@ -570,17 +597,37 @@ export class StageRenderer {
     // against the old value would have silently stopped counting anything.
     if (dtReal >= SLOW_FRAME_SECONDS) this.slowFrames++;
     else this.slowFrames = 0;
-    if (this.slowFrames >= 20 && this.frameEma >= 0.06) {
+    if (this.slowFrames < 20 || this.frameEma < 0.06) return;
+    this.slowFrames = 0;
+    // Resolution first, because it is the cheapest thing to give up and the
+    // largest saving — and unlike the bloom, nobody chose it.
+    if (this.dpr > 1) {
       this.dprEarned = 1;
-      this.slowFrames = 0;
       renderProfile.counts.dprSteppedDown++;
       this.resize();
+      return;
     }
+    // Then the picture itself, a notch at a time. `minimal` is the floor: past
+    // it there is nothing left to remove that is not the history.
+    const next = this.quality === 'full' ? 'reduced' : this.quality === 'reduced' ? 'minimal' : null;
+    if (!next) return;
+    this.qualityEarned = next;
+    renderProfile.counts.qualitySteppedDown++;
+    this.resize();
+  }
+
+  /**
+   * What to actually draw at: the viewer's setting, or what the device has
+   * earned, whichever asks for less. Every cost decision reads this rather
+   * than `settings.quality` directly.
+   */
+  private get quality(): Quality {
+    return QUALITY_RANK[this.settings.quality] <= QUALITY_RANK[this.qualityEarned] ? this.settings.quality : this.qualityEarned;
   }
 
   resize() {
     const rect = this.canvas.getBoundingClientRect();
-    const dprCap = this.settings.quality === 'full' ? 2 : this.settings.quality === 'reduced' ? 1.5 : 1;
+    const dprCap = this.quality === 'full' ? 2 : this.quality === 'reduced' ? 1.5 : 1;
     this.dpr = Math.min(dprCap, this.dprEarned, window.devicePixelRatio || 1);
     this.width = Math.max(1, Math.round(rect.width));
     this.height = Math.max(1, Math.round(rect.height));
@@ -1352,7 +1399,7 @@ export class StageRenderer {
     this.clipX0 = vx0 - clipPad;
     this.clipX1 = vx1 + clipPad;
 
-    const useGlow = this.settings.quality === 'full' && !this.settings.reducedMotion;
+    const useGlow = this.quality === 'full' && !this.settings.reducedMotion;
     const glow = this.glowCtx;
     if (useGlow) {
       glow.setTransform(1, 0, 0, 1, 0, 0);
@@ -1701,7 +1748,7 @@ export class StageRenderer {
       ctx.fillRect(0, 0, w, h);
     }
 
-    if (this.settings.quality === 'minimal') return;
+    if (this.quality === 'minimal') return;
 
     // Stars. Deterministic, and slow enough that the drift is felt rather than
     // watched — anything faster reads as snow falling past the history.
@@ -2203,7 +2250,7 @@ export class StageRenderer {
     }
 
     // comet trail: earlier positions along the exact path
-    const trailFull = this.settings.quality === 'full' ? (isPerformer ? 11 : 6) : 5;
+    const trailFull = this.quality === 'full' ? (isPerformer ? 11 : 6) : 5;
     const trailN = Math.max(1, Math.round(trailFull * this.bodyDetail));
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';

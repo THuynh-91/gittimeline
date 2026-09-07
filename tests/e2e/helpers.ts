@@ -19,7 +19,7 @@ declare global {
       years: Array<[number, number]> | null;
       source: { provider: string; slug: string } | null;
       /** Per-pass render timings and counts; inert until `enabled` is set. */
-      render: { enabled: boolean; frames: number; counts: { nodesDrawn: number; edgesDrawn: number; rescuedCues: number } };
+      render: { enabled: boolean; frames: number; counts: { nodesDrawn: number; edgesDrawn: number; rescuedCues: number; dprSteppedDown: number; qualitySteppedDown: number } };
       camera: { x: number; y: number; w: number; h: number; state: string; punch: number } | null;
       manualCamera: boolean;
       zoomLocked: boolean;
