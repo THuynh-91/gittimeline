@@ -23,6 +23,7 @@ import { SECONDS_PER_NODE, SECONDS_PER_NODE_REDUCED, targetSecondsFor } from './
 import { layoutGraph, routeAlongLane, routeCurve, X_PER_SECOND, type ThreadLayoutInput } from '@/layout/layout';
 import { buildEvents } from './events';
 import { planCamera } from './camera';
+import { ancestryBudget as perMergeAncestryBudget } from '@/model/volume';
 
 export type ProgressStage = 'graph' | 'threads' | 'activity' | 'clock' | 'layout' | 'events' | 'camera' | 'done';
 export type ProgressFn = (stage: ProgressStage, detail?: string) => void;
@@ -108,30 +109,29 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // difference between "absorbed 1,900" and "absorbed 2,000" was never on
   // screen. A small history is unaffected — the budget only bites above about
   // fifteen hundred merges.
-  const MERGE_ANCESTRY_VISITS = 3_000_000;
+  // The visit budget and the per-merge share of it live in `model/volume.ts`,
+  // because the renderer has to recover the same number to know whether a
+  // volume it is about to write down is a count or a floor.
   let mergeCount = 0;
   for (let i = 0; i < n; i++) if (commits[i]!.parentShas.length > 1) mergeCount++;
   // The floor is low because the repositories that reach it are the ones where
   // it matters least: Rust lands 107,048 merges through a queue, so its merges
   // are individually small and uniform, and measuring each to a depth of 2,000
   // would be 214 million visits to distinguish things that all draw the same.
-  const ancestryBudget = Math.max(32, Math.min(2000, Math.floor(MERGE_ANCESTRY_VISITS / Math.max(1, mergeCount))));
+  const ancestryBudget = perMergeAncestryBudget(mergeCount);
 
   const mergeRaw = new Float32Array(n);
   const mergeVolume = new Int32Array(n);
   /**
    * The merges whose side branch was bigger than we were willing to walk.
    *
-   * `ancestryBudget` is `MERGE_ANCESTRY_VISITS / mergeCount`, so it is a
-   * property of the *repository* and not of the merge — and any side branch at
-   * least that big returns exactly the budget. On Kubernetes the budget works
-   * out to 3,000,000 / 57,863 = **51**, so every substantial merge reported
-   * "51 commits converge" and five of those captions were on screen at once.
-   * On Linux it is 32, on VS Code 170, on React 1,151.
+   * `ancestryBudget` is a property of the *repository* and not of the merge —
+   * any side branch at least that big returns exactly the budget. See
+   * `model/volume.ts` for the measured numbers and for the phrasing that both
+   * places writing a volume now share.
    *
-   * The count was not a count. It is still worth stating as a lower bound —
-   * "at least 51" is true and useful — but stating it as exact is the kind of
-   * false precision `docs/data-truth.md` exists to forbid.
+   * Kept as a flag as well as being derivable, because it is exact and free
+   * here: this loop already knows whether the walk hit its budget.
    */
   const mergeVolumeCapped = new Uint8Array(n);
   const ancestry = new UniqueAncestryWalker(g);

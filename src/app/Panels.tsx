@@ -356,10 +356,12 @@ function SettingsPanel() {
         onChange={(v) => { updateSettings({ showSpineLabel: v }); applySettingsToRuntime(); }}
         testId="spine-label-toggle"
       />
-      {/* Its own switch, next to the main line's name, because it is the same
-          kind of object: one mark that is always in the same place. Somebody
-          who has understood where the present is will not want to be told
-          again for four and a half hours. */}
+      {/* Off by default, and next to the main line's name because it is the
+          same kind of object: one mark always in the same place, which nobody
+          who has understood it needs repeated for four and a half hours. It
+          earned its keep by catching strokes drawn ahead of the clock, and
+          with those bounded the rightmost ink is the present already — so this
+          is a diagnostic now, not a feature. See `Settings.showPresent`. */}
       <Toggle
         label="Mark the present"
         value={s.showPresent}

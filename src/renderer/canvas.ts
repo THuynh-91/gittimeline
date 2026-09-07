@@ -6,6 +6,7 @@ import { hash01 } from '@/model/prng';
 import { mixHex, rgba } from '@/model/color';
 import { LANE_GAP } from '@/layout/layout';
 import { GLYPH_PATHS, PALETTE, threadTint } from './palette';
+import { volumeIsCapped, volumePhrase } from '@/model/volume';
 
 /**
  * Canvas2D stage renderer. Every visible quantity is a pure function of the
@@ -264,6 +265,13 @@ export class StageRenderer {
   private aggregateEdges: EdgeGeom[] = [];
   private unknownEdges: EdgeGeom[] = [];
   private mergeLabelNodes: NodeGeom[] = [];
+  /**
+   * The history's merge count, which is what sets the ancestry budget.
+   *
+   * Read off the plan rather than carried in the geometry, so the twelve
+   * already-published packages get the correction without being rebuilt.
+   */
+  private mergeCount = 0;
   private taggedNodes: NodeGeom[] = [];
   private labelThreads: ThreadGeom[] = [];
   private tipThreads: ThreadGeom[] = [];
@@ -620,7 +628,7 @@ export class StageRenderer {
     selectedThread: null,
     showGlyphs: true,
     showSpineLabel: true,
-    showPresent: true,
+    showPresent: false,
     safe: { top: 56, bottom: 150, left: 24, right: 24 },
   };
   manual: ManualCamera | null = null;
@@ -730,6 +738,7 @@ export class StageRenderer {
     });
     this.unknownEdges = p.edges.filter((edge) => edge.kind === 'unknown');
     this.mergeLabelNodes = p.nodes.filter((node) => node.isMerge && node.mergeVolume >= 6);
+    this.mergeCount = p.stats.merges;
     this.taggedNodes = p.nodes.filter((node) => node.tagLabels.length > 0);
     const nameAnonymousThreads = p.stats.threads <= 40;
     this.labelThreads = p.threads.filter((thread) => thread.role !== 'primary' && (!!thread.label || nameAnonymousThreads));
@@ -3366,7 +3375,12 @@ export class StageRenderer {
         const alpha = Math.max(0, Math.min(1, 1 - (age - 2.2) / 1.2));
         if (alpha <= 0) break;
         const s = this.worldToScreen(nd.x, nd.y);
-        place(s.x + 12, s.y + 16, `${nd.mergeVolume} commits converge`, alpha, PALETTE.merge);
+        // "at least", when the volume is the ancestry budget rather than a
+        // count — see `model/volume.ts`. The chrome caption has said this
+        // since the cap was found; this label, which is the one that can
+        // appear ten times in a single frame, was still stating it as exact.
+        const v = nd.mergeVolume;
+        place(s.x + 12, s.y + 16, volumePhrase(v, volumeIsCapped(v, this.mergeCount)), alpha, PALETTE.merge);
       }
     }
     __lap('lblMerges');

@@ -123,11 +123,28 @@ export interface Settings {
    */
   showSpineLabel: boolean;
   /**
-   * Mark the present, and carry main's line up to it.
+   * Mark the present, and carry main's line up to it. **Off by default.**
    *
-   * A viewer could not tell where "now" was: nothing on the stage marked the
-   * playhead, so MASTER's plate — the only label near the right of the frame —
-   * was read as the present, and the in-flight work past it as the future.
+   * Built because a viewer could not tell where "now" was: nothing on the stage
+   * marked the playhead, so MASTER's plate — the only label near the right of
+   * the frame — was read as the present, and everything past it as the future.
+   *
+   * It turned out they were reading the picture correctly. Merge strokes were
+   * being revealed ahead of the clock, so ink really did run past the present,
+   * to the frame's right edge at every point sampled across Kubernetes' show.
+   * Drawing the rule is what made that visible, after two documents of offline
+   * measurement had missed it (`docs/reviews/strokes-in-the-future.md`).
+   *
+   * Which is also why it is off. With the strokes bounded, **the rightmost ink
+   * is the present** — the thing the rule was built to say, now said by the
+   * picture itself — so the rule marks nothing that is not already shown, and
+   * one more mark in the same place for four and a half hours is a
+   * distraction. The viewer's judgement, and it is the right one.
+   *
+   * Kept behind a switch rather than deleted, because a labelled playhead is
+   * how this class of defect gets caught: it turns "does anything run ahead of
+   * the clock" from an argument into a screenshot. `presentMark` and
+   * `presentAudit` on the renderer are the numeric form of the same check.
    */
   showPresent: boolean;
 }
@@ -144,7 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   labels: 'landmarks',
   showGlyphs: true,
   showSpineLabel: true,
-  showPresent: true,
+  showPresent: false,
   autoCamera: true,
   quality: 'full',
   includeBranches: true,

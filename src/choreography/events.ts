@@ -12,6 +12,7 @@ import type {
   ThreadGeom,
 } from '@/model/types';
 import { describeAggregate } from '@/analysis/aggregate';
+import { volumePhrase } from '@/model/volume';
 
 /**
  * Choreography event grammar (spec §11). Every event traces back to a
@@ -217,14 +218,12 @@ export function buildEvents(ctx: EventContext): EventPlan {
       const release = bl * (1.5 + 2 * sal) * (1 + Math.min(1.2, Math.log2(1 + volume) * 0.16));
       const scaleWord = type === 'OCTOPUS_MERGE' ? `Octopus merge of ${parents.length} parents` : type === 'MAJOR_MERGE' ? 'Major merge' : 'Merge';
       // "at least", when the ancestry walk ran out of budget rather than out
-      // of ancestors. Without it every large merge in a repository claims the
-      // same number — 51 on Kubernetes, 32 on Linux — which is a fact about
-      // the budget and reads as a fact about the merge.
-      // "1 commit converge" was the old reading, and the verb has to agree
-      // too. "At least one" is always plural, because the bound is not the
-      // count.
-      const capped = ctx.mergeVolumeCapped[nd.idx] === 1;
-      const volumeWord = volume > 0 ? ` · ${capped ? 'at least ' : ''}${volume} commit${volume === 1 && !capped ? ' converges' : 's converge'}` : '';
+      // of ancestors — the numbers and the wording are in `model/volume.ts`.
+      // Phrased there so the label drawn on the stage beside the merge says
+      // the same thing in the same words. It did not, until the two were made
+      // one function: this line was corrected when the cap was found and that
+      // one was missed.
+      const volumeWord = volume > 0 ? ` · ${volumePhrase(volume, ctx.mergeVolumeCapped[nd.idx] === 1)}` : '';
       const ev = push(type, nd.impact - 0.2, nd.impact, nd.impact + release, subjects, sal, `${scaleWord}${volumeWord} · ${who(nd)} · ${subjectOf(nd)} · ${fmtDate(h)}`, {
         historicalTime: h,
         beat: nd.beat,

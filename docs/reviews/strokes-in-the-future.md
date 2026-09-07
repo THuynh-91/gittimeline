@@ -166,6 +166,30 @@ violation visible in a single screenshot after two documents of offline
 measurement had missed it. B is unaffected and still untested against a real
 gap, because in the frames sampled there is barely a gap to carry.
 
+## 5a. And then the rule was switched off
+
+The viewer's verdict, once they had looked at it:
+
+> "What does the NOW LINE serve.. other then a distraction... it's fine without
+> it"
+
+Right, and for the reason this document argues. The rule was built to say
+"the rightmost ink is the present". With the strokes bounded that is now true
+of the picture itself, so the rule states something already shown — and one
+more mark in the same place for four and a half hours costs attention and
+returns nothing. `showPresent` defaults to **false**. B goes with it, and had
+little left to do anyway: main's head sits 1-9 px from the playhead in every
+frame sampled on three entries.
+
+It is kept behind the switch rather than deleted, because a labelled playhead
+is how this class of defect gets caught — it turns "does anything run ahead of
+the clock" from an argument into a screenshot. `presentMark` and `presentAudit`
+on the renderer are the numeric form of the same check, and the clip in
+`drawPolyline` is on regardless of the setting: the fix is not the rule.
+
+The honest summary of A is that it was an instrument, not a feature, and it
+paid for itself in the hour it existed.
+
 ## 6. What this opens
 
 **35% of the frame is now empty.** Bright ink stops at 65% of the width at
