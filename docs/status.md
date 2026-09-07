@@ -80,7 +80,30 @@ over unverified.
    finished in ten minutes. Worth doing when there is time to spare, but the
    guard being entry-independent is the reason this is not being carried as an
    open defect.
-2. **A streamed entry's closing shot cannot show the whole history**, because
+2. **The axis is runtime and the app never says so — the confusion that
+   follows was reported, not hypothetical.** x is proportional to *runtime* and
+   only ordered by date, so the date can move much further than the picture
+   does. On Node.js the playhead reads May 2014 at 90% of the show and Sep 2026
+   at the end: twelve years in the last tenth, most of it in one frame.
+   Somebody watching that sees a date lurch with no explanation.
+
+   Half of it was a display bug and is fixed. The app has always had the
+   sentence — `QUIET_GAP`, "Quiet span of 11.4 years passes" — and it was never
+   seen, for two reasons: a caption's dwell was however much runtime the plan
+   gave the thing it describes, and Node crosses eleven years in 0.077
+   performance-seconds; and the caption walk consumed every event up to the
+   clock in one pass and kept only the last, so the notice was created and
+   discarded in the same tick. Captions now have a 900ms floor, and a
+   discontinuity notice outranks salience — measured, `QUIET_GAP` carries 0.3
+   and was losing the line to a `REPO_BIRTH` crossed in the same frame.
+
+   The other half is not fixed: nothing on screen says the axis is runtime
+   rather than calendar. `docs/pacing.md` §3C, and it is the only item there
+   that costs no republish. The rejected time-ticks proposal was an attempt at
+   it — see `x/ticks-review/VERDICT.md` for why that particular answer was
+   wrong. `docs/reading-the-stage.md` is the written explanation in the
+   meantime.
+3. **A streamed entry's closing shot cannot show the whole history**, because
    only a window is resident, and nothing on screen says so. The shot is now
    honest about what it is (the resident span, ending at the newest commit)
    rather than pretending to be the whole picture — but "the whole shape at
@@ -96,7 +119,7 @@ five more that a review found while checking them.
 
 ### Playback
 
-3. **Node.js gives 0.054% of its show to the decade from 2016**, and eleven of
+4. **Node.js gives 0.054% of its show to the decade from 2016**, and eleven of
    its years get under 0.05 s each. **CPython is worse** — 0.305% for 2018
    onward, twenty-two years under 0.05 s, and a 213,610 : 1 spread between its
    fattest year and its thinnest — and React's 2016-onward share of 29.4% is
@@ -110,7 +133,7 @@ five more that a review found while checking them.
    between two consecutive commits. Full account in `docs/pacing.md`, including
    how the first version of that document got three figures wrong. Needs a
    republish — but raising the clamp is testable locally without publishing.
-4. **A weak device is choppy, though no longer slow, and the bottom rung may
+5. **A weak device is choppy, though no longer slow, and the bottom rung may
    be too low.** Measured before the render-scale rungs existed: Chromium at
    20x CPU throttling and 2x device pixels, 2.43 fps; WebKit on an iPhone 12
    descriptor, 3.55 fps; WebKit at 1280x720 and dpr 2, 5.65 fps. The ladder has
@@ -138,7 +161,7 @@ five more that a review found while checking them.
    still owed**, and until it is taken the bottom rung is a deliberate trade —
    a device that has spent every other rung is choosing frames over fidelity,
    and three frames a second is the alternative.
-5. **Following a contributor: diagnosed, improved, and the improvement is
+6. **Following a contributor: diagnosed, improved, and the improvement is
    unverified.** Reported as "select a contributor isn't too accurate to
    follow". The Help panel offers a list under "select one to follow their work
    through the structure", and focusing one dims the stage to 28% and keeps
@@ -199,7 +222,7 @@ WebKit and 0.49x on Firefox — a history whose card said 2 min 43 taking 6 min
 37. That is gone.
 
 What is *not* fixed is the frame rate itself on the weakest configurations,
-which is item 4 above. Real time holding at 2.4 fps means the show is honest
+which is item 5 above. Real time holding at 2.4 fps means the show is honest
 and choppy rather than dishonest and smooth, which is the better of the two but
 is not the same as good.
 

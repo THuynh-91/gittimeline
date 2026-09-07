@@ -14,7 +14,7 @@ import { willOutrunTheCeiling } from '@/choreography/pace';
 import { buildShowcaseDataset } from '@/fixtures/showcase';
 import { buildLandingDataset } from '@/fixtures/landing';
 import { fixtureById } from '@/fixtures/corpus';
-import type { CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
+import type { ChoreographyEvent, CompiledPerformance, Dataset, PlaybackPreset } from '@/model/types';
 import { buildShareHash, parseShareHash } from '@/export/share';
 import { createArtifact, downloadBlob, parseArtifact, serializeArtifact } from '@/export/artifact';
 import { gunzipIfNeeded, performanceFileFor, performanceMatchesRequest, readCompiledPerformance, type PerfDatasetRef } from '@/export/performance';
@@ -763,20 +763,86 @@ function frame(now: number) {
   }
 }
 
+/**
+ * The least time a caption may be on screen, in milliseconds.
+ *
+ * Without a floor, a caption's dwell is however much *runtime* the plan gave
+ * the thing it describes — and the plan gives runtime per visible arrival, so
+ * a stretch of history with nothing left after aggregation gets almost none.
+ * Node.js crosses eleven years between two consecutive commits in 0.077
+ * performance-seconds: the "Quiet span of 11.4 years passes" caption for that
+ * jump existed for four frames, and in practice for none at all, because the
+ * loop below walks every event up to `t` in one pass and keeps only the last.
+ * The one message that would have explained the date lurching from 2014 to
+ * 2026 was created and discarded in the same tick.
+ *
+ * Nine hundred milliseconds is about a short sentence. A more salient event
+ * still interrupts, so this delays a caption rather than suppressing one.
+ */
+const MIN_CAPTION_MS = 900;
+let captionAt = 0;
+/** A caption waiting for the line to come free. */
+let pending: ChoreographyEvent | null = null;
+
 function updateCaption(t: number) {
   const perf = player.perf;
   if (!perf) return;
   const events = perf.events;
   if (captionPtr >= events.length || (captionPtr > 0 && events[captionPtr - 1]!.performanceImpact > t)) captionPtr = 0;
-  let current = store.caption.peek();
+  const held = store.caption.peek();
+  let current = held;
   while (captionPtr < events.length && events[captionPtr]!.performanceImpact <= t) {
     const ev = events[captionPtr++]!;
-    if (ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') current = ev;
+    if (ev.type === 'MERGE_IMPACT' || ev.type === 'MAJOR_MERGE' || ev.type === 'OCTOPUS_MERGE' || ev.type === 'DIVERGENCE' || ev.type === 'TAG_LANDMARK' || ev.type === 'QUIET_GAP' || ev.type === 'REPO_BIRTH' || ev.type === 'REPO_PRESENT' || ev.type === 'UNKNOWN_SPAN' || ev.type === 'AGGREGATE_SPAN' || ev.type === 'ERA_TRANSITION' || ev.type === 'UNMERGED_TIP' || ev.type === 'MULTI_ROOT_REVEAL') {
+      /**
+       * Whichever of the ones crossed explains the most, not the last of them.
+       *
+       * Several caption-worthy events land in one frame whenever the clock
+       * moves faster than the plan's own spacing — a frame at four frames a
+       * second covers a quarter-second of runtime, and a compressed stretch
+       * fits years into that. Keeping the last is arbitrary: it is whichever
+       * the array happened to end on.
+       *
+       * `QUIET_GAP` and `UNKNOWN_SPAN` outrank everything, and salience is the
+       * wrong measure for them. They are the only two captions that explain a
+       * *discontinuity* — why the date moved further than the picture did, or
+       * why a line stops without a parent. Everything else describes something
+       * that is on the stage: miss it and the stage still shows it. Miss one of
+       * these and the viewer is left with an unexplained jump, which is the
+       * complaint that started this. Measured: `QUIET_GAP` carries salience
+       * 0.3 and lost the line to a `REPO_BIRTH` crossed in the same frame.
+       */
+      const explains = ev.type === 'QUIET_GAP' || ev.type === 'UNKNOWN_SPAN';
+      const holdsFloor = current !== held && (current!.type === 'QUIET_GAP' || current!.type === 'UNKNOWN_SPAN');
+      if (explains) current = ev;
+      else if (!holdsFloor && (current === held || ev.salience >= current!.salience)) current = ev;
+    }
   }
-  if (current !== store.caption.peek()) {
-    store.caption.value = current;
-    if (current && current.type !== 'COMMIT_STEP') announce(current.caption);
+  /**
+   * Queued, not dropped.
+   *
+   * The events are consumed by the walk above whether or not they get the line,
+   * so a caption that has to wait has to be *remembered* — an earlier version
+   * of this decremented the pointer to re-offer it, which put back exactly one
+   * event when the loop may have taken many, and not necessarily the one it
+   * chose.
+   */
+  if (current !== held) {
+    const keepsPending = pending && (pending.type === 'QUIET_GAP' || pending.type === 'UNKNOWN_SPAN');
+    pending = keepsPending || (pending && pending.salience > current!.salience) ? pending : current;
   }
+  const want = pending ?? current;
+  if (!want || want === held) return;
+
+  // A caption too brief to read is not a caption. Held for a moment, unless
+  // something more salient wants the line.
+  const now = Date.now();
+  const urgent = want.type === 'QUIET_GAP' || want.type === 'UNKNOWN_SPAN';
+  if (held && now - captionAt < MIN_CAPTION_MS && !urgent && want.salience <= held.salience) return;
+  captionAt = now;
+  pending = null;
+  store.caption.value = want;
+  if (want.type !== 'COMMIT_STEP') announce(want.caption);
 }
 
 export function startLoop() {
@@ -851,6 +917,7 @@ player.on('pause', () => {
 player.on('seek', () => {
   audio.reset();
   captionPtr = 0;
+  pending = null;
   store.time.value = player.t;
   updateCaption(player.t);
 });

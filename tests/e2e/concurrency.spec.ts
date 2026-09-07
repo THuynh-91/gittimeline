@@ -88,3 +88,46 @@ test.describe('what the time axis knows', () => {
     await expect(row).not.toContainText('open 0 days');
   });
 });
+
+test.describe('a caption nobody can read', () => {
+  /**
+   * The date can jump years in one frame, and the app has always had the
+   * sentence that explains it — `QUIET_GAP`, "Quiet span of 11.4 years
+   * passes". It was never seen.
+   *
+   * Two reasons, both fixed. A caption's dwell was however much *runtime* the
+   * plan gave the thing it describes, and runtime is paid per visible arrival,
+   * so a stretch with nothing left after aggregation gets almost none — Node
+   * crosses eleven years in 0.077 performance-seconds. And the caption walk
+   * consumed every event up to the clock in one pass and kept only the last,
+   * so the interesting one was created and discarded in the same tick.
+   */
+  test('a gap notice survives the frame it was created in', async ({ page }) => {
+    await page.goto('/');
+    await waitForReady(page);
+    // `11-dense-linear-burst` is the one fixture in the corpus that carries a
+    // `QUIET_GAP` — checked across ten of them and the demo, which have none,
+    // because a gap needs more than three weeks between consecutive commits
+    // and most fixtures are written tight.
+    await page.evaluate(() => window.__gittimeline.loadFixture('11-dense-linear-burst'));
+    await waitForReady(page);
+
+    const gaps = await page.evaluate(() => window.__gittimeline.events('QUIET_GAP'));
+    test.skip(gaps.length === 0, 'this fixture has no quiet span to cross');
+
+    // Land the clock a hair past the gap in one jump — which is exactly what a
+    // slow frame does, and what used to lose the caption.
+    const target = gaps[0]!.impact;
+    await page.evaluate((t: number) => {
+      window.__gittimeline.pause();
+      window.__gittimeline.seek(t + 0.01);
+    }, target);
+
+    await expect(page.getByTestId('caption'), 'the sentence explaining the jump is on screen').toContainText(/quiet span of/i);
+
+    // And it stays long enough to read. Anything less salient must not take
+    // the line out from under it.
+    await page.waitForTimeout(600);
+    await expect(page.getByTestId('caption')).toContainText(/quiet span of/i);
+  });
+});
