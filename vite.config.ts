@@ -51,6 +51,22 @@ export default defineConfig(({ mode, command }) => {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
     globals: false,
+    /**
+     * Twenty seconds, not the default five.
+     *
+     * Most of this suite is fast, but three of its tests compile whole
+     * histories — the corpus sweep, the property-based DAG invariants, and the
+     * back-merge-decade fixture — and a compile is seconds of arithmetic on one
+     * thread. On a quiet machine they finish in one or two; on a machine doing
+     * anything else they do not, and they were failing on the timeout while
+     * every assertion in them passed. That reads as a broken build and is not
+     * one, which is worse than a slow test: three separate times today a green
+     * suite and a red suite differed only in what else was running.
+     *
+     * A test that has genuinely hung still fails. It fails fifteen seconds
+     * later.
+     */
+    testTimeout: 20_000,
   },
   };
 });
