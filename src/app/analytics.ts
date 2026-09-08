@@ -336,7 +336,7 @@ function emit(event: AnalyticsEvent): void {
 }
 
 function send(planned: PlannedEvent): void {
-  window.dataLayer?.push(['event', planned.name, planned.params]);
+  push('event', planned.name, planned.params);
 }
 
 /**
@@ -386,10 +386,35 @@ async function readCatalogAllowlist(): Promise<void> {
  * snippet pushes. gtag.js only ever indexes them and reads `length`, which an
  * array satisfies, and an array is something this file can be strict about.
  */
+/**
+ * Push a gtag command the way gtag.js actually reads them.
+ *
+ * `dataLayer.push(['config', id])` does **nothing**. Google's own snippet is
+ * `function gtag(){dataLayer.push(arguments)}` and gtag.js identifies a
+ * command by receiving an `arguments` object; a plain array is treated as a
+ * Tag-Manager-style data push and silently ignored. So the config was ignored,
+ * every event was ignored, and nothing was ever sent.
+ *
+ * Measured on a build with a real measurement id, watching the network:
+ *
+ *     app pushing arrays      -> 0 requests to /g/collect, 0 cookies
+ *     the same calls, as args -> 1 request, `_ga` and `_ga_<id>` set
+ *
+ * This was never caught because no measurement id had ever been configured, so
+ * `initAnalytics` returned at `isMeasurementId` and the transport was never
+ * reached. The unit tests cover `planEvent`, which decides *what* to send, and
+ * a broken `send` still satisfies them. The lesson is that a module gated
+ * behind configuration is untested until something turns the configuration on.
+ */
+function push(...args: unknown[]): void {
+  // eslint-disable-next-line prefer-rest-params
+  (function gtag(this: void) { window.dataLayer?.push(arguments); } as (...a: unknown[]) => void)(...args);
+}
+
 function install(id: string): void {
   window.dataLayer = window.dataLayer ?? [];
-  window.dataLayer.push(['js', new Date()]);
-  window.dataLayer.push([
+  push('js', new Date());
+  push(
     'config',
     id,
     {
@@ -404,7 +429,7 @@ function install(id: string): void {
       allow_google_signals: false,
       allow_ad_personalization_signals: false,
     },
-  ]);
+  );
 
   const script = document.createElement('script');
   script.async = true;
