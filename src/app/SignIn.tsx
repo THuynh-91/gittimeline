@@ -248,6 +248,11 @@ export function SignIn() {
   const connected = !!store.token.value;
   const configured = !!AUTH_BASE;
   /**
+   * Whether this build has analytics at all, read the same way `analytics.ts`
+   * reads it, so the consent copy below cannot disagree with the bundle.
+   */
+  const measured = /^G-[A-Z0-9]{6,}$/i.test(String(import.meta.env.VITE_GA_ID ?? ''));
+  /**
    * Counted, not written down. This said "eight more" when the shelf held
    * twelve, and said the histories "ship with the site" when they are fetched
    * from object storage on demand, both true when the sentence was written
@@ -452,9 +457,38 @@ export function SignIn() {
             <li>
               <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else, not the commits, not the messages, not the names, not the shape of the graph.
             </li>
-            <li>
-              <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google Analytics: a page view, and an event when a performance starts. For one of the ready-made histories that event carries the repository's name, because it is already public and on the shelf. For anything you open yourself it carries a bucket of the commit count and nothing identifying, and <b>for a private repository it carries the four words "a private repository" and nothing else</b>, no name, no size, no count, because a coarse number attached to a repository somebody chose not to publish is a fingerprint of it. Switch it off with Do Not Track or any blocker and the site works exactly the same.
-            </li>
+            {/* Written from the build, not from intent.
+                This paragraph replaced "Nothing is uploaded. Ever.", which
+                overclaimed: `analytics.ts` does send the bare fact that a
+                private history was watched. The replacement then underclaimed
+                in the other direction, because it described analytics running
+                on a deployment where `VITE_GA_ID` is not set: no measurement
+                id reached the published bundle, so no script loads, no cookie
+                is set and no request is made. A page that describes collection
+                which is not happening is the same class of error as one that
+                hides collection which is.
+                So it branches on the build. Neither sentence can drift from
+                the deployment, because the deployment decides which is
+                printed. */}
+            {measured ? (
+              <li>
+                <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google
+                Analytics. Three events: which page you are on, opening one of the ready-made histories, and starting
+                a performance. For a history from the shelf that carries the repository name, because it is already
+                public and listed. For one you open yourself it carries a bucket of the commit count and nothing
+                identifying. And <b>for a private repository it carries the four words "a private repository" and
+                nothing else</b>: no name, no size, no count, because a coarse number attached to a repository
+                somebody chose not to publish is a fingerprint of it. Do Not Track or Global Privacy Control stops it
+                before the script is fetched, so with either set no analytics code runs at all and no cookie is set.
+              </li>
+            ) : (
+              <li>
+                <b>Nothing leaves at all on this deployment.</b> There is no analytics measurement id configured, so
+                no analytics script is fetched, no cookie is set and no request is made. The code for it exists and is
+                described in <code>src/app/analytics.ts</code>, including what it would and would not send; it is
+                switched off here, and this sentence is printed from the build rather than from intent.
+              </li>
+            )}
             <li>
               <b>We have nothing to save it on.</b> This is a static site, HTML, JavaScript and pre-built data files. There is no backend, no database, no analytics of your repository contents, and no log that could contain them. Not "we choose not to store it": there is nowhere to store it.
             </li>
