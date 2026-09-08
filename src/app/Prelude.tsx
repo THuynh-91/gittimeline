@@ -25,8 +25,15 @@ function TokenEscape({ resetAt }: { resetAt: number | null }) {
         {resetAt ? `It resets ${formatReset(resetAt)}. ` : ''}That limit is GitHub's, not GitTimeline's, and applies to your whole network. A free fine-grained token with read-only public access raises it from about 60 requests an hour to about 5,000, which is the difference between a few thousand commits and a large project's whole history.
       </p>
       <div class="token-inline">
+        {/* Masked, like the other two. This one was missed when the Settings
+            field was fixed: it is not seeded from `store.token`, so it cannot
+            expose a credential that already exists, but anything typed here
+            was painted into the page, the accessibility tree, and any
+            screenshot or screen share. And this is one of the two places
+            people actually meet the rate limit, so it is the box most likely
+            to be filled in with somebody watching. */}
         <input
-          type="text"
+          type="password"
           autoComplete="off"
           spellcheck={false}
           aria-label="GitHub token"

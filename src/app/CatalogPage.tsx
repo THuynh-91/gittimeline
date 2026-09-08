@@ -61,10 +61,10 @@ export function CatalogPage() {
           <h1>Selection Ready to Watch</h1>
           <p class="page-lead">
             These histories were fetched ahead of time, so opening one costs no GitHub token and no requests at all. Every card
-            says how long its performance runs, because that is the thing you are choosing between — three minutes of a small tool and twelve hours of
+            says how long its performance runs, because that is the thing you are choosing between, three minutes of a small tool and twelve hours of
             Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
             Pick one and it asks how much of it you want before it starts: the whole thing, the last few years, or a single year. Every answer is
-            the same one download — a span is that same plan with the clock told where to begin and where to stop — so choosing less costs nothing and
+            the same one download, a span is that same plan with the clock told where to begin and where to stop, so choosing less costs nothing and
             saves nothing but your evening. What a card <em>does</em> cost is written on it: the size of that download, and where unpacking it
             afterwards is long enough to notice, how long.
           </p>
@@ -74,7 +74,7 @@ export function CatalogPage() {
           <section class="famous" aria-labelledby="famous-heading">
             <h2 id="famous-heading">The big ones</h2>
             <p>
-              Not pre-fetched — these are the projects that need a GitHub token, and the ones worth spending it on. Picking one puts it in the box on the
+              Not pre-fetched, these are the projects that need a GitHub token, and the ones worth spending it on. Picking one puts it in the box on the
               landing page; GitTimeline measures a repository before it fetches anything and will offer you a year or a recent span if the whole thing is
               too large to watch.
             </p>

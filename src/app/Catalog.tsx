@@ -468,11 +468,11 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
             <span class="catalog-warn">
               {e.plan ? (
                 <>
-                  Shipped ready-made rather than composed here — but {size(cost)} of plan still takes about {wait(slowFor)} to unpack into a first frame
+                  Shipped ready-made rather than composed here, but {size(cost)} of plan still takes about {wait(slowFor)} to unpack into a first frame
                   once it has arrived.
                 </>
               ) : (
-                <>Composed in this tab, not downloaded ready-made — about {wait(slowFor)} to the first frame.</>
+                <>Composed in this tab, not downloaded ready-made, about {wait(slowFor)} to the first frame.</>
               )}{' '}
               Progress is shown throughout, and it can be cancelled.
             </span>
@@ -605,7 +605,7 @@ export function Catalog() {
       <section class="catalog-out" data-testid="catalog-unreachable" aria-label="Selection Ready to Watch">
         <p>
           The pre-fetched histories could not be reached just now. They are hosted separately from this page, so this is their
-          problem and not yours — everything else here works, and a repository you paste in is fetched from GitHub as usual.
+          problem and not yours, everything else here works, and a repository you paste in is fetched from GitHub as usual.
         </p>
         <button type="button" class="btn" onClick={() => location.reload()}>
           Try again

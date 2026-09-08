@@ -112,7 +112,7 @@ function Inspector() {
         <button type="button" class="linkish" onClick={() => (store.panel.value = 'events')}>
           the events so far
         </button>{' '}
-        — every line there is a link to its moment. <kbd>↑</kbd> <kbd>↓</kbd> walk the active threads instead.
+       , every line there is a link to its moment. <kbd>↑</kbd> <kbd>↓</kbd> walk the active threads instead.
       </p>
     );
   const commit = ds?.commits.find((c) => c.sha === nd.sha);
@@ -259,7 +259,7 @@ function Inspector() {
         <dt>Provenance</dt>
         <dd>
           <Pill p={nd.kind === 'boundary' ? 'unknown' : nd.provenance} />
-          {nd.kind === 'boundary' ? ' — a parent was not loaded' : ''}
+          {nd.kind === 'boundary' ? ', a parent was not loaded' : ''}
           {commit?.flags.isTimeCorrected ? ' · time corrected' : ''}
         </dd>
       </dl>
@@ -409,7 +409,7 @@ function StoredOnDevice() {
       <p class="dim">
         {mb == null
           ? 'Responses already fetched from GitHub are cached here so the same history is not downloaded twice, together with the list of what you have watched. Public data only.'
-          : `${mb < 1 ? `${Math.round((est!.usage ?? 0) / 1000)} KB` : `${mb.toFixed(1)} MB`} of cached GitHub responses and watch history. Public data only — a token is never stored.`}
+          : `${mb < 1 ? `${Math.round((est!.usage ?? 0) / 1000)} KB` : `${mb.toFixed(1)} MB`} of cached GitHub responses and watch history. Public data only, a token is never stored.`}
       </p>
       <button
         type="button"
@@ -469,7 +469,7 @@ function TokenField() {
           autoComplete="off"
           spellcheck={false}
           value={value}
-          placeholder={active ? 'connected — type to replace' : 'optional'}
+          placeholder={active ? 'connected, type to replace' : 'optional'}
           onInput={(e) => setValue((e.target as HTMLInputElement).value)}
           onChange={() => {
             const next = value.trim();
@@ -622,12 +622,12 @@ function HelpPanel() {
   return (
     <div>
       <p>
-        GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Your repository never leaves the browser — see Connect GitHub for the one thing that does, which is a visit count.
+        GitTimeline reads a public repository straight from GitHub in your browser, rebuilds the real commit graph, and plays it back as a timelapse. Your repository never leaves the browser, see Connect GitHub for the one thing that does, which is a visit count.
       </p>
 
       <h3>Sound</h3>
       <p>
-        The soundtrack is real recorded music, not a generated score, and there are no sound effects — nothing is triggered by a commit or a
+        The soundtrack is real recorded music, not a generated score, and there are no sound effects, nothing is triggered by a commit or a
         merge. The repository chooses which of three tracks plays: a project that merges constantly gets something relentless, a long quiet one
         something unhurried. <MusicCredit />
       </p>

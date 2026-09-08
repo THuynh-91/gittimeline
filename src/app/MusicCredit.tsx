@@ -13,7 +13,7 @@ export function MusicCredit() {
   if (!now) return null;
   return (
     <span class="music-credit" data-testid="music-credit">
-      Now playing <em>{now.title}</em> by {now.artist} —{' '}
+      Now playing <em>{now.title}</em> by {now.artist} ,{' '}
       <a href={now.licence.url} target="_blank" rel="noopener noreferrer">
         {now.licence.name}
       </a>

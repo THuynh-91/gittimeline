@@ -77,7 +77,7 @@ function explain(e: unknown): { message: string; retry: boolean; disconnect: boo
   if (e instanceof GitHubError) {
     if (e.kind === 'unauthorized' || e.status === 401) {
       return {
-        message: 'GitHub rejected this connection — the token has been revoked or has expired. Disconnecting and connecting again will fix it.',
+        message: 'GitHub rejected this connection: the token has been revoked or has expired. Disconnecting and connecting again will fix it.',
         retry: false,
         disconnect: true,
       };
@@ -95,7 +95,7 @@ function explain(e: unknown): { message: string; retry: boolean; disconnect: boo
     }
     if (e.kind === 'server' || e.kind === 'malformed' || (e.status != null && e.status >= 500)) {
       return {
-        message: 'GitHub is having trouble at the moment — it answered with a server error. Nothing is wrong with your account.',
+        message: 'GitHub is having trouble at the moment: it answered with a server error. Nothing is wrong with your account.',
         retry: true,
         disconnect: false,
       };
@@ -108,7 +108,7 @@ function explain(e: unknown): { message: string; retry: boolean; disconnect: boo
   // Anything left is a shape nobody anticipated. It gets a sentence too,
   // because printing the shape is the thing this function exists to stop.
   return {
-    message: 'Your repositories could not be read — GitHub answered with something this page could not make sense of.',
+    message: 'Your repositories could not be read. GitHub answered with something this page could not make sense of.',
     retry: true,
     disconnect: false,
   };
@@ -188,7 +188,7 @@ export function MyRepos() {
         <p class="dim">
           {list.unreadable > 0
             ? 'GitHub returned no repositories this page could read. That is a fault at their end rather than an empty account.'
-            : 'Nothing to watch here. This credential can see no repositories — which, for a connection that asks for no permissions, means you have no public ones.'}
+            : 'Nothing to watch here. This credential can see no repositories, which, for a connection that asks for no permissions, means you have no public ones.'}
         </p>
       ) : (
         <>
@@ -204,7 +204,7 @@ export function MyRepos() {
               ? `${shown.length} of ${all.length} match “${filter.trim()}”.`
               : `${all.length} to choose from${privateCount > 0 ? `, ${privateCount} of them private and granted by hand` : ''}. Most recently pushed first.`}
             {drawn.length < shown.length ? ` Showing the first ${drawn.length}; filter by name to reach the rest.` : ''}
-            {list.truncated ? ' You have more than this page reads — the most recently pushed are the ones here.' : ''}
+            {list.truncated ? ' You have more than this page reads, the most recently pushed are the ones here.' : ''}
             {list.unreadable > 0 ? ` ${list.unreadable} could not be read and are not listed.` : ''}
           </p>
           {all.length > 10 && (

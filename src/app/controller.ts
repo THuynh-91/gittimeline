@@ -1495,6 +1495,28 @@ function reportGitHubError(err: unknown) {
     return;
   }
   if (err.kind === 'aborted') return;
+  /**
+   * A rejected credential stops being a credential.
+   *
+   * GitHub answering 401 means the token has been revoked or has expired, and
+   * there is nothing to be done with it but stop sending it. This path left
+   * `store.token` alone, so the app went on describing itself as connected —
+   * the site bar still offered "Your repositories", the sign-in page still
+   * said connected, Settings still read "Active for this tab" — and every
+   * later request re-sent the dead token. The error card said "Remove it or
+   * supply a valid fine-grained token", to a viewer with no token box in front
+   * of them: inside the player that field renders only for a rate limit.
+   *
+   * `MyRepos` was fixed for exactly this and its own comment says so; this
+   * path was missed. Dropping it here is what makes the rest of the interface
+   * tell the truth, and it costs nothing a viewer wanted — the token was
+   * already refused.
+   *
+   * Not `clearStoredHistories()`: the cache holds public responses fetched
+   * while it worked, and throwing those away punishes the viewer for GitHub's
+   * answer. Disconnect is still the thing that clears the device.
+   */
+  if (err.kind === 'unauthorized' || err.status === 401) store.token.value = null;
   const titles: Record<string, string> = {
     'not-found': 'Repository not available',
     'rate-limited': 'GitHub rate limit reached',
@@ -1505,7 +1527,7 @@ function reportGitHubError(err: unknown) {
     blocked: 'Repository unavailable',
     server: 'GitHub error',
     malformed: 'Unexpected response',
-    unauthorized: 'Token rejected',
+    unauthorized: 'Token rejected, and dropped',
   };
   const rateMsg = err.kind === 'rate-limited' ? ` It resets ${formatReset(err.rate?.resetAt ?? null)}. Anonymous requests are limited per network by GitHub; GitTimeline cannot bypass that.` : '';
   fail({ kind: err.kind, title: titles[err.kind] ?? 'Something went wrong', message: err.message + rateMsg, resetAt: err.rate?.resetAt ?? null, canPlayPartial: false, retry: err.kind !== 'not-found' && err.kind !== 'blocked' });
@@ -2384,6 +2406,23 @@ function exploreRange(worldW: number): { lo: number; hi: number; span: number } 
 export async function clearStoredHistories(): Promise<void> {
   await cache.clearAll();
   store.recent.value = [];
+  /**
+   * And the box on the landing page, which was still naming the repository
+   * from the session just ended.
+   *
+   * `MyRepos` fills it when a public row is opened, deliberately, so a second
+   * look is easy. After a disconnect that convenience is residue: the name
+   * survived navigation and sat in plain sight for whoever next used the
+   * browser. Not a credential, and public by definition, but it is the one
+   * visible trace of who had been here and the reason a disconnect should not
+   * leave it. Private names were never put here (`MyRepos.tsx`).
+   */
+  store.input.value = '';
+  /**
+   * The rate readout too, or the next load's first frames advertise an
+   * allowance the app no longer has.
+   */
+  store.rate.value = null;
   store.storage.value = await cache.estimate();
 }
 

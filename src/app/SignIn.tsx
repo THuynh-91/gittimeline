@@ -100,17 +100,34 @@ const spell = (n: number): string => WORDS[n] ?? String(n);
 function PrivateTokenGrant() {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
-  const [applied, setApplied] = useState(false);
+  const [appliedTo, setAppliedTo] = useState<string | null>(null);
+  /**
+   * "In use for this tab" has to stop being true when the token does.
+   *
+   * This was a plain `applied` boolean in component state. Nulling
+   * `store.token` re-renders the page around this component and leaves that
+   * boolean alone, so after Disconnect the heading read "Connect GitHub", the
+   * Disconnect button was gone, and this line still said the token was in use
+   * — a false statement about a live credential, and the reading that would
+   * stop somebody going to delete a long-lived PAT at GitHub.
+   *
+   * Comparing against the token itself rather than tracking a flag: the note
+   * is shown when the signal still holds what this box put there, so it goes
+   * away when the token is cleared, replaced, or swapped for an OAuth one,
+   * without anything needing to remember to reset it.
+   */
+  const applied = appliedTo !== null && store.token.value === appliedTo;
   const classic = value.trim().startsWith('ghp_') || value.trim().startsWith('gho_');
 
   const apply = () => {
     const token = value.trim();
     if (!token) return;
     store.token.value = token;
-    // Out of component state as soon as it is in the signal. One copy is
-    // unavoidable; two is a choice.
+    // Out of the field as soon as it is in the signal. One copy is
+    // unavoidable; two is a choice. `appliedTo` holds it only to compare
+    // against, which is the same value the signal already has.
     setValue('');
-    setApplied(true);
+    setAppliedTo(token);
   };
 
   return (
@@ -149,7 +166,7 @@ function PrivateTokenGrant() {
               watch.
             </li>
             <li>
-              Under <b>Repository permissions</b> set <b>Contents</b> to <b>Read-only</b>. That is the whole grant —
+              Under <b>Repository permissions</b> set <b>Contents</b> to <b>Read-only</b>. That is the whole grant:
               it reads commits and nothing else. Leave every other permission alone.
             </li>
           </ol>
@@ -165,7 +182,7 @@ function PrivateTokenGrant() {
               placeholder="github_pat_…"
               onInput={(e) => {
                 setValue((e.target as HTMLInputElement).value);
-                setApplied(false);
+                setAppliedTo(null);
               }}
               onKeyDown={(e) => {
                 // Explicit, because there is deliberately no form to submit.
@@ -209,7 +226,7 @@ function PrivateTokenGrant() {
             <li>
               <b>Same handling as everything else.</b> Held in this tab's memory, sent only to{' '}
               <code>api.github.com</code>, never written to disk, never logged, never in a shared link. A private
-              history is watched and never cached — Settings has the button that proves the cache is public-only.
+              history is watched and never cached, Settings has the button that proves the cache is public-only.
             </li>
             <li>
               <b>Revoked in two places, either of which is enough.</b> Disconnect here clears the token and every
@@ -233,7 +250,7 @@ export function SignIn() {
   /**
    * Counted, not written down. This said "eight more" when the shelf held
    * twelve, and said the histories "ship with the site" when they are fetched
-   * from object storage on demand — both true when the sentence was written
+   * from object storage on demand, both true when the sentence was written
    * and both stale within a fortnight. A number in prose about a list that is
    * fetched at runtime is a number that will be wrong again.
    */
@@ -252,7 +269,7 @@ export function SignIn() {
           <h1>{connected ? 'GitHub connected' : 'Connect GitHub'}</h1>
           <p class="page-lead">
             {connected
-              ? 'Requests now run against your own allowance — about 5,000 an hour, enough for a large project’s whole history in one sitting.'
+              ? 'Requests now run against your own allowance, about 5,000 an hour, enough for a large project’s whole history in one sitting.'
               : 'Read public histories against your own allowance instead of a shared one. Nothing you connect sends your code anywhere.'}
           </p>
         </header>
@@ -304,6 +321,31 @@ export function SignIn() {
             <button type="button" class="btn primary" onClick={showLanding}>
               Back to the app
             </button>
+            {/* What Disconnect can and cannot do, said next to it.
+                A viewer noticed they could disconnect and reconnect with one
+                click and no prompt, and asked whether that was a concern. It
+                is worth answering honestly rather than hiding: an OAuth
+                authorization lives at GitHub, not here, so clearing this
+                browser cannot clear GitHub's record of it, and GitHub gives an
+                OAuth app no way to force the consent screen again. The token
+                itself carries no scopes, so what survives is permission to
+                read public data faster.
+                The alternative would be revoking the grant through GitHub's
+                API on Disconnect, which needs the client secret and therefore
+                needs the token sent to our own service. That would cost the
+                claim that it goes nowhere but api.github.com, which is the
+                thing worth protecting. So: say what it does, and put the real
+                revoke one click away. */}
+            <p class="signin-note" data-testid="disconnect-scope">
+              Disconnect clears the token and every history cached on this device. It cannot cancel the
+              authorization you gave GitHub, so signing in again will not ask you to confirm. To end it properly,
+              remove GitTimeline from{' '}
+              <a href="https://github.com/settings/applications" target="_blank" rel="noopener noreferrer">
+                your GitHub authorized apps
+              </a>
+              . A fine-grained token you pasted in yourself is different: GitHub never knew about this app, so
+              disconnecting is the end of it here, and you can delete the token at GitHub too.
+            </p>
           </div>
         ) : (
           <div class="signin-actions">
@@ -312,7 +354,7 @@ export function SignIn() {
                 It used to render only when a token exchange service was
                 configured, so on an unconfigured build the page explained at
                 length what connecting GitHub would do and then offered no way
-                to do it — which reads as broken rather than as unfinished. It
+                to do it, which reads as broken rather than as unfinished. It
                 briefly pointed at a Render service instead, which was worse: a
                 twelve-second wake followed by a 503, because no OAuth
                 application had ever been registered against it.
@@ -331,7 +373,7 @@ export function SignIn() {
             </button>
             {!configured && (
               <p class="signin-note" data-testid="signin-unavailable">
-                Not connected on this deployment yet — <button type="button" class="linkish" onClick={() => setShowSetup(!showSetup)}>what that means</button>
+                Not connected on this deployment yet, <button type="button" class="linkish" onClick={() => setShowSetup(!showSetup)}>what that means</button>
               </p>
             )}
           </div>
@@ -345,13 +387,13 @@ export function SignIn() {
             </p>
             <ul>
               <li>
-                <b>That somewhere is a function, not a server.</b> <code>worker/</code> holds a Cloudflare Worker of about two kilobytes which does that single call and nothing else — no database, no idle process, nothing retained.
+                <b>That somewhere is a function, not a server.</b> <code>worker/</code> holds a Cloudflare Worker of about two kilobytes which does that single call and nothing else, no database, no idle process, nothing retained.
               </li>
               <li>
                 <b>It is written and tested, not deployed.</b> Twenty-seven unit tests, run in CI on every change since they turned out not to be, and end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
               </li>
               <li>
-                <b>Two things need an account nobody but the owner has.</b> A GitHub OAuth application — which has no API, so it cannot be scripted — and a Cloudflare deploy. <code>worker/README.md</code> has the steps.
+                <b>Two things need an account nobody but the owner has.</b> A GitHub OAuth application, which has no API, so it cannot be scripted, and a Cloudflare deploy. <code>worker/README.md</code> has the steps.
               </li>
             </ul>
             <p class="grant-revoke">Until then everything else works: public repositories at the anonymous rate, and the ready-made histories at no cost at all.</p>
@@ -377,23 +419,23 @@ export function SignIn() {
 
         {/* Private repositories are a separate, opt-in grant, and the thing
             people rightly want to know is where their code goes. The answer is
-            nowhere — not as policy, but as architecture. This site is static
+            nowhere, not as policy, but as architecture. This site is static
             files on a CDN. There is no server, no database and no log to put a
             repository in, and the fetch runs from the browser straight to
             GitHub without passing through anything of ours. */}
         <section class="grant" aria-labelledby="private-heading">
           <h2 id="private-heading">Your private repositories</h2>
           {/* The working answer first.
-              This section used to open with "Not yet — this is what it will
+              This section used to open with "Not yet, this is what it will
               be" in bold, describing the GitHub App that is not built, with
               the control that *does* work underneath it. A viewer who had
-              already signed in read the heading, read "Not yet", and stopped —
+              already signed in read the heading, read "Not yet", and stopped:
               twice, and said so the second time. Leading with a refusal and
               burying the answer under it is worse than the original problem of
               having no answer at all, because it looks like a considered no.
               So: what works, then what is missing. */}
           <p class="grant-lead">
-            <b>Yes — with a token you scope yourself.</b> The sign-in above deliberately asks for{' '}
+            <b>Yes, with a token you scope yourself.</b> The sign-in above deliberately asks for{' '}
             <b>no permissions at all</b>, which is why it cannot see a private repository: a token with no scopes
             reads exactly what a stranger reads. Reaching further is a separate, deliberate step, and you decide in
             GitHub's own interface which repositories it covers.
@@ -401,26 +443,26 @@ export function SignIn() {
           <PrivateTokenGrant />
           <p class="grant-lead grant-later">
             <b>A better version is coming.</b> A small GitHub App you install on exactly the repositories you
-            choose, revocable per repository, with nothing to paste anywhere. It is not built yet — a GitHub App has
-            to be created through GitHub's own interface, which has no API — and until it is, the token above is the
+            choose, revocable per repository, with nothing to paste anywhere. It is not built yet, a GitHub App has
+            to be created through GitHub's own interface, which has no API, and until it is, the token above is the
             honest route rather than the ideal one. <code>docs/private-repositories.md</code> explains the
             difference.
           </p>
           <ul>
             <li>
-              <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else — not the commits, not the messages, not the names, not the shape of the graph.
+              <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else, not the commits, not the messages, not the names, not the shape of the graph.
             </li>
             <li>
-              <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google Analytics: a page view, and an event when a performance starts. For one of the ready-made histories that event carries the repository's name, because it is already public and on the shelf. For anything you open yourself it carries a bucket of the commit count and nothing identifying, and <b>for a private repository it carries the four words "a private repository" and nothing else</b> — no name, no size, no count, because a coarse number attached to a repository somebody chose not to publish is a fingerprint of it. Switch it off with Do Not Track or any blocker and the site works exactly the same.
+              <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google Analytics: a page view, and an event when a performance starts. For one of the ready-made histories that event carries the repository's name, because it is already public and on the shelf. For anything you open yourself it carries a bucket of the commit count and nothing identifying, and <b>for a private repository it carries the four words "a private repository" and nothing else</b>, no name, no size, no count, because a coarse number attached to a repository somebody chose not to publish is a fingerprint of it. Switch it off with Do Not Track or any blocker and the site works exactly the same.
             </li>
             <li>
-              <b>We have nothing to save it on.</b> This is a static site — HTML, JavaScript and pre-built data files. There is no backend, no database, no analytics of your repository contents, and no log that could contain them. Not "we choose not to store it": there is nowhere to store it.
+              <b>We have nothing to save it on.</b> This is a static site, HTML, JavaScript and pre-built data files. There is no backend, no database, no analytics of your repository contents, and no log that could contain them. Not "we choose not to store it": there is nowhere to store it.
             </li>
             <li>
               <b>Only what you authorize.</b> Repositories you do not grant will be invisible to this app, exactly as they are to a stranger.
             </li>
             <li>
-              <b>Read-only, and only the history.</b> Commit messages, authors, dates and the shape of the branches. Never file contents — the app has no use for them and does not ask.
+              <b>Read-only, and only the history.</b> Commit messages, authors, dates and the shape of the branches. Never file contents, the app has no use for them and does not ask.
             </li>
             <li>
               {/* This used to end "Nothing is written to disk, and reopening
@@ -434,7 +476,7 @@ export function SignIn() {
                   it sat directly above a paragraph about private repositories.
                   Settings has the size and a button to clear it. */}
               <b>Gone when you close the tab.</b> The token lives in this tab's memory and is never written to disk. Responses already fetched from GitHub are
-              cached on your device so the same history is not downloaded twice — public repositories only, never a private one — and Settings shows its size and clears it. Disconnecting clears it too.
+              cached on your device so the same history is not downloaded twice, public repositories only, never a private one, and Settings shows its size and clears it. Disconnecting clears it too.
             </li>
           </ul>
           <p class="grant-revoke">
@@ -453,7 +495,7 @@ export function SignIn() {
           <button type="button" class="linkish" onClick={() => (store.mode.value = 'catalog')}>
             The ready-made histories
           </button>{' '}
-          — Linux, Chromium{others != null ? ` and ${others} more` : ' and the rest'}, whole — are prepared in advance
+         , Linux, Chromium{others != null ? ` and ${others} more` : ' and the rest'}, whole, are prepared in advance
           and cost no GitHub requests at all.
         </p>
       </div>

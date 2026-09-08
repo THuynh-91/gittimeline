@@ -109,7 +109,7 @@ export function CommitRail() {
        * Events panel exists, and the label says where the reachable version
        * of this is.
        */
-      aria-label="Recent commits, as they land — a moving list. The Events panel, on E, is the same commits as text, and every line in it is a link to its moment."
+      aria-label="Recent commits, as they land, a moving list. The Events panel, on E, is the same commits as text, and every line in it is a link to its moment."
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}

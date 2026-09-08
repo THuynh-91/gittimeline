@@ -231,7 +231,7 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
             <div
               class={`scope-track${dragging ? ' dragging' : ''}`}
               role="group"
-              aria-label="Choose a range of years — click two, or drag across"
+              aria-label="Choose a range of years, click two, or drag across"
               data-testid="scope-track"
               onPointerDown={onDown}
               onPointerMove={onMove}
@@ -386,8 +386,8 @@ export function ScopeChooser() {
         <h2 id="scope-title">{displayName} has about {approx} commits</h2>
         {reason === 'dense' ? (
           <p>
-            About {Math.round((mergeRatio ?? 0) * 100)}% of its recent commits are merges. A routine pull request — a branch that left the main line,
-            carried a commit or two and was merged straight back — collapses into a ribbon, but a branch with a story of its own is a branch point
+            About {Math.round((mergeRatio ?? 0) * 100)}% of its recent commits are merges. A routine pull request, a branch that left the main line,
+            carried a commit or two and was merged straight back, collapses into a ribbon, but a branch with a story of its own is a branch point
             that cannot be collapsed without hiding what happened, so a merge-heavy history can keep nearly all of its commits on stage. Shown at a
             pace you can actually follow, the whole thing runs {fullMinutes ? `up to ${fullMinutes} minutes` : 'a very long time'}. A single year is
             loaded quickly and watched in a couple.

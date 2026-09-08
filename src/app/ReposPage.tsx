@@ -35,13 +35,13 @@ export function ReposPage() {
             {connected ? (
               <>
                 Read straight from GitHub with your own connection, so these cost your allowance rather than the
-                shared one — about 5,000 requests an hour instead of 60. Nothing here is uploaded: your browser talks
+                shared one, about 5,000 requests an hour instead of 60. Nothing here is uploaded: your browser talks
                 to <code>api.github.com</code> and draws the result on your screen.
               </>
             ) : (
               <>
                 Connect GitHub and this becomes a list of your own repositories to pick from, instead of a box to
-                type a name into. The connection asks for <b>no permissions at all</b> — it raises your request
+                type a name into. The connection asks for <b>no permissions at all</b>, it raises your request
                 allowance and nothing else.
               </>
             )}
@@ -75,19 +75,26 @@ export function ReposPage() {
               with "Not yet — this is what it will be"; this page had not, and
               a page that promises a thing it cannot do is the one failure this
               project treats as unacceptable. */}
+          {/* This used to end "Watching a private repository is not possible
+              yet. There is no second authorization to grant and nowhere to
+              paste a token." Both halves became false when the fine-grained
+              token control shipped, and the sentence was rendered verbatim to
+              somebody who had already connected such a token and was looking
+              at a row tagged `private` directly above it. `SignIn.tsx` had the
+              same sentence and was corrected; this page was missed. */}
           <p>
-            The connection above asks GitHub for <b>no permissions</b>, so a private repository is invisible to it —
-            GitHub answers as though it does not exist, which is the same answer a stranger gets. <b>Watching a private
-            repository is not possible yet.</b> There is no second authorization to grant and nowhere to paste a token;
-            signing in raises how many requests you may make and widens nothing.
+            The connection above asks GitHub for <b>no permissions</b>, so a private repository is invisible to it.
+            GitHub answers as though it does not exist, which is the same answer a stranger gets. To watch one, submit
+            a fine-grained token of your own from <b>Connect GitHub</b>: you choose which repositories it covers, and
+            it is held in this tab only.
           </p>
           <p class="dim">
             When it exists it will be a read-only grant on <b>the specific repositories you choose</b>, revocable one
-            at a time, with nothing else becoming visible alongside it — the terms the sign-in page sets out. Until
+            at a time, with nothing else becoming visible alongside it, the terms the sign-in page sets out. Until
             then this list holds your public repositories.
           </p>
           <p>
-            Whatever is granted, a private history is never written to this device — not its commits, not its name,
+            Whatever is granted, a private history is never written to this device, not its commits, not its name,
             not in the list of what you have watched. Everything else you open is cached so it need not be downloaded
             twice; a private repository is the exception, and Disconnect clears the rest. If a repository you have
             already watched stops being readable with this connection, the copy kept here is deleted.

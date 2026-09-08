@@ -145,9 +145,34 @@ export function DateBar() {
             entries it was a flat absurdity: "99 of 1033 branches are open at
             this point; the busiest moment of this history has 16." Both
             numbers were right, about different questions. */}
+        {/* "At least", on a streamed history, because the window cannot see
+            past itself.
+            A streamed plan holds a couple of thousand nodes out of hundreds of
+            thousands, so a count taken from it is a floor and always will be.
+            Reported as a bare number it read as the total, and a viewer who
+            counted the lines on the stage found two dozen under a number
+            saying a hundred and eighteen, and reasonably concluded the picture
+            was lying. It was not; the number was answering a question about
+            the history while the stage answers one about the frame.
+            Two words fix the claim. The rest goes in the title, because the
+            reason the two disagree is something somebody asks once: the stage
+            draws at most `MAX_LANES` tracks either side of the spine however
+            many branches are open, so most branches share a lane and do not
+            get a line of their own.
+            Also stops claiming "have not been merged", which is a different
+            and much larger fact: a thread stops being *active* after its last
+            commit, while unmerged can stay true for ever. */}
         {showOpen && (
-          <span class="open-threads" data-testid="open-threads" title={`${open} of this history's ${perf.stats.threads} branches have started by this point and have not been merged.`}>
-            <b>{open}</b> {open === 1 ? 'branch' : 'branches'} open
+          <span
+            class="open-threads"
+            data-testid="open-threads"
+            title={
+              perf.window
+                ? `At least ${open} branch threads are working in this part of the history, out of ${perf.stats.threads} in the whole of it. Only the loaded section is counted, and the stage draws a limited number of lanes, so this is not a count of the lines you can see.`
+                : `${open} branch threads are working at this point, out of ${perf.stats.threads} in this history. The stage draws a limited number of lanes, so this is not a count of the lines you can see.`
+            }
+          >
+            <b>{perf.window ? 'At least ' : ''}{open}</b> {open === 1 ? 'branch' : 'branches'} open
           </span>
         )}
         <span class="clock" data-testid="clock">

@@ -39,7 +39,7 @@ test.describe('the private-repository grant', () => {
     // what it will be" in bold, with this control underneath, and the person
     // who asked for the feature missed it after it shipped.
     const section = page.locator('section[aria-labelledby="private-heading"]');
-    await expect(section).toContainText('Yes — with a token you scope yourself');
+    await expect(section).toContainText('Yes, with a token you scope yourself');
     await expect(toggle).toContainText('Set up private access');
     await toggle.click();
     const panel = page.getByTestId('private-token-panel');
