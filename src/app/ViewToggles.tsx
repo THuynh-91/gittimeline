@@ -18,35 +18,19 @@ import { Volume } from './Volume';
  * itself along with what it hides is a trap. They fade back almost to nothing
  * until you go looking for them.
  *
- * ## And a third, which is not a view at all
+ * ## What is deliberately not here
  *
- * KEY puts the key to the picture back. It is here rather than in the top bar
- * for the reason the other two are: the band survives everything. The top
- * bar's `?` is `display: none` under 720px, so on a phone this row was the
- * only place a legend could be reached from — and until now it was not
- * reachable at all. See `Legend.tsx` for the ninety seconds that measured it.
+ * A KEY pill was, and the owner asked for it to go: "I like the key, but keep
+ * it hidden in the setting, not an actual button." The key still shows itself
+ * once, unasked, on a viewer's first performance, which is the part that was
+ * worth having -- it was unreachable before, and on a phone entirely so. What
+ * it does not need is a permanent third pill in a row of two, competing with
+ * the picture for the rest of the show. Settings reopens it. See `Legend.tsx`.
  */
 export function ViewToggles() {
   const s = store.settings.value;
-  const keyOpen = store.stageKeyOpen.value;
   return (
     <div class={`view-toggles${s.showControls ? '' : ' bare'}`} data-testid="view-toggles">
-      <button
-        type="button"
-        class={`vbtn${keyOpen ? ' on' : ''}`}
-        aria-pressed={keyOpen}
-        title="Show or hide the key to the marks on the stage"
-        onClick={() => {
-          // Closing from here records that it has been read, exactly as the
-          // strip's own × does, so a viewer who opens it and shuts it again is
-          // not shown it unasked on their next history.
-          store.stageKeyOpen.value = !keyOpen;
-          if (keyOpen && !s.seenStageKey) updateSettings({ seenStageKey: true });
-        }}
-        data-testid="toggle-key"
-      >
-        Key
-      </button>
       <button
         type="button"
         class={`vbtn${s.showRail ? ' on' : ''}`}

@@ -368,6 +368,20 @@ function SettingsPanel() {
         onChange={(v) => { updateSettings({ showPresent: v }); applySettingsToRuntime(); }}
         testId="present-toggle"
       />
+      {/* The key to the marks, reopened from here rather than from a pill on
+          the stage. It shows itself once on a first performance and is then
+          out of the way; this is how somebody asks for it back. Not a
+          persisted setting: it is a thing you open now, so it reads the live
+          signal and `seenStageKey` keeps its own record of having been read. */}
+      <Toggle
+        label="Key to the marks"
+        value={store.stageKeyOpen.value}
+        onChange={(v) => {
+          store.stageKeyOpen.value = v;
+          if (!v && !s.seenStageKey) updateSettings({ seenStageKey: true });
+        }}
+        testId="key-toggle"
+      />
       <Toggle label="No flashes" value={s.noFlash} onChange={(v) => { updateSettings({ noFlash: v }); applySettingsToRuntime(); }} testId="no-flash-toggle" />
       {/* Next to "No flashes" because they are the same kind of request, and
           separate from reduced motion because that also stops the travelling

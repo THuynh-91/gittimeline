@@ -1954,9 +1954,25 @@ export class StageRenderer {
        * the room binds and it lands at 0.76, which is still 16 points better
        * than it was and still captions its merges.
        */
+      /**
+       * Back towards the middle, on the owner's report that 0.82 reads "so far
+       * right now" against the 55-60% they remembered.
+       *
+       * The band was 0.6-0.7 before today and was moved right to spend the
+       * empty right-hand third of the frame on history. That measurement was
+       * real -- the last four twelfths carried 0.00% ink in six of six samples
+       * -- but it treated an empty band as waste when it is also headroom: the
+       * head sits at the *left* edge of the band, so everything to its right is
+       * where arriving work is seen coming.
+       *
+       * 0.62-0.72 restores what was there, one twentieth wider so the
+       * correction fires less often. `RIGHT_ROOM` still applies on a narrow
+       * window, where 62% of 700px would put the head 266px from the edge and
+       * a 150px caption would be deleted rather than drawn.
+       */
       const RIGHT_ROOM = 200;
-      const lo = Math.min(this.width * 0.82, Math.max(this.width * 0.6, this.width - RIGHT_ROOM));
-      const hi = Math.max(lo + 40, Math.min(this.width * 0.9, this.width - RIGHT_ROOM * 0.55));
+      const lo = Math.min(this.width * 0.62, Math.max(this.width * 0.5, this.width - RIGHT_ROOM));
+      const hi = Math.max(lo + 40, Math.min(this.width * 0.72, this.width - RIGHT_ROOM * 0.55));
       const sx = this.worldToScreen(head.x, head.y).x;
       const want = sx < lo ? (sx - lo) / this.view.scale : sx > hi ? (sx - hi) / this.view.scale : 0;
       /**
@@ -3877,12 +3893,18 @@ export class StageRenderer {
      * of this viewer's five reports are about mistaking something else for main
      * or for the present.
      *
-     * The objection the fade was added for is real and this keeps it: four and
-     * a half hours of a solid pill saying the same word is furniture in the
-     * busiest part of the frame. A floor is not that. At 0.3 the plate is a
-     * dim marker at the end of the line, which is where the eye already is.
+     * **Floor removed, on the owner's instruction, twice given.** The ask was
+     * "make the MASTER tag appear for 3-5 seconds then fade out", and a floor
+     * of 0.3 is not fading out. The argument for keeping a dim marker was that
+     * the opening five seconds are when there is one line on the stage and
+     * nothing to distinguish it from -- true, and answered by the hold rather
+     * than by never leaving. The key on the stage now names the main line in
+     * its own right, so the plate is no longer the only thing that does.
+     *
+     * Zero, and the block below is skipped entirely once it reaches it, so no
+     * alpha is spent on an invisible pill for the rest of the show.
      */
-    const PLATE_FLOOR = 0.3;
+    const PLATE_FLOOR = 0;
     const plateAge = spineBegun ? t - p.nodes[spine!.nodeIdxs[0]!]!.impact : 0;
     const plateFade = plateAge <= PLATE_HOLD ? 1 : Math.max(PLATE_FLOOR, 1 - (plateAge - PLATE_HOLD) / PLATE_FADE);
     // Per frame, not per load: `spineLabel` exists so a test can read where the

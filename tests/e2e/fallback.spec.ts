@@ -350,18 +350,30 @@ test.describe('fallbacks, accessibility and layouts', () => {
       .poll(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem('gittimeline.settings.v1') ?? '{}'))).seenStageKey)
       .toBe(true);
 
-    // Back on request, from a control that is in the band and therefore
-    // present at every width — which is the phone's route to it.
-    await page.getByTestId('toggle-key').click();
+    // Back on request, from Settings.
+    //
+    // It was a KEY pill in the band, and the owner asked for it to go: "I like
+    // the key, but keep it hidden in the setting, not an actual button." The
+    // showing-itself-once is the part that mattered and it stays; a permanent
+    // third pill competing with the picture for the rest of the show does not.
+    await page.getByTestId('settings-button').click();
+    await page.getByTestId('key-toggle').click();
     await expect(strip).toBeVisible();
-    await page.getByTestId('toggle-key').click();
+    await page.getByTestId('key-toggle').click();
     await expect(strip).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // And no pill on the stage at any width, which is the thing that was asked
+    // for and would otherwise creep back.
+    await expect(page.getByTestId('toggle-key')).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId('toggle-key')).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // And not again by itself, on this history or the next one.
     await page.reload();
     await waitForReady(page);
     await expect(page.getByTestId('stage-key'), 'a returning viewer is not shown it again').toHaveCount(0);
-    await expect(page.getByTestId('toggle-key')).toBeVisible();
   });
 
   /**
