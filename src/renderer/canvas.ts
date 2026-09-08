@@ -222,6 +222,71 @@ const MIN_RENDER_SCALE = 0.6;
  */
 const MAX_VIEW_WIDTH = 16000;
 
+/**
+ * The least room a commit gets along the closing frame, in CSS pixels.
+ *
+ * The closing tableau was reported as a rendering failure — "a broken cream
+ * dotted line across an otherwise empty black screen, no nodes, no tags, no
+ * threads, no tally" — and every previous attempt at it measured *coverage*,
+ * how much of the history is inside the frame, and declared the shot fixed
+ * when coverage went up. Coverage was never the problem. Measured at
+ * 1600x900, paused and settled at `t = duration`:
+ *
+ *   mdBook       106% of its history in frame   0.17% of the frame is lit
+ *   public-apis  106%                           0.18%
+ *
+ * The frame holds the whole history and draws 1,220 nodes and 2,000 edges into
+ * a sixth of one per cent of the pixels. The renderer draws inside
+ * `ctx.scale(view.scale, view.scale)`, so a node's radius, a stroke's width
+ * and a lane's separation are all specified in *world* units and shrink with
+ * the frame: at mdBook's closing scale of 0.0106 a lane gap is 0.57 device
+ * pixels and a node radius is 0.04. Nothing was missing from the frame. It was
+ * all there, a fortieth of a pixel wide.
+ *
+ * Two things follow, and neither is sufficient alone. The feature floors below
+ * put a device pixel under every stroke and disc, so a wide shot draws thin
+ * instead of drawing nothing. And the frame has to be bounded by the *density*
+ * of the ending rather than by its length, because 1,220 commits across 1,552
+ * pixels is 1.3 px per commit however wide the strokes are — the discs merge
+ * into one bar. Stepping the manual zoom over the same frame, the lit fraction
+ * is flat at 0.167–0.170% for every lane gap under 3.4 px and only starts
+ * climbing past 6 px: below that, quadrupling the history in frame buys
+ * literally no ink.
+ *
+ * Eight, from the shelf rather than from one repository. At 1600x900 it puts
+ * mdBook's ending at 15.9% of its history, public-apis' at 7.9% and React's at
+ * 5.0%, and it does not engage at all on a history sparse enough to be framed
+ * whole — the demo is 177 nodes over 15,936 units, which is 8.8 px a commit at
+ * 1600 wide and 13.3 at 2400, so a plan held whole still ends on its whole
+ * history exactly as `fallback.spec.ts` asks. That is the honest form of the
+ * promise: the whole history when the whole history can be drawn, and the end
+ * of it when it cannot.
+ */
+const TABLEAU_COMMIT_PX = 8;
+
+/**
+ * The least a stroke or a disc may be drawn at, in device pixels.
+ *
+ * The main line has had this since `f9d2843` and it is why the main line is
+ * the one thing still visible in the closing frame: `wCore = max(2.6 + …,
+ * 1.7 * px)` with `px` a device pixel in world units. Nothing else on the
+ * stage had it. A settled branch is stroked at `1.7 / sqrt(scale)` world
+ * units, which is `1.7 * sqrt(scale)` on screen — under one device pixel for
+ * every scale below 0.346, and the closing tableau runs at 0.005 to 0.011.
+ * That is the exact reason threads only start appearing in a wide shot at
+ * around a 19 px lane gap: 19 px is where `1.7 * sqrt(scale)` reaches a pixel,
+ * and it is a fact about the stroke width, not about the lane gap.
+ *
+ * A floor and not a fixed width: above it the arithmetic is the arithmetic it
+ * always was, so nothing changes at the framing the show spends its time at
+ * (scale 0.4 to 1.5, where these floors are between a quarter and a tenth of
+ * the nominal widths). It engages only where the picture is being drawn
+ * smaller than the rasteriser can put down, which is the closing shot and a
+ * viewer who has zoomed all the way out.
+ */
+const MIN_STROKE_PX = 1;
+const MIN_NODE_PX = 1.4;
+
 
 export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -1037,6 +1102,21 @@ export class StageRenderer {
     return { x: v.ox + (dx * cos - dy * sin) * v.scale, y: v.oy + (dx * sin + dy * cos) * v.scale };
   }
 
+  /**
+   * One drawn pixel, in world units, at the framing currently in force.
+   *
+   * The edge and node passes run inside `ctx.scale(view.scale, view.scale)`,
+   * so every width and radius they set is in world units. This converts the
+   * other way, which is what a floor in *pixels* needs. `Math.min(1, dpr)` is
+   * a no-op at one or two device pixels per CSS pixel and widens the floor
+   * only where the stage has stepped its resolution down and is drawing fewer
+   * pixels than the window has — the same expression, for the same reason, as
+   * the spine's own floor.
+   */
+  private worldPerPixel(): number {
+    return 1 / (Math.max(1e-9, this.view.scale) * Math.min(1, this.dpr));
+  }
+
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const v = this.view;
     const dx = (sx - v.ox) / v.scale;
@@ -1363,13 +1443,14 @@ export class StageRenderer {
    * mdBook and 404,602..13,866,081 on kubernetes — the whole history in both
    * cases, which is not what is drawable. Node positions are.
    */
-  private tableauBox(cueW: number, aspect: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  private tableauBox(cueW: number, safeW: number, safeH: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const p = this.perf;
     const n = this.nodesByX.length;
     if (!p || !n) return null;
+    const aspect = safeW / Math.max(1e-6, safeH);
     const firstX = p.nodes[this.nodesByX[0]!]!.x;
     const headX = p.nodes[this.nodesByX[n - 1]!]!.x;
-    const key = `${p.planHash}:${p.window?.key ?? 'whole'}:${n}:${firstX}:${headX}:${cueW.toFixed(1)}:${aspect.toFixed(3)}`;
+    const key = `${p.planHash}:${p.window?.key ?? 'whole'}:${n}:${firstX}:${headX}:${cueW.toFixed(1)}:${safeW.toFixed(1)}:${safeH.toFixed(1)}`;
     if (this.tableauShot?.key === key) return this.tableauShot.box;
 
     /** The vertical extent of the nodes within `width` of the newest one. */
@@ -1426,6 +1507,61 @@ export class StageRenderer {
     if (p.window) {
       const first = heightWithin(width);
       width = Math.min(width, legible(first.maxY - first.minY));
+    }
+
+    /**
+     * And no more commits in it than the stage has room to draw.
+     *
+     * This is the bound the closing shot never had, and the one the emptiness
+     * was actually about. See `TABLEAU_COMMIT_PX`: coverage was 106% of the
+     * history on mdBook and public-apis and the frame was 0.17% lit, because
+     * every feature the renderer composes is in world units and the scale had
+     * fallen to a hundredth. Widening the strokes fixes half of it; the other
+     * half is that 1,220 commits cannot be told apart across 1,552 pixels
+     * whatever width they are drawn at.
+     *
+     * `nodesByX` is sorted, so "the last `room` commits" is an index
+     * subtraction and one array read — no scan, and exact rather than a mean
+     * pitch, which matters because commits cluster: the ending of a repository
+     * is usually its densest part, so a mean over the whole history would have
+     * allowed a frame two or three times too wide.
+     *
+     * Divided by 0.95 because the margin past the head below is five per cent
+     * of the final width, so the span the nodes get is the other ninety-five.
+     *
+     * Applied to a plan held whole as well as to a windowed one, deliberately.
+     * The residency cap above is gated on `p.window` on the grounds that a
+     * whole plan promises its whole history; this bound is not, because
+     * mdBook, public-apis and React are all *whole* plans and all three are
+     * where the failure was reported. The promise survives where it can be
+     * kept — a history sparse enough to draw whole is still drawn whole,
+     * because then `n <= room` and this does nothing at all.
+     */
+    const room = Math.max(2, Math.floor(safeW / TABLEAU_COMMIT_PX));
+    if (n > room) {
+      const dense = (headX - p.nodes[this.nodesByX[n - room]!]!.x) / 0.95;
+      if (dense > 0) width = Math.min(width, dense);
+      /**
+       * And, having already given up "the whole history", make the frame worth
+       * looking at vertically too.
+       *
+       * `legible` is the fill bound above, and it was gated on `p.window` on
+       * the grounds that a plan held whole promises its whole history —
+       * applying it there took a generated history's closing frame from 100%
+       * to 48% and two tests caught it. That reasoning is sound and it does
+       * not apply *inside this branch*: `n > room` is precisely the case where
+       * the whole history could not be drawn and the shot is already a wide
+       * shot of the ending, so there is no promise left for the fill bound to
+       * break.
+       *
+       * It is worth a lot here. The scale is uniform, so a frame bounded only
+       * by width is as tall in world units as `width / aspect` — mdBook's
+       * 23,039-unit shot is 10,300 units tall and its lanes occupy about
+       * 1,300, which is the 87% of empty sky the original clamp existed to
+       * prevent, arrived at from a third direction.
+       */
+      const h = heightWithin(width);
+      width = Math.min(width, legible(h.maxY - h.minY));
     }
 
     // Never narrower than the shot the director had already composed: `cue.w`
@@ -1584,7 +1720,7 @@ export class StageRenderer {
     const tableau = cue.state === 'tableau' && this.zoomLock == null;
     let bounds: { cx: number; cy: number } | null = null;
     let fit: number;
-    const shot = tableau ? this.tableauBox(cue.w, safeW / Math.max(1e-6, safeH)) : null;
+    const shot = tableau ? this.tableauBox(cue.w, safeW, safeH) : null;
     if (shot) {
       /**
        * Eased into, because nothing else smooths it.
@@ -1699,10 +1835,67 @@ export class StageRenderer {
     // a shot neither of them asked for.
     const head = bounds ? null : this.spineTip(t);
     if (head && this.view.scale > 0) {
-      const lo = this.width * 0.6;
-      const hi = this.width * 0.7;
+      /**
+       * Where the band sits, and why it moved right.
+       *
+       * It was three fifths to seven tenths, and a cold viewer reported "the
+       * frontier never gets past about 60% of the width". She was describing
+       * the arithmetic. The correction below only ever pushes the head back to
+       * the *near* edge of the band, and the director composes around the
+       * phrase it is playing, which is almost always left of the head — so the
+       * head is not somewhere in a band, it is pinned at `lo`. Measured on
+       * mdBook, thirteen consecutive frames in the first six seconds: the
+       * nameplate's x was a constant 1010 in a 1600-wide window, which is the
+       * head at exactly 960, which is exactly `width * 0.6`.
+       *
+       * And nothing is drawn right of the head, by construction — that is the
+       * whole of `48aa84b` and `tests/unit/reveal.test.ts`. So the band was
+       * setting the empty share of the stage directly. Ink per horizontal
+       * twelfth at threshold 60, six samples across mdBook and public-apis:
+       * the last four twelfths read 0.00% in six of six, and the rightmost lit
+       * column sat at 59.9–74.7% of the frame.
+       *
+       * `RIGHT_ROOM` is why this is not simply 0.9. The captions that sit
+       * right of a commit are placed at `s.x + 12` and rejected outright by
+       * `place()` if their box would cross the frame — "409 commits converge"
+       * is about 150 px of text — so a band pushed hard right silently deletes
+       * the merge labels near the head on a narrow window. At 1600 wide the
+       * fraction binds and the head lands at 0.82; at 844 (a landscape phone)
+       * the room binds and it lands at 0.76, which is still 16 points better
+       * than it was and still captions its merges.
+       */
+      const RIGHT_ROOM = 200;
+      const lo = Math.min(this.width * 0.82, Math.max(this.width * 0.6, this.width - RIGHT_ROOM));
+      const hi = Math.max(lo + 40, Math.min(this.width * 0.9, this.width - RIGHT_ROOM * 0.55));
       const sx = this.worldToScreen(head.x, head.y).x;
-      if (sx < lo || sx > hi) this.view.cx += (sx - (sx < lo ? lo : hi)) / this.view.scale;
+      const want = sx < lo ? (sx - lo) / this.view.scale : sx > hi ? (sx - hi) / this.view.scale : 0;
+      /**
+       * Low-passed, because moving the band right multiplied the zoom's noise.
+       *
+       * The correction places the head at a fixed *screen* column, so what it
+       * asks of `cx` is `tipX - cue.x - (column - ox) / scale`. That last term
+       * carries every wobble in `scale` into `cx`, amplified by how far the
+       * column is from the frame's centre — which the move from 0.6 to 0.82
+       * took from 160 px to 512 px, a factor of 3.2. Measured on streamed
+       * Kubernetes at 40% with `x/jitter.mjs` (p95 jerk over pan speed, four
+       * runs each): 0.86/0.85/0.89 before the move, 0.95/0.98/0.92/1.02 after
+       * it. Real, and about the zoom rather than about the head.
+       *
+       * So the *shift* is filtered rather than `cx` itself. Filtering `cx`
+       * would leave a steady-state error on a ramp — the dolly runs at about
+       * 35 world units a frame, so a 125 ms lag is 260 units of permanent
+       * offset — while the shift is very nearly constant during a steady dolly,
+       * so a low-pass on it has no steady-state error and removes only the
+       * high-frequency part. `sx` is read from the cue's own centre, set fresh
+       * from the plan every frame, so this is a filter and not a feedback loop:
+       * `want` is a function of the clock and the zoom, not of its own output.
+       *
+       * The exponential form is the one `rescueCue` and the tableau ease use,
+       * for the same reason — stable at any frame length, and it snaps rather
+       * than glides when `dtReal` is zero, which is what a seek is.
+       */
+      this.headShift = dtReal > 0 && Number.isFinite(this.headShift) ? this.headShift + (want - this.headShift) * (1 - Math.exp(-dtReal * 7)) : want;
+      this.view.cx += this.headShift;
     }
   }
 
@@ -1842,6 +2035,8 @@ export class StageRenderer {
   private spineAlphas: number[] = [];
   private frontWorldX = -Infinity;
   private frontPrev = -Infinity;
+  /** The head band's smoothed correction; see where it is applied. */
+  private headShift = NaN;
   private headIdx = -1;
   private headFrame = -1;
   private headAt = NaN;
@@ -2479,10 +2674,22 @@ export class StageRenderer {
     let alpha = this.settledAlpha(e, t) * (selected ? 1 : dim);
     if (focusIdx >= 0 && (e.contributorIdx === focusIdx || e.fromContributorIdx === focusIdx)) alpha = Math.max(alpha, 0.85);
     const lw = 1 / Math.sqrt(this.view.scale);
+    /**
+     * A floor under every width below, in drawn pixels.
+     *
+     * `1.7 * lw` world units is `1.7 * sqrt(scale)` on screen, which is under
+     * one device pixel for every scale below 0.346 — and the closing tableau
+     * runs between 0.005 and 0.011, so the branches were being stroked at a
+     * fifth of a pixel and landing on nothing. That is the whole reason a wide
+     * shot showed a bare main line: the main line has carried this floor since
+     * `f9d2843` and nothing else did. See `MIN_STROKE_PX`.
+     */
+    const px = this.worldPerPixel();
+    const floor = MIN_STROKE_PX * px;
     if (e.kind === 'unknown') {
       ctx.setLineDash([6, 7]);
       ctx.strokeStyle = rgba(PALETTE.fog, 0.55);
-      ctx.lineWidth = 1.4 * lw;
+      ctx.lineWidth = Math.max(1.4 * lw, floor);
       this.drawPolyline(ctx, e.pts);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -2492,11 +2699,15 @@ export class StageRenderer {
       const count = this.aggregateByNode[e.child]?.memberCount ?? 0;
       const width = Math.min(16, 5 + Math.log2(1 + count) * 1.6);
       ctx.strokeStyle = rgba(spine ? ivory : slate, alpha * 0.28);
-      ctx.lineWidth = width;
+      // The ribbon's body keeps its own floor of two pixels: it is the one
+      // stroke that carries a *quantity* — how many commits are inside it —
+      // and a ribbon thinned to the same hairline as a single-commit thread
+      // stops saying anything at all.
+      ctx.lineWidth = Math.max(width, 2 * px);
       this.drawPolyline(ctx, e.pts);
       ctx.stroke();
       ctx.strokeStyle = rgba(spine ? ivory : slate, alpha * 0.75);
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = Math.max(1.6, floor);
       this.drawPolyline(ctx, e.pts);
       ctx.stroke();
       return;
@@ -2522,7 +2733,7 @@ export class StageRenderer {
       return;
     }
     ctx.strokeStyle = rgba(selected ? PALETTE.accent : slate, alpha);
-    ctx.lineWidth = e.kind === 'secondary' ? 1.1 : 1.7;
+    ctx.lineWidth = Math.max(e.kind === 'secondary' ? 1.1 : 1.7, floor);
     this.drawPolyline(ctx, e.pts);
     ctx.stroke();
   }
@@ -2579,7 +2790,11 @@ export class StageRenderer {
       return;
     }
     const structural = spine ? ivory : slate;
-    const width = e.kind === 'aggregate' ? 8 : spine ? 2.8 : e.kind === 'secondary' ? 1.2 : 1.9;
+    // Floored in drawn pixels, like the settled widths above and the spine's
+    // own. A travelling thread is the thing a viewer is most likely to be
+    // watching, so it is the last thing that should thin to nothing when the
+    // camera pulls back — which is exactly what it did.
+    const width = Math.max(e.kind === 'aggregate' ? 8 : spine ? 2.8 : e.kind === 'secondary' ? 1.2 : 1.9, MIN_STROKE_PX * this.worldPerPixel());
     // revealed structural path
     if (spine) {
       this.keepSpine(e.pts, u, 0.95 * dim);
@@ -2720,7 +2935,23 @@ export class StageRenderer {
     // the scale — on a stage. Behind the form the same rule produces one
     // object several times the size of everything else, and the eye goes to it
     // instead of to the sentence it is sitting beside.
-    const r = Math.min(baseR * pop * (1 + nd.salience * 0.5), this.shopWindow ? 7 : Infinity);
+    /**
+     * With a floor in drawn pixels, for the same reason as the strokes.
+     *
+     * `baseR` is 3.2 world units for an ordinary commit. At the closing
+     * tableau's scale that was 0.04 of a device pixel on mdBook and 0.02 on
+     * public-apis — measured, with 1,220 and 2,403 nodes in frame respectively
+     * and 0.17% of the frame lit. Every commit was being drawn and none of
+     * them was landing on a pixel, which is what "no nodes" was.
+     *
+     * The rings hung off this radius (`r + 2.6` for a merge, `r + 7` for a
+     * tag) grow with it, so a merge stays a ring rather than becoming a disc.
+     * The floor is under `pop`, so the arrival bounce still reads.
+     */
+    const px = this.worldPerPixel();
+    const lwFloor = MIN_STROKE_PX * px;
+    const rFloor = MIN_NODE_PX * px;
+    const r = Math.max(rFloor, Math.min(baseR * pop * (1 + nd.salience * 0.5), this.shopWindow ? 7 : Infinity));
 
     // Arrival halo in the contributor's colour, fading — human energy touching
     // structure. It is punctuation: it says *this just landed*, and it earns
@@ -2737,7 +2968,7 @@ export class StageRenderer {
       ctx.beginPath();
       ctx.arc(x, y, r + 4 + age * 14, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(color, 0.45 * a * dim);
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = Math.max(1.5, lwFloor);
       ctx.stroke();
       if (glow) {
         glow.beginPath();
@@ -2761,13 +2992,13 @@ export class StageRenderer {
       ctx.beginPath();
       ctx.arc(x, y, r + 2.6, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(structural, 0.8 * dim);
-      ctx.lineWidth = 1.3;
+      ctx.lineWidth = Math.max(1.3, lwFloor);
       ctx.stroke();
       if (nd.parentCount > 2 && !this.shopWindow) {
         ctx.beginPath();
         ctx.arc(x, y, r + 5.2, 0, Math.PI * 2);
         ctx.strokeStyle = rgba(structural, 0.5 * dim);
-        ctx.lineWidth = 1;
+        ctx.lineWidth = Math.max(1, lwFloor);
         ctx.stroke();
       }
     }
@@ -2797,14 +3028,14 @@ export class StageRenderer {
       // answer here would have lit every cap on the stage at 0.9 instead of
       // 0.38 whenever no contributor was selected, which is most of the time.
       ctx.strokeStyle = rgba(color, (focusIdx >= 0 && this.inFocus(nd, focusIdx) ? 0.9 : 0.38) * dim);
-      ctx.lineWidth = 1;
+      ctx.lineWidth = Math.max(1, lwFloor);
       ctx.stroke();
     }
     if (nd.tagLabels.length && !this.shopWindow) {
       ctx.beginPath();
       ctx.arc(x, y, r + 7, 0, Math.PI * 2);
       ctx.strokeStyle = rgba(ivory, 0.55 * dim);
-      ctx.lineWidth = 1;
+      ctx.lineWidth = Math.max(1, lwFloor);
       ctx.setLineDash([1.5, 3]);
       ctx.stroke();
       ctx.setLineDash([]);
