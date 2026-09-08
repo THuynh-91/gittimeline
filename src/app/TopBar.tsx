@@ -122,7 +122,15 @@ export function TopBar() {
         <button
           type="button"
           class="landing-mark as-link"
-          aria-label="Back to start"
+          /* Not "Back to start", which the exit beside it already says.
+             Both buttons carried that label whenever the history had not come
+             off the shelf, so `getByLabel('Back to start')` matched two
+             elements and five tests failed on it -- and a screen reader would
+             have announced the same name twice, one line apart, for two
+             controls that go to different places when the show came from the
+             shelf. The wordmark is the way home; the button next to it is the
+             way out of this performance. */
+          aria-label="GitTimeline home"
           onClick={() => {
             pause();
             store.mode.value = 'landing';
