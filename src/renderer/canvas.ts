@@ -2283,7 +2283,13 @@ export class StageRenderer {
      * the default layout the whole of that happens inside `.band` (241 px
      * tall, boundary at 199) where the page is already darkening the stage.
      */
-    const stageBottom = this.height - this.settings.safe.bottom;
+    //
+    // Not on the landing page. `applyShopWindow` composes into the *whole*
+    // canvas — `safeW`/`safeH` there are `this.width`/`this.height` — because
+    // the picture behind the sign-in form is a backdrop and not a stage with a
+    // transport under it. Clipping it to a band that is not there would take
+    // 199 px off the bottom of the first thing a visitor sees.
+    const stageBottom = this.shopWindow ? this.height : this.height - this.settings.safe.bottom;
     ctx.save();
     // Set in CSS pixels, before the world transform goes on.
     ctx.beginPath();
@@ -3136,7 +3142,12 @@ export class StageRenderer {
     const px = this.worldPerPixel();
     const lwFloor = MIN_STROKE_PX * px;
     const rFloor = MIN_NODE_PX * px;
-    const r = Math.max(rFloor, Math.min(baseR * pop * (1 + nd.salience * 0.5), this.shopWindow ? 7 : Infinity));
+    // The floor inside the shop window's cap, not outside it: that cap exists
+    // so one heavy merge does not become the largest object behind a sign-in
+    // form, and a floor applied after it could override it. It never does at
+    // the landing's own framing — the scale there is near one, so the floor is
+    // 1.4 world units against a cap of 7 — but the order is the intent.
+    const r = Math.min(this.shopWindow ? 7 : Infinity, Math.max(rFloor, baseR * pop * (1 + nd.salience * 0.5)));
 
     // Arrival halo in the contributor's colour, fading — human energy touching
     // structure. It is punctuation: it says *this just landed*, and it earns
