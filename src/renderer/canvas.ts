@@ -138,6 +138,21 @@ export const renderProfile = {
     dprSteppedDown: 0,
     /** Times it gave up part of the picture, once resolution was spent. */
     qualitySteppedDown: 0,
+    /**
+     * Captions drawn twice in the same place, this frame.
+     *
+     * A viewer on mdBook: "I caught `v0.0.19` drawn twice, stacked." One
+     * commit, two kinds of ref pointing at it — a tag and a one-commit branch
+     * named after the tag — and two passes that each write the name, 27 px
+     * apart, which is outside the 14 px `place()` rejects an overlap within.
+     * See the thread-label pass for the fix.
+     *
+     * Counted here rather than asserted in one place because "the same words
+     * twice in the same corner of the frame" is a property of the whole label
+     * pass, and any future pass can break it. Only computed while the profiler
+     * is on, so the scan below costs nothing in a real performance.
+     */
+    stackedLabels: 0,
   },
   /** The last frame's world window, so a surprising count can be explained. */
   view: { scale: 0, x0: 0, x1: 0, y0: 0, y1: 0 },
@@ -740,7 +755,45 @@ export class StageRenderer {
     showGlyphs: true,
     showSpineLabel: true,
     showPresent: false,
-    safe: { top: 56, bottom: 150, left: 24, right: 24 },
+    /**
+     * How much of the canvas the page's own furniture is standing on.
+     *
+     * 150 was `--band` from `styles.css`, and `--band` is a `min-height` — the
+     * band is a flex column that grows with what is in it, and what is in it is
+     * a row of view toggles, the date, the scrubber and the transport.
+     * Measured off `getBoundingClientRect` at eight window shapes (1600x900,
+     * 1920x1080, 1440x900, 1855x620, 1280x720, 844x390, 390x844, 820x1180):
+     * the band is **241 px** tall at all seven desktop shapes and 273 on the
+     * phone, and the topmost thing a viewer reads in it — the COMMITS and
+     * CONTROLS pills — starts **199 px** from the bottom on seven of the eight.
+     * So the renderer was composing into 49 px of the page's controls and
+     * captioning into them.
+     *
+     * A viewer reported the result: "on public-apis the merge rings and their
+     * labels are drawn straight through the COMMITS and CONTROLS pills". They
+     * are: `.band`'s background is a gradient that is fully transparent at its
+     * own top edge, which is the row the pills sit on, and `.vbtn` is
+     * `rgba(7,8,12,0.6)` — so canvas ink under a pill shows *through* it.
+     * Measured on public-apis at 1600x900, lit canvas pixels inside the pills'
+     * own bounding boxes: 0 at seven of eleven points sampled, and 150/435 and
+     * 164/492 of an 1,800 and 1,968 pixel box at three of them.
+     *
+     * 199 rather than 241, because between the two the band's gradient is
+     * nearly transparent and the ink there is on open stage where it belongs.
+     *
+     * This is a measured stand-in for a number the page should be handing over.
+     * `safe` is documented as "screen-space safe insets (top chrome, bottom
+     * timeline)" and nothing ever sets it, so the default *is* the value — and
+     * with the controls hidden the band hugs its contents at about 103 px and
+     * this over-reserves instead. `Stage.tsx` measuring `.band` and passing its
+     * height would make both cases exact; over-reserving in a mode a viewer
+     * opted into is the better of the two errors, because under-reserving is
+     * the default.
+     *
+     * `top` is 56 and the top bar measures 56 at seven of the eight shapes
+     * (64 on the phone), so it is left alone.
+     */
+    safe: { top: 56, bottom: 199, left: 24, right: 24 },
   };
   manual: ManualCamera | null = null;
   /**
@@ -956,6 +1009,30 @@ export class StageRenderer {
 
   /** Hold a spine segment for the pass after the bloom, reusing the slot. */
   private keepSpine(pts: Float32Array, u: number, alpha: number) {
+    /**
+     * And note how far along the main line the ink has actually got.
+     *
+     * `spineTip` claims to be "the far end of the main line *as drawn*" and is
+     * not: it interpolates between the newest landed commit and the next one by
+     * how much of the *time* between their impacts has passed, and an edge has
+     * its own `start` and `end` which need not span that gap — so on a spine
+     * built from ribbons the tip runs ahead of the ink. Measured on mdBook,
+     * thirteen frames in the first six seconds: the gap from the nameplate to
+     * the rightmost lit pixel on its own row ran 26, 46, 52, 53, 62, 72, 76,
+     * 91, 95, 100, 122, 123, 132 px, against the 50 it is drawn at. A viewer
+     * reported "the MAIN chip consistently floats 70-100px to the right of the
+     * line head it's labelling" and was reading the low end of that off a
+     * screen.
+     *
+     * This is the ink. `u` indexes the point list and the spine is laid out
+     * flat and evenly in x, so interpolating x by `u` is the same arithmetic
+     * `drawPolyline` uses to decide where to stop, and `presentX` is the same
+     * clip. Two array reads and a multiply, per visible spine segment.
+     */
+    const lastX = pts[pts.length - 2]!;
+    const x0 = pts[0]!;
+    const end = Math.min(this.presentX, x0 + (lastX - x0) * Math.max(0, Math.min(1, u)));
+    if (end > this.spineDrawnX) this.spineDrawnX = end;
     const slot = this.spineRedraw[this.spineCount];
     if (slot) {
       slot.pts = pts;
@@ -1116,6 +1193,7 @@ export class StageRenderer {
   private worldPerPixel(): number {
     return 1 / (Math.max(1e-9, this.view.scale) * Math.min(1, this.dpr));
   }
+
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const v = this.view;
@@ -1894,7 +1972,20 @@ export class StageRenderer {
        * for the same reason — stable at any frame length, and it snaps rather
        * than glides when `dtReal` is zero, which is what a seek is.
        */
-      this.headShift = dtReal > 0 && Number.isFinite(this.headShift) ? this.headShift + (want - this.headShift) * (1 - Math.exp(-dtReal * 7)) : want;
+      /**
+       * And only while the clock is actually moving.
+       *
+       * A filter with state keeps converging after its input stops changing,
+       * which on a paused stage means the frame is not the same frame twice —
+       * `demo.spec.ts` asks for an exact freeze ("no side effects accumulate
+       * while paused") and caught this immediately: 600 ms after a pause the
+       * stage hash had moved, because 1.5% of the correction was still being
+       * worked off. There is nothing to smooth when nothing is moving, so a
+       * still clock snaps, exactly as a seek does. `lastT` is the previous
+       * frame's time; `render` updates it after this runs.
+       */
+      const moving = dtReal > 0 && t !== this.lastT && Number.isFinite(this.headShift);
+      this.headShift = moving ? this.headShift + (want - this.headShift) * (1 - Math.exp(-dtReal * 7)) : want;
       this.view.cx += this.headShift;
     }
   }
@@ -2037,6 +2128,11 @@ export class StageRenderer {
   private frontPrev = -Infinity;
   /** The head band's smoothed correction; see where it is applied. */
   private headShift = NaN;
+  /** How far along main the ink reached this frame; see `keepSpine`. */
+  private spineDrawnX = -Infinity;
+  /** The bottom wash, cached: it changes only when the window resizes. */
+  private scrim: CanvasGradient | null = null;
+  private scrimKey = '';
   private headIdx = -1;
   private headFrame = -1;
   private headAt = NaN;
@@ -2104,6 +2200,7 @@ export class StageRenderer {
     this.frameCounter++;
     this.watchFrameRate(dtReal);
     this.spineCount = 0;
+    this.spineDrawnX = -Infinity;
     this.frontPrev = this.frontWorldX;
     this.frontWorldX = -Infinity;
     const prof = renderProfile.enabled ? renderProfile : null;
@@ -2146,7 +2243,40 @@ export class StageRenderer {
     }
 
     const v = this.view;
+    /**
+     * Where the stage stops, so nothing is drawn on the page's own controls.
+     *
+     * `safe.bottom` says how much of the canvas the band is standing on, and
+     * until now it was used only to *compose* — the camera fits its box into
+     * the safe rectangle and centres on it. That is not the same as keeping
+     * ink out: the frame is nearly always bound by width, so the world height
+     * on screen is far larger than the box's and outer lanes spread over the
+     * whole canvas whatever the insets say. Measured on public-apis at 50% of
+     * its show, 1600x900: 2,966 lit canvas pixels inside the band, 435 of them
+     * inside the COMMITS pill's own box — two bright branch lines with their
+     * commit dots, showing through a pill that is only 60% opaque.
+     *
+     * A clip and not a per-object fade. Fading each stroke by its own height
+     * was tried first and cannot be made right: an active merge edge climbs
+     * from an outer lane to the spine, so *any* single height taken off it —
+     * mean, top or bottom — is wrong for most of its length. Measured with the
+     * mean at 1440x620, where the boundary falls inside the lanes rather than
+     * outside them: 699 lit pixels still inside the COMMITS pill. A clip is
+     * also a guarantee rather than an approximation, and it covers the passes
+     * a per-object fade would each have to be threaded through by hand —
+     * bodies, comet trails, impact ripples, tip beacons and the bloom.
+     *
+     * The cut is softened by a scrim over the last `CHROME_FADE_PX` above it,
+     * so the stage dissolves into the band rather than ending on a rule. On
+     * the default layout the whole of that happens inside `.band` (241 px
+     * tall, boundary at 199) where the page is already darkening the stage.
+     */
+    const stageBottom = this.height - this.settings.safe.bottom;
     ctx.save();
+    // Set in CSS pixels, before the world transform goes on.
+    ctx.beginPath();
+    ctx.rect(0, 0, this.width, Math.max(1, stageBottom));
+    ctx.clip();
     ctx.translate(v.ox, v.oy);
     ctx.rotate(v.rotation);
     ctx.scale(v.scale, v.scale);
@@ -2164,6 +2294,7 @@ export class StageRenderer {
     const clipPad = (vx1 - vx0) * 0.2;
     this.clipX0 = vx0 - clipPad;
     this.clipX1 = vx1 + clipPad;
+
 
     const useGlow = this.quality === 'full' && !this.settings.reducedMotion;
     const glow = this.glowCtx;
@@ -2334,6 +2465,12 @@ export class StageRenderer {
     if (useGlow) {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      // The same cut, in device pixels, because this composite sets its own
+      // identity transform. Without it the bloom carries a blurred copy of
+      // everything the clip above removed straight back onto the controls.
+      ctx.beginPath();
+      ctx.rect(0, 0, this.canvas.width, Math.max(1, stageBottom * this.dpr));
+      ctx.clip();
       ctx.globalCompositeOperation = 'lighter';
       ctx.filter = 'blur(6px)';
       // Not `* this.energy`. The strokes that fill this buffer are already
@@ -2380,6 +2517,9 @@ export class StageRenderer {
       // to say not at all. It took the spine off the stage entirely, landing
       // page included.
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      ctx.beginPath();
+      ctx.rect(0, 0, this.width, Math.max(1, stageBottom));
+      ctx.clip();
       ctx.translate(v.ox, v.oy);
       ctx.rotate(v.rotation);
       ctx.scale(v.scale, v.scale);
@@ -2482,6 +2622,36 @@ export class StageRenderer {
       ctx.restore();
     }
     lap('glow');
+
+    /**
+     * The stage dissolves into the page rather than ending on a rule.
+     *
+     * The clip above is a hard edge, and a hard edge across a picture of
+     * hairlines reads as a fault of its own — every thread stopping dead on
+     * the same row. So the last `CHROME_FADE_PX` above it are washed to the
+     * page's own ink, transparent at the top of the wash and opaque at the
+     * cut. Thirty-four pixels, which on the default layout sits between 199
+     * and 233 px from the bottom: inside `.band`, whose background is already
+     * a gradient to the same colour over the same region, so the two agree
+     * rather than compete.
+     *
+     * One `fillRect` with a cached gradient, in screen space, after everything
+     * the world transform drew and before the captions — which have their own
+     * bound, the safe rectangle, and are not history.
+     */
+    if (stageBottom > 0 && stageBottom < this.height) {
+      const CHROME_FADE_PX = 34;
+      const top = Math.max(0, stageBottom - CHROME_FADE_PX);
+      if (this.scrimKey !== `${top}:${stageBottom}`) {
+        const g = ctx.createLinearGradient(0, top, 0, stageBottom);
+        g.addColorStop(0, rgba(PALETTE.ink, 0));
+        g.addColorStop(1, rgba(PALETTE.ink, 1));
+        this.scrim = g;
+        this.scrimKey = `${top}:${stageBottom}`;
+      }
+      ctx.fillStyle = this.scrim!;
+      ctx.fillRect(0, top, this.width, stageBottom - top);
+    }
 
     // --- Screen-space labels & selection ---
     // Before the labels, so a nameplate is never drawn under the rule.
@@ -3459,7 +3629,7 @@ export class StageRenderer {
     const labels = this.settings.labels;
     ctx.font = '500 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     ctx.textBaseline = 'middle';
-    const drawn: Array<{ x: number; y: number; w: number }> = [];
+    const drawn: Array<{ x: number; y: number; w: number; text: string }> = [];
     /**
      * The slice of the world the stage can currently show, padded.
      *
@@ -3487,11 +3657,33 @@ export class StageRenderer {
       // Reject off-screen candidates before asking Canvas to shape their text.
       // A large history can have thousands of aggregate captions behind the
       // camera; measuring every one was far more expensive than locating it.
-      if (x < 0 || x > this.width || y < this.settings.safe.top - 10 || y > this.height - this.settings.safe.bottom + 10) return;
+      // Inside the safe rectangle, with no slack.
+      //
+      // This used to allow ten pixels either side of it, which was ten pixels
+      // of caption on the page's own chrome — and the merge captions are placed
+      // at `s.y + 16`, so a commit sixteen pixels above the boundary put its
+      // "338 commits converge" squarely into the reserved band. There is
+      // nothing the slack bought: a label that does not fit inside the stage is
+      // a label on the furniture.
+      if (x < 0 || x > this.width || y < this.settings.safe.top || y > this.height - this.settings.safe.bottom) return;
       const w = ctx.measureText(text).width + 10;
       if (x + w > this.width) return;
       for (const d of drawn) if (Math.abs(d.y - y) < 14 && x < d.x + d.w && x + w > d.x) return;
-      drawn.push({ x, y, w });
+      /**
+       * The same words twice in the same corner of the frame.
+       *
+       * Not rejected here, deliberately. The overlap test above is about
+       * *space* and this would be about *meaning*, and there are captions this
+       * app draws many times over legitimately — "3 commits" belongs to every
+       * ribbon on the stage, and two ribbons on neighbouring lanes 40 px apart
+       * are two separate true statements. Suppressing by text would delete one
+       * of them. So this counts, and the passes that can produce a genuine
+       * duplicate fix it at the source, where the reason is known.
+       */
+      if (renderProfile.enabled) {
+        for (const d of drawn) if (d.text === text && Math.abs(d.y - y) < 40 && Math.abs(d.x - x) < 80) { renderProfile.counts.stackedLabels++; break; }
+      }
+      drawn.push({ x, y, w, text });
       ctx.fillStyle = rgba(PALETTE.ink, 0.55 * alpha);
       ctx.fillRect(x - 4, y - 8, w, 16);
       ctx.fillStyle = rgba(color, alpha);
@@ -3545,7 +3737,39 @@ export class StageRenderer {
         const merged = mergedAt <= t;
         const alpha = merged ? Math.max(0, 0.55 - (t - mergedAt) / 6) : th.ending === 'tip' ? 0.85 : 0.7;
         if (alpha <= 0.02) continue;
-        candidates.push({ th, latest, alpha, label: th.label ?? th.id.replace('thread-', 'thread ') });
+        const label = th.label ?? th.id.replace('thread-', 'thread ');
+        /**
+         * Two refs, one commit, one label.
+         *
+         * A viewer on mdBook: "I caught `v0.0.19` drawn twice, stacked." The
+         * data is innocent — the artifact holds exactly one ref named
+         * `v0.0.19`, on exactly one commit (`cba988f0`), and the compiled plan
+         * has exactly one node carrying it (node 153, the only tagged node in
+         * the whole plan whose label repeats anywhere). What is doubled is the
+         * drawing: thread 104 is a one-commit branch *named* `v0.0.19`, its
+         * only node is 153, and 153 is also tagged `v0.0.19`. So the thread
+         * pass writes the name at `s.y + side * 13` and the tag pass writes the
+         * same seven characters at `s.y - 14`. `place()` throws away an overlap
+         * within 14 px of a row, and the two land 27 px apart when `side` is
+         * +1 — which it is, because the node sits at y 113.19, above the spine.
+         *
+         * So it is one commit with two kinds of ref pointing at it, and the
+         * honest drawing is to say the name once. The tag keeps it: it is a
+         * statement about the commit under the label, it carries the dashed
+         * ring already drawn on that commit, and it joins with any other tags
+         * on the same commit — whereas the thread name describes a line that
+         * has already merged and no longer exists.
+         *
+         * Conditioned on the tag pass actually being able to draw it, so this
+         * suppresses a duplicate and never a lone label. That pass walks
+         * backwards from the newest landed tagged node and stops at the first
+         * faded one; age rises monotonically as it walks, so "it reaches this
+         * node" is exactly "this node's tag alpha is above zero", which is what
+         * is tested here.
+         */
+        const tagStillShows = labels === 'all' || t - latest.impact < 5.5;
+        if (tagStillShows && latest.tagLabels.includes(label)) continue;
+        candidates.push({ th, latest, alpha, label });
       }
       // Named branches, then whichever landed most recently.
       candidates.sort((a, b) => Number(!!b.th.label) - Number(!!a.th.label) || b.latest.impact - a.latest.impact);
@@ -3613,8 +3837,28 @@ export class StageRenderer {
      */
     const PLATE_HOLD = 4;
     const PLATE_FADE = 1.2;
+    /**
+     * It goes quiet. It does not go away.
+     *
+     * The fade was to zero, and the arithmetic above it is measured from the
+     * spine's *first* commit — so the one label that says which line is main is
+     * on screen for 5.2 seconds of a 163-second show on mdBook and 5.2 seconds
+     * of a twelve-hour one on Linux, which is 0.012%. Worse, those 5.2 seconds
+     * are the opening, when there is exactly one line on the stage and nothing
+     * for the name to distinguish it *from*. It earns its keep later, when
+     * there are twenty lines and a viewer is being asked to read everything
+     * relative to the ivory one — and by then it has been gone for hours. Two
+     * of this viewer's five reports are about mistaking something else for main
+     * or for the present.
+     *
+     * The objection the fade was added for is real and this keeps it: four and
+     * a half hours of a solid pill saying the same word is furniture in the
+     * busiest part of the frame. A floor is not that. At 0.3 the plate is a
+     * dim marker at the end of the line, which is where the eye already is.
+     */
+    const PLATE_FLOOR = 0.3;
     const plateAge = spineBegun ? t - p.nodes[spine!.nodeIdxs[0]!]!.impact : 0;
-    const plateFade = plateAge <= PLATE_HOLD ? 1 : Math.max(0, 1 - (plateAge - PLATE_HOLD) / PLATE_FADE);
+    const plateFade = plateAge <= PLATE_HOLD ? 1 : Math.max(PLATE_FLOOR, 1 - (plateAge - PLATE_HOLD) / PLATE_FADE);
     // Per frame, not per load: `spineLabel` exists so a test can read where the
     // plate was *drawn*, and now that it fades there are frames where it was
     // not. Reset here or it reports the last place it was seen forever, which
@@ -3633,11 +3877,22 @@ export class StageRenderer {
       const track = 1.4;
       const padX = 7;
       const boxW = w + track * (text.length - 1) + padX * 2;
-      // The same tip the camera framed, so the plate cannot disagree with the
-      // shot it is standing in — and the *drawn* end of the line rather than
-      // the last commit on it, or it sits behind the stroke still travelling.
+      // The end of the ink, measured while the ink was laid down.
+      //
+      // This was `spineTip`, which is what the camera composes around, on the
+      // reasoning that the plate must not disagree with the shot it stands in.
+      // The reasoning is sound and the quantity was wrong: `spineTip`
+      // interpolates on *commit impacts* and the stroke is revealed on *edge*
+      // times, which on a spine built from ribbons are not the same clock. See
+      // `keepSpine` for the thirteen frames that settle it — the plate stood
+      // 26 to 132 px clear of the line while being drawn at 50.
+      //
+      // `spineDrawnX` is set by the pass that draws the line, so it cannot
+      // drift from it. Its height still comes from the tip: the spine is
+      // horizontal, so the two agree to a pixel, and the tip is the one that
+      // knows which commit's height to use.
       const onLine = this.spineTip(t) ?? p.nodes[spine.nodeIdxs[0]!]!;
-      const head = this.worldToScreen(onLine.x, onLine.y);
+      const head = this.worldToScreen(Number.isFinite(this.spineDrawnX) ? Math.min(this.spineDrawnX, onLine.x) : onLine.x, onLine.y);
       // Its height is read off that commit, not from `spineY`: that returns a
       // constant 0 and describes the layout's intent — "the primary spine is a
       // perfectly straight horizontal axis" — rather than the geometry the
@@ -3646,7 +3901,15 @@ export class StageRenderer {
       const lineY = head.y;
       // Twice what it was. At 25 the plate read as attached to the line —
       // close enough to be part of the stroke rather than a label on it.
-      const GAP = 50;
+      //
+      // Down from 50, now that it is measured from the ink instead of from a
+      // tip that ran ahead of it. 50 was chosen against an anchor that was
+      // already 0 to 82 px past the end of the line, so what a viewer saw was
+      // 50 plus that, and closing the anchor without closing the gap would
+      // have left it reading as a label on nothing. 30 puts the pill clear of
+      // the arriving body's glow — which reaches about 12 px past the stroke —
+      // and no further.
+      const GAP = 30;
       // Held on the stage when the head has run off it, which is the usual
       // case on a long history: the camera frames the work and the line
       // continues past the edge, so the plate waits at the margin.
@@ -3694,7 +3957,7 @@ export class StageRenderer {
       // the result reads as a rendering fault: "21 merged branches · 49
       // commiMAIN". Registering the box costs nothing and makes the captions
       // route around the one label that cannot move.
-      drawn.push({ x: x - 4, y, w: boxW + 8 });
+      drawn.push({ x: x - 4, y, w: boxW + 8, text });
       this.mainLabelAt = { x, y };
     } else this.mainLabelAt = null;
     // how much converged, on the merges big enough to warrant saying so

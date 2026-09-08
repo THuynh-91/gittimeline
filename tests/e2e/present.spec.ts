@@ -279,3 +279,277 @@ test.describe('the frontier reaches the right of the frame', () => {
     });
   }
 });
+
+/**
+ * Nothing is drawn on the page's own controls.
+ *
+ * The same viewer: "on public-apis the merge rings and their labels (`338
+ * commits converge`, `478 commits converge`) are drawn straight through the
+ * COMMITS and CONTROLS pills, and the biggest rings are clipped off the bottom
+ * edge."
+ *
+ * They were. `.band`'s background is a gradient that is fully transparent at
+ * its own top edge, which is the row the pills sit on, and `.vbtn` is
+ * `rgba(7,8,12,0.6)` — so canvas ink under a pill shows *through* it. And the
+ * renderer's own idea of how much room the band needs was 150 px, copied from
+ * `--band` in the stylesheet, which is a `min-height`: measured off
+ * `getBoundingClientRect` at eight window shapes the band is 241 px tall and
+ * the pills start 199 px from the bottom. So the stage was composing and
+ * captioning into 49 px of the page's controls, and drawing history over all
+ * 91 px of it. Lit canvas pixels inside the pills' own boxes, public-apis at
+ * 1600x900: 435 of 1,800 and 492 of 1,968 at the worst of eleven points.
+ *
+ * Zoomed out rather than seeked to that moment. The collision needs content
+ * far from the spine, which on a given entry happens at particular times and
+ * particular window shapes — and the manual camera reaches the same state on
+ * the demo in one call, deterministically, on the path a viewer reaches by
+ * scrolling out. Before the fix this puts hundreds of lit pixels in both
+ * pills; after it, none, because the stage is clipped to its own bottom edge
+ * rather than each stroke being faded by its own height (which cannot work:
+ * an active merge edge climbs from an outer lane to the spine, so no single
+ * height taken off it is right for most of its length).
+ */
+test.describe('the page keeps its controls', () => {
+  test('no history is drawn on the COMMITS and CONTROLS pills, or off the bottom edge', async ({ page }) => {
+    // Short, so the outer lanes reach the bottom of the window. The band is
+    // 241 px of any window, so the shorter the window the more of the picture
+    // is standing on it — and 620 is a laptop with a browser's chrome on it,
+    // not a contrivance.
+    await page.setViewportSize({ width: 1280, height: 620 });
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+    /**
+     * The busiest history that still compiles inside a test, rather than the
+     * smallest one.
+     *
+     * The other tests in this file take the smallest artifact on the shelf,
+     * for the reason `catalog.spec.ts` gives: naming an entry makes a test
+     * about the build script's contents. This one cannot. The collision needs
+     * *simultaneous* branches, enough of them for the outer lanes to reach the
+     * band, and the smallest entry does not have them — measured at this
+     * window on the build before the fix, mdBook puts zero lit pixels below
+     * the stage at 40%, 50% and 60% of its run, so the same test written
+     * against it would pass before and after and guard nothing. On
+     * public-apis, a pull-request treadmill where half the history is merges,
+     * it put 148, 699 and 321 pixels inside the COMMITS pill.
+     *
+     * So the entry is chosen by the property the test needs — the most commits
+     * of anything small enough to compile in a browser in seconds — rather
+     * than by name. On the shelf as it stands that is public-apis, which is
+     * also the entry the viewer was looking at.
+     */
+    const busiest = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number; commits: number }>;
+      const small = list.filter((e) => e.bytes < 1_500_000);
+      return small.length ? small.reduce((a, b) => (b.commits > a.commits ? b : a)).slug : null;
+    });
+    if (!busiest) test.skip(true, 'no shelf entry small enough to compile in a test');
+    await page.getByTestId(`catalog-${busiest!.replace('/', '-')}`).click();
+    await page.getByTestId('scope-full').click();
+    await waitForReady(page);
+    const boxes = {
+      commits: (await page.getByTestId('toggle-rail').boundingBox())!,
+      controls: (await page.getByTestId('toggle-controls').boundingBox())!,
+    };
+
+    const seen: Array<{ at: number; commits: number; controls: number; belowStage: number; anyInk: number }> = [];
+    for (const at of [0.4, 0.5, 0.6]) {
+      await page.evaluate((f) => {
+        window.__gittimeline.pause();
+        window.__gittimeline.seek(window.__gittimeline.duration * f);
+      }, at);
+      await page.waitForFunction(() => window.__gittimeline.buffering === false, null, { timeout: 60_000 });
+      await page.waitForTimeout(700);
+      const r = await page.evaluate(async (rects) => {
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+        const c = document.querySelector('[data-testid="stage-canvas"]') as HTMLCanvasElement;
+        const box = c.getBoundingClientRect();
+        const off = document.createElement('canvas');
+        off.width = c.width;
+        off.height = c.height;
+        const octx = off.getContext('2d')!;
+        octx.drawImage(c, 0, 0);
+        const { data, width, height } = octx.getImageData(0, 0, off.width, off.height);
+        const dpr = c.width / box.width;
+        const lit = (x0c: number, y0c: number, x1c: number, y1c: number, skipY: [number, number] | null) => {
+          let n = 0;
+          const x0 = Math.max(0, Math.round(x0c * dpr));
+          const x1 = Math.min(width, Math.round(x1c * dpr));
+          const y0 = Math.max(0, Math.round(y0c * dpr));
+          const y1 = Math.min(height, Math.round(y1c * dpr));
+          for (let y = y0; y < y1; y++) {
+            if (skipY && y >= skipY[0] * dpr && y <= skipY[1] * dpr) continue;
+            for (let x = x0; x < x1; x++) {
+              const i = (y * width + x) * 4;
+              if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 60) n++;
+            }
+          }
+          return n;
+        };
+        // 199 CSS px, which is `safe.bottom` — the renderer's own statement of
+        // where the stage stops. There is no hook for it, so it is spelled out
+        // here with this comment rather than derived from something else.
+        const stageBottom = box.height - 199;
+        // The nameplate is a label rather than history, and is deliberately
+        // clamped to the canvas rather than to the safe area — it detached
+        // from the spine when it was clamped to the safe area — so the rows it
+        // occupies are excluded.
+        const plate = window.__gittimeline.spineLabel;
+        const skip: [number, number] | null = plate ? [plate.y - 14, plate.y + 14] : null;
+        return {
+          commits: lit(rects.commits.x - box.x, rects.commits.y - box.y, rects.commits.x - box.x + rects.commits.width, rects.commits.y - box.y + rects.commits.height, null),
+          controls: lit(rects.controls.x - box.x, rects.controls.y - box.y, rects.controls.x - box.x + rects.controls.width, rects.controls.y - box.y + rects.controls.height, null),
+          belowStage: lit(0, stageBottom, box.width, box.height, skip),
+          // Something has to be drawn at all, or this passes on a blank
+          // canvas. Over the whole canvas rather than over the stage, so the
+          // number does not move when `safe.bottom` does.
+          anyInk: lit(0, 0, box.width, box.height, null),
+        };
+      }, boxes);
+      seen.push({ at, ...r });
+    }
+
+    const all = JSON.stringify(seen);
+    for (const s of seen) expect(s.anyInk, `the stage is drawing something to keep off the controls at ${s.at} (${all})`).toBeGreaterThan(8000);
+    expect(seen.map((s) => s.commits), `lit canvas pixels inside the COMMITS pill (${all})`).toEqual([0, 0, 0]);
+    expect(seen.map((s) => s.controls), `lit canvas pixels inside the CONTROLS pill (${all})`).toEqual([0, 0, 0]);
+    expect(seen.map((s) => s.belowStage), `lit canvas pixels below the stage, nameplate rows aside (${all})`).toEqual([0, 0, 0]);
+  });
+});
+
+/**
+ * The MAIN chip stands on the line, and is still there later.
+ *
+ * "The MAIN chip consistently floats 70-100px to the right of the line head
+ * it's labelling." It did. It is drawn 50 px right of `spineTip`, whose own
+ * comment calls it "the far end of the main line *as drawn*" — and it is not
+ * that. It interpolates between the newest landed commit and the next one by
+ * how much of the *time* between their impacts has passed, while the stroke is
+ * revealed on the *edge's* clock, and on a spine built from ribbons those are
+ * not the same. Thirteen frames in mdBook's first six seconds, the gap from
+ * the chip to the rightmost lit pixel on its own row: 26, 46, 52, 53, 62, 72,
+ * 76, 91, 95, 100, 122, 123, 132 px, against the 50 it was drawn at.
+ *
+ * The second half is the fade. It went to zero, measured from the spine's
+ * *first* commit, so the one label that says which line is main was on screen
+ * for 5.2 seconds of a 163-second show and 5.2 seconds of a twelve-hour one —
+ * and those 5.2 seconds are the opening, when there is one line on the stage
+ * and nothing for the name to distinguish it from. It now floors instead of
+ * vanishing.
+ *
+ * Both halves in one test because both are about the same object and the same
+ * frames, and because the anchor cannot be measured at all while the chip is
+ * absent.
+ */
+test.describe('the nameplate belongs to the line', () => {
+  test('the MAIN chip stays on screen and stands next to the ink', async ({ page }) => {
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    const dur = await page.evaluate(() => window.__gittimeline.duration);
+    const seen: Array<{ t: number; gap: number | null }> = [];
+    for (const f of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      await page.evaluate((t) => {
+        window.__gittimeline.pause();
+        window.__gittimeline.seek(t);
+      }, dur * f);
+      await page.waitForTimeout(250);
+      const r = await page.evaluate(async () => {
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+        const plate = window.__gittimeline.spineLabel;
+        if (!plate) return { t: window.__gittimeline.time, gap: null };
+        const c = document.querySelector('[data-testid="stage-canvas"]') as HTMLCanvasElement;
+        const off = document.createElement('canvas');
+        off.width = c.width;
+        off.height = c.height;
+        const octx = off.getContext('2d')!;
+        octx.drawImage(c, 0, 0);
+        const { data, width, height } = octx.getImageData(0, 0, off.width, off.height);
+        const dpr = c.width / c.getBoundingClientRect().width;
+        // The rightmost lit pixel left of the chip, on the chip's own row —
+        // which is the end of the main line as a viewer sees it, including the
+        // glow of whatever body is arriving there.
+        const py = Math.round(plate.y * dpr);
+        const px = Math.round(plate.x * dpr);
+        for (let x = px - 1; x >= 0; x--) {
+          for (let d = -Math.round(9 * dpr); d <= Math.round(9 * dpr); d++) {
+            const y = py + d;
+            if (y < 0 || y >= height) continue;
+            const i = (y * width + x) * 4;
+            if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 60) return { t: window.__gittimeline.time, gap: plate.x - x / dpr };
+          }
+        }
+        return { t: window.__gittimeline.time, gap: null };
+      });
+      seen.push({ t: Math.round(r.t * 10) / 10, gap: r.gap == null ? null : Math.round(r.gap * 10) / 10 });
+    }
+
+    const absent = seen.filter((s) => s.gap == null);
+    expect(absent, `the chip is missing or has no line beside it at ${JSON.stringify(seen)}`).toEqual([]);
+    // 45 rather than the 30 it is drawn at: the measurement is to the nearest
+    // *lit pixel*, and between two commits the nearest lit thing is the line
+    // itself, which stops where the stroke stops. Before the fix this ran to
+    // 132 px on mdBook and the chip vanished entirely after 5.2 seconds.
+    for (const s of seen) expect(s.gap!, `the gap from the chip to the ink at t=${s.t} (all: ${JSON.stringify(seen)})`).toBeLessThan(45);
+  });
+});
+
+/**
+ * No caption is drawn twice in the same place.
+ *
+ * "I caught `v0.0.19` drawn twice, stacked." The data is innocent: the mdBook
+ * artifact holds exactly one ref named `v0.0.19`, on one commit (`cba988f0`),
+ * and the compiled plan has one node carrying it (node 153). What is doubled
+ * is the drawing — thread 104 is a one-commit branch *named* `v0.0.19` whose
+ * only node is 153, so the thread pass writes the name at `s.y + side * 13`
+ * and the tag pass writes the same seven characters at `s.y - 14`. `place()`
+ * throws away an overlap within 14 px of a row and those land 27 px apart,
+ * because the node sits above the spine and `side` is +1.
+ *
+ * A dense sweep rather than a seek to that moment: the tag is on screen for
+ * 5.5 s of a 163 s show, so a handful of evenly spaced samples would miss it.
+ * One drawn frame per sample is all this needs, so two hundred of them cost a
+ * few seconds — and the property is general, so it also catches whatever the
+ * next pass to draw the same words twice turns out to be.
+ *
+ * Measured against a build with only this fix backed out: 14 across 401
+ * frames, every one of them between t=20.76 and t=23.20, which is node 153's
+ * tag window to the tenth of a second.
+ */
+test.describe('a caption is not drawn twice', () => {
+  test('no two identical captions are stacked, at any point in a real history', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+    const cheapest = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
+      return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
+    });
+    await page.getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+    await page.getByTestId('scope-full').click();
+    await waitForReady(page);
+
+    const r = await page.evaluate(async (n) => {
+      const g = window.__gittimeline;
+      g.render.enabled = true;
+      // Not declared on the shared test type, because it is instrumentation
+      // rather than a fact about the show. See `renderProfile.counts`.
+      const counts = g.render.counts as unknown as Record<string, number>;
+      g.pause();
+      const bad: Array<{ t: number; stacked: number }> = [];
+      let total = 0;
+      for (let i = 0; i <= n; i++) {
+        const t = (g.duration * i) / n;
+        g.seek(t);
+        counts.stackedLabels = 0;
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+        const c = counts.stackedLabels!;
+        total += c;
+        if (c > 0 && bad.length < 8) bad.push({ t: Math.round(t * 100) / 100, stacked: c });
+      }
+      return { total, bad, samples: n + 1 };
+    }, 200);
+
+    expect(r.total, `captions drawn twice in the same place, over ${r.samples} frames (first offenders: ${JSON.stringify(r.bad)})`).toBe(0);
+  });
+});
