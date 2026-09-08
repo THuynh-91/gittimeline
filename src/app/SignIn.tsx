@@ -33,6 +33,195 @@ import { useCatalogEntries } from './Catalog';
 const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
 const spell = (n: number): string => WORDS[n] ?? String(n);
 
+
+/**
+ * The second grant: a fine-grained token, for private repositories.
+ *
+ * ## Why this exists
+ *
+ * A viewer signed in, went looking for how to reach a private repository, and
+ * could not find it — because there was nothing to find. `signInWithGitHub` is
+ * called from exactly one place in the app, the OAuth application requests
+ * **no scopes at all**, and a token with no scopes gets a 404 for a private
+ * repository, indistinguishable from one that does not exist. So there was no
+ * second button, and the section above this one said "not yet", which is true
+ * of the GitHub App grant it describes and reads as "this app cannot show you
+ * private repositories" — which is false.
+ *
+ * It was false because the capability already existed and was filed under
+ * something else: the token box in Settings, under the heading "Large
+ * repositories", presented as a rate-limit workaround with no mention of
+ * private access anywhere near it. Three places, none of which pointed at the
+ * other two. `docs/private-repositories.md` is the written version of this.
+ *
+ * ## Why it is a separate control and not a wider sign-in
+ *
+ * Because a wider sign-in is the thing this app should not have. The OAuth
+ * application's value is that it *cannot* read a private repository — that is
+ * what makes "no permissions at all" true on the button above, and it stays
+ * true. Reaching further has to be a deliberate, separate act, with the
+ * credential chosen and scoped in GitHub's own interface where it can be
+ * inspected and revoked, and it has to be obvious that it is a different thing
+ * from signing in.
+ *
+ * ## What it does with the credential
+ *
+ * Nothing that the OAuth token does not already get. It goes into the same
+ * signal, which lives in this tab's memory, is attached as an `Authorization`
+ * header to `api.github.com` and to nothing else, and is never persisted —
+ * `Settings` is the only thing written to `localStorage` and has no token
+ * field. Every write path is already closed for a private history:
+ * `probeRepository` asks GitHub whether a repository is private on an
+ * explicitly uncached client before anything else runs, the ingest is
+ * cache-disabled, `putDataset` and `touchRecent` are skipped, and the
+ * repository list is fetched with `cache: null`. `tests/e2e/private.spec.ts`
+ * proves it by watching a private history and then reading IndexedDB and
+ * localStorage rather than by trusting the code.
+ *
+ * ## The details that are security, not decoration
+ *
+ * - `type="password"`, so it is not painted into the page, a screenshot, or
+ *   the accessibility tree. The Settings field was `type="text"` seeded from
+ *   the live token, which displayed an OAuth credential in cleartext to
+ *   anyone who opened that panel.
+ * - Never seeded from `store.token`. This box only ever writes.
+ * - Cleared the moment it is applied, so the value does not sit in component
+ *   state behind a collapsed disclosure for the rest of the session.
+ * - **No `<form>` element.** A form with a text input submits on Enter, and a
+ *   default submission is a GET to the current URL with the field's value in
+ *   the query string — which would put the credential in the address bar, in
+ *   history, and in any referrer. There is no form here and Enter is handled
+ *   explicitly.
+ * - A classic `ghp_` token is warned about rather than refused. Classic tokens
+ *   are all-or-nothing across every repository the account can reach; the
+ *   viewer may still have reasons, and refusing a credential someone has
+ *   deliberately pasted is not this page's decision to make.
+ */
+function PrivateTokenGrant() {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+  const [applied, setApplied] = useState(false);
+  const classic = value.trim().startsWith('ghp_') || value.trim().startsWith('gho_');
+
+  const apply = () => {
+    const token = value.trim();
+    if (!token) return;
+    store.token.value = token;
+    // Out of component state as soon as it is in the signal. One copy is
+    // unavoidable; two is a choice.
+    setValue('');
+    setApplied(true);
+  };
+
+  return (
+    <div class="grant-token">
+      <button
+        type="button"
+        class="linkish"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        data-testid="private-token-toggle"
+      >
+        {open ? 'Hide' : 'Use a fine-grained token instead'}
+      </button>
+
+      {open && (
+        <div class="grant-token-body" data-testid="private-token-panel">
+          <p>
+            The sign-in above cannot reach a private repository and is not meant to. A{' '}
+            <b>fine-grained personal access token</b> can, today, and you choose which repositories it covers when
+            you create it.
+          </p>
+          <ol>
+            <li>
+              Open{' '}
+              <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">
+                github.com/settings/personal-access-tokens
+              </a>{' '}
+              and generate a fine-grained token.
+            </li>
+            <li>
+              Under <b>Repository access</b> choose <b>Only select repositories</b> and pick the ones you want to
+              watch.
+            </li>
+            <li>
+              Under <b>Repository permissions</b> set <b>Contents</b> to <b>Read-only</b>. That is the whole grant —
+              it reads commits and nothing else. Leave every other permission alone.
+            </li>
+          </ol>
+
+          <div class="field">
+            <label for="private-token">Paste it here</label>
+            <input
+              id="private-token"
+              type="password"
+              autoComplete="off"
+              spellcheck={false}
+              value={value}
+              placeholder="github_pat_…"
+              onInput={(e) => {
+                setValue((e.target as HTMLInputElement).value);
+                setApplied(false);
+              }}
+              onKeyDown={(e) => {
+                // Explicit, because there is deliberately no form to submit.
+                if ((e as KeyboardEvent).key === 'Enter') {
+                  e.preventDefault();
+                  apply();
+                }
+              }}
+              data-testid="private-token-input"
+            />
+          </div>
+
+          {classic && (
+            <p class="signin-note" data-testid="private-token-classic">
+              That looks like a <b>classic</b> token. Classic tokens are all-or-nothing across every repository your
+              account can reach. A fine-grained one covers only the repositories you pick. This will work either way.
+            </p>
+          )}
+
+          <div class="signin-actions">
+            <button type="button" class="btn primary" onClick={apply} data-testid="private-token-apply">
+              Use this token
+            </button>
+            <button type="button" class="btn" onClick={() => (store.mode.value = 'repos')}>
+              Your repositories
+            </button>
+          </div>
+
+          {applied && (
+            <p class="signin-note" data-testid="private-token-applied">
+              In use for this tab. <b>Your repositories</b> now lists what it can see, private ones marked{' '}
+              <code>private</code>.
+            </p>
+          )}
+
+          <ul>
+            <li>
+              <b>It replaces the sign-in for this tab.</b> Both are the same one credential, so pasting this uses it
+              instead of the OAuth token. Disconnect puts you back to neither.
+            </li>
+            <li>
+              <b>Same handling as everything else.</b> Held in this tab's memory, sent only to{' '}
+              <code>api.github.com</code>, never written to disk, never logged, never in a shared link. A private
+              history is watched and never cached — Settings has the button that proves the cache is public-only.
+            </li>
+            <li>
+              <b>Revoked in two places, either of which is enough.</b> Disconnect here clears the token and every
+              history cached on this device; deleting the token at{' '}
+              <a href="https://github.com/settings/personal-access-tokens" target="_blank" rel="noopener noreferrer">
+                GitHub
+              </a>{' '}
+              ends it everywhere, including anywhere you forgot.
+            </li>
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SignIn() {
   const [showSetup, setShowSetup] = useState(false);
   const connected = !!store.token.value;
@@ -204,6 +393,10 @@ export function SignIn() {
             read-only and revocable per repository. Signing in today does not ask for it and cannot see a private
             repository. When it exists, these are the terms it will keep.
           </p>
+          {/* Until it exists, the thing that does work — said here rather than
+              left in Settings under a heading about rate limits, which is
+              where a viewer went looking for it and did not find it. */}
+          <PrivateTokenGrant />
           <ul>
             <li>
               <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else — not the commits, not the messages, not the names, not the shape of the graph.

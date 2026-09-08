@@ -44,7 +44,28 @@ const GENRES = 'https://incompetech.com/music/royalty-free/genre.json';
  * as long as the performance runs, and a two-minute loop under a ten-minute
  * history is its own kind of unpleasant.
  */
+/**
+ * Four candidates per register, not one.
+ *
+ * There were three tracks and three registers, one each, so `chooseTrack`
+ * could only ever return the same piece for a given repository — and since
+ * most histories land on the same register, most visitors heard the same song
+ * every time. Reported as "it's always the same song", which it was.
+ *
+ * Each of these is Rock and at least three minutes, which is what the gate
+ * below requires and what a piece needs to loop under a long history without
+ * announcing itself. The register each one is filed under comes from the
+ * catalogue's own `feel` tags rather than from the title: `Aggressive` or
+ * `Intense` is `frantic`, `Calming` or `Relaxed` is `calm`, and plain
+ * `Driving` is `driving`. Picked out of the 31 pieces in the catalogue that
+ * clear both bars — see `x/find-tracks.mjs`, which is how the list was found
+ * rather than guessed.
+ *
+ * More than four per register is available and deliberately not taken: each
+ * file is about 10 MB, and a published Pages site has 1 GB for everything.
+ */
 const TRACKS = [
+  // --- frantic: a history that never stops moving -------------------------
   {
     id: 'ready-aim-fire',
     title: 'Ready Aim Fire',
@@ -52,16 +73,72 @@ const TRACKS = [
     note: 'Hard, fast rock — for a history that never stops moving.',
   },
   {
+    id: 'el-magicia',
+    title: 'El Magicia',
+    register: 'frantic',
+    note: 'Aggressive and dark — for churn with an edge on it.',
+  },
+  {
+    id: 'hotrock',
+    title: 'Hotrock',
+    register: 'frantic',
+    note: 'Intense, driving guitar — for a project under pressure.',
+  },
+  {
+    id: 'metalmania',
+    title: 'Metalmania',
+    register: 'frantic',
+    note: 'The loudest of the four — for the most violent bursts.',
+  },
+  // --- driving: steady, sustained work ------------------------------------
+  {
     id: 'riptide',
     title: 'Riptide',
     register: 'driving',
     note: 'Straight two-guitar rock — for steady, sustained work.',
   },
   {
+    id: 'motherlode',
+    title: 'Motherlode',
+    register: 'driving',
+    note: 'Unfussy forward motion — for a project that just keeps landing.',
+  },
+  {
+    id: 'welcome-to-the-show',
+    title: 'Welcome to the Show',
+    register: 'driving',
+    note: 'Action and drive — for a history with something to prove.',
+  },
+  {
+    id: 'boogie-party',
+    title: 'Boogie Party',
+    register: 'driving',
+    note: 'Bouncier of the four — for busy work that is not frantic.',
+  },
+  // --- calm: a long, quiet history ---------------------------------------
+  {
     id: 'cold-funk',
     title: 'Cold Funk',
     register: 'calm',
     note: 'Unhurried rock, repeating guitar and bass — for a long, quiet history.',
+  },
+  {
+    id: 'broken-reality',
+    title: 'Broken Reality',
+    register: 'calm',
+    note: 'Calm and relaxed — for a history that sat still for years.',
+  },
+  {
+    id: 'last-kiss-goodnight',
+    title: 'Last Kiss Goodnight',
+    register: 'calm',
+    note: 'Slow and unhurried — for a project winding down.',
+  },
+  {
+    id: 'funin-and-sunin',
+    title: 'Funin and Sunin',
+    register: 'calm',
+    note: 'Bright and relaxed — for a small history with nothing to prove.',
   },
 ];
 

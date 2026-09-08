@@ -3360,9 +3360,41 @@ export class StageRenderer {
     // another label and never gets skipped for overlapping.
     const spine = p.threads[0];
     const spineBegun = spine && spine.nodeIdxs.length > 0 && p.nodes[spine.nodeIdxs[0]!]!.impact <= t;
-    if (spine && spine.label && spineBegun && labels !== 'minimal' && this.settings.showSpineLabel) {
+    /**
+     * The nameplate introduces the main line and then gets out of the way.
+     *
+     * It used to be on for the whole performance, which on Kubernetes is four
+     * and a half hours of a label that says the same word. Its job is done in
+     * the first few seconds: name the line, so the ivory stroke is not just
+     * the brightest one. After that it is furniture, and it is furniture in the
+     * busiest part of the frame — it rides 50 px right of the head, which is
+     * inside the head band the camera holds main's newest commit in.
+     *
+     * Held solid for `PLATE_HOLD` seconds from the moment the spine's first
+     * commit lands, then faded over `PLATE_FADE`. Measured from the plan rather
+     * than from wall-clock time so it is the same on every machine and at every
+     * playback rate, and so seeking back to the opening shows it again — a
+     * viewer who wants to be reminded which line is main can scrub to the start
+     * and read it, which is cheaper than leaving it on for hours.
+     *
+     * The switch in Settings still hides it outright. This changes how long it
+     * stays, not whether the viewer gets a say.
+     */
+    const PLATE_HOLD = 4;
+    const PLATE_FADE = 1.2;
+    const plateAge = spineBegun ? t - p.nodes[spine!.nodeIdxs[0]!]!.impact : 0;
+    const plateFade = plateAge <= PLATE_HOLD ? 1 : Math.max(0, 1 - (plateAge - PLATE_HOLD) / PLATE_FADE);
+    // Per frame, not per load: `spineLabel` exists so a test can read where the
+    // plate was *drawn*, and now that it fades there are frames where it was
+    // not. Reset here or it reports the last place it was seen forever, which
+    // is the same staleness `presentMark` was pulled up on.
+    this.mainLabelAt = null;
+    if (spine && spine.label && spineBegun && plateFade > 0.01 && labels !== 'minimal' && this.settings.showSpineLabel) {
       const text = spine.label.toUpperCase();
       ctx.save();
+      // Every alpha in the block below is relative to this, so the plate fades
+      // as one object rather than as a pill, a border and some letters.
+      ctx.globalAlpha = plateFade;
       ctx.font = '600 9.5px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
       ctx.textBaseline = 'middle';
       const w = ctx.measureText(text).width;

@@ -1,5 +1,6 @@
 import type { CompiledPerformance } from '@/model/types';
 import { characterOf, registerFor, type Register } from './score';
+import { hash01 } from '@/model/prng';
 
 /**
  * The soundtrack.
@@ -161,12 +162,58 @@ export class AudioEngine {
    *
    * Only a change of *track* restarts anything — reloading the same register
    * mid-session would drop the needle for no reason the viewer can see.
+   *
+   * ## Why this is a hash and not a `find`
+   *
+   * It was `tracks.find((t) => t.register === register)` — the *first* track
+   * filed under the register — and there was exactly one track per register,
+   * so every history that scored the same way got the same song, and most of
+   * them score the same way. Reported as "it's always the same song".
+   *
+   * Choosing at random would fix that and break something worth more: the same
+   * repository has to produce the same performance every time, or nothing about
+   * this app is reproducible and a shared link stops meaning anything. So the
+   * choice is a hash of the plan's own seed, which is stable for a given
+   * history and its length, and different between histories. Kubernetes always
+   * gets the same piece; Kubernetes and React get different ones.
+   *
+   * `hash01` rather than the seeded `Prng`, because a generator is stateful and
+   * this needs the same answer whenever it is asked, including after a scrub or
+   * a re-open mid-session.
    */
   private async choose(): Promise<void> {
     const tracks = await loadCatalogue();
     if (!tracks.length || !this.el) return;
     const register: Register = this.perf ? this.perf.soundtrack ?? registerFor(characterOf(this.perf)) : 'driving';
-    const pick = tracks.find((t) => t.register === register) ?? tracks[0]!;
+    const forRegister = tracks.filter((t) => t.register === register);
+    const candidates = forRegister.length ? forRegister : tracks;
+    /**
+     * Keyed on which repository this is, and on nothing that varies within it.
+     *
+     * Two earlier keys were wrong and both failed the same way — every history
+     * in a register got the same track, which is the bug this is fixing:
+     *
+     *  - `seed` is a *setting*. It defaults to the constant `"gitdance"` and is
+     *    identical for every history on the shelf.
+     *  - `planHash` is per-history but is not populated on the plan object the
+     *    audio engine is handed; measured, two fixtures with visibly different
+     *    hashes still got the same piece, because the key had fallen back to
+     *    the seed.
+     *
+     * The repository's own identity is always present, is different for every
+     * entry, and does not change when the same history is reopened — which is
+     * the whole requirement. `stats.commits` joins it so that a *scoped* view
+     * of one repository is allowed its own piece, since it is a different
+     * performance of a different length.
+     *
+     * Deliberately not random: the same repository has to produce the same
+     * performance every time, or a shared link stops meaning anything.
+     */
+    const src = this.perf?.source;
+    const key = this.perf
+      ? `${src ? `${src.owner}/${src.name}` : 'unknown'}:${this.perf.stats.commits}:${register}`
+      : register;
+    const pick = candidates[Math.min(candidates.length - 1, Math.floor(hash01(key) * candidates.length))]!;
     if (this.wanted?.id === pick.id) return;
     this.wanted = pick;
     this.el.src = `${import.meta.env.BASE_URL}music/${pick.file}`;

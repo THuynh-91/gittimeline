@@ -3502,6 +3502,63 @@ kbd {
   color: #f2ede2;
 }
 
+/* The second grant: a fine-grained token, for private repositories.
+
+   Set apart from the paragraph above it with a rule and an indent, because it
+   is a different act from signing in and should not read as a footnote to it.
+   Everything inside inherits the section's type; only the box needs saying. */
+.grant-token {
+  margin-top: 14px;
+}
+
+.grant-token-body {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-left: 2px solid rgba(240, 235, 224, 0.16);
+  background: rgba(240, 235, 224, 0.03);
+  border-radius: 0 6px 6px 0;
+}
+
+.grant-token-body p,
+.grant-token-body li {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(240, 235, 224, 0.78);
+}
+
+.grant-token-body p {
+  margin: 0 0 12px;
+}
+
+.grant-token-body ol {
+  margin: 0 0 14px;
+  padding-left: 20px;
+}
+
+.grant-token-body ol li {
+  margin-bottom: 7px;
+}
+
+.grant-token-body ul {
+  margin: 14px 0 0;
+  padding-left: 18px;
+}
+
+.grant-token-body ul li {
+  margin-bottom: 8px;
+}
+
+.grant-token-body b {
+  color: #f2ede2;
+}
+
+/* Wide enough for a fine-grained token, which is long, without becoming the
+   widest thing on the page. */
+.grant-token-body .field input {
+  width: 100%;
+  max-width: 420px;
+}
+
 
 /* On a scrolling page the bar sits above the content rather than over the
    stage, so the page needs room for it where the landing page did not. */
