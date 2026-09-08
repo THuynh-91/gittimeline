@@ -82,7 +82,36 @@ export function DateBar() {
    * already had this right: `Timeline.tsx` mentions concurrency only when
    * `activeThreadCount > 1`.
    */
-  const showOpen = open > 1 && !store.branchOverviewOpen.value;
+  /**
+   * And not while the plan in hand cannot describe the clock.
+   *
+   * This is a count over `perf.threads` evaluated at `t`, and across a
+   * streamed seek those two belong to different moments: `store.perf` still
+   * holds the window for where the viewer *was* until the new one lands, so
+   * every thread in it that merged between the old time and the new one reads
+   * as closed. The number does not go stale, it collapses — the arithmetic is
+   * being done on the wrong plan.
+   *
+   * That is the "3 branches open at 90% of Linux, down from 355 at 75%" in
+   * `proposal-picture-and-claim.md` §7, and it is reproducible to the digit.
+   * Polled every 150 ms across a seek: Linux reads **3 for 2.7 seconds and
+   * then 426**; at 75% it reads 1 for 2.7 s (so the readout vanishes
+   * altogether, being gated above one) and then 355; at 95%, 2 then 119.
+   * Kubernetes does the same for about a second — 4 then 107 at 90%, 1 then
+   * 113 at 75%, 15 then 72 at 95%. The settled values are all plausible; only
+   * the interval was wrong, which is why this looked like a bad count rather
+   * than a bad moment.
+   *
+   * `store.buffering` is exactly the fact needed and is already derived once
+   * per frame from `player.buffered` — "the stage cannot draw the moment the
+   * clock is on". Checking the window bounds here instead would duplicate
+   * `PAGE_OVERLAP_SECONDS` in a second place and could disagree with the
+   * notice the viewer is already being shown. It stays false throughout on a
+   * plan held whole, so the demo, the fixtures and a pasted URL are untouched;
+   * and during playback a page is pre-swapped before the clock reaches it, so
+   * this is the scrub case rather than a flicker every thirty seconds.
+   */
+  const showOpen = open > 1 && !store.branchOverviewOpen.value && !store.buffering.value;
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 

@@ -10,6 +10,108 @@ time anyone read it again.
 
 ---
 
+## 0e. FIXED: the caption disagreed with the date above it, and it was one flag — 2026-09-08
+
+`opts.seek` does not mean "this is a seek". It means **"move the playhead when
+this window lands"**, and `prepareCatalogWindow` was reading it as the first:
+
+```
+const seeking = opts.seek !== false && !player.playing;
+if (seeking) captionPtr = 0;
+else captionPtr = perf.events.findIndex(e => e.performanceImpact > t);
+```
+
+`player.beforeSeek` — the one code path that is unambiguously a seek — passes
+`{ seek: false, jumped: true }`, and it passes it **because** the clock has
+already been moved and must not be moved twice. So `seeking` read `false` for
+every scrub of a streamed history, the walk was planted at the first event
+*past* the playhead, and from there it could only ever describe moments after
+`t`. It never described the moment being asked for, on any frame, ever.
+
+Fixed by asking the state instead of the caller: the walk restarts from the
+beginning whenever the sentence on screen is not already inside
+`CAPTION_RECENCY` of the clock, and keeps its position when it is. That gets
+the ordinary refetch right for the same reason it always did — no
+re-announcing history the viewer has been told about — without depending on a
+flag that answers a different question. The `want === held` test also compares
+`id` now, because a window swap replaces every event object and reference
+equality alone announced a re-derived caption a second time.
+
+Measured on this build before the change, Kubernetes paused at 45% with the
+covering window resident: `captionPtr` 452 of 727 events — exactly
+`findIndex(impact > t)` — 209 eligible events at or before the clock, and the
+walk consuming **none** of them. 79 calls to `updateCaption` over 3.3 s, all
+returning at `want === held`. Running the clock for 700 ms moved `t` past
+event 452 and the caption corrected itself in one frame, which is why this
+looked like a race for two days and why polling could not see it.
+
+After: ten of ten scrubs of Kubernetes land in the same calendar **month** as
+the hero (2015-03, 2015-12, 2016-09, 2017-06, 2018-04, 2019-04, 2020-05,
+2021-11, 2023-10, 2025-10), and three of three on Linux. Guarded by
+`tests/e2e/streamed-caption.spec.ts`, which fails at **nine of nine** samples
+against the old decision, 9 to 24 months apart. It compares months rather than
+years deliberately: three of the ten pre-fix samples were inside a year of the
+hero on the calendar, so a year-granularity assertion would have passed on
+three of the ten samples it was written for.
+
+Only reachable on a streamed history, which is why the suite was green:
+`beforeSeek` returns early without fetching when the target is inside the
+loaded window, so a whole plan — the demo, a fixture, a pasted URL — never
+took the branch that planted the pointer.
+
+**The era label is not stale, and that lead was wrong.** §0c named it as the
+strongest remaining thread, on the grounds that Kubernetes reads `formation`
+from 5% to 85% and only changes at 95%. Read out of the published manifest,
+Kubernetes has exactly **two** eras: `formation` from 0.0% to 94.6% of the run
+(2014-06-06 to 2025-09-20) and `merge-heavy period` from 94.6% to 100%. The
+readout was reporting the plan correctly at every one of those points. There
+was no common cause upstream, because there was no second symptom. What is
+true is that `detectEras` finds one regime across eleven years of Kubernetes
+and calls it "formation", which is a poor label for 2014-2025 — an
+`analysis/activity.ts` question about era detection, not a staleness bug, and
+not fixed here.
+
+Also corrected: `x/caption-lag.mjs` and `x/cap-diag.mjs` waited on
+`buffering === false`, which `store.buffering` recomputes in the frame loop —
+so the first ask after a seek returns the value from *before* it and the wait
+falls straight through onto the previous scrub's plan. Three of ten reads were
+looking at a stale window for that reason and not because of this defect. The
+settle condition is "the plan in hand covers the clock".
+
+## 0f. FIXED: "3 branches open" was a count of a different moment — 2026-09-08
+
+`proposal-picture-and-claim.md` §7 recorded "**3 branches open** at 90% of
+Linux, down from 355 at 75% with 2,317 nodes still resident. Not plausible."
+It is reproducible to the digit, and the count was never the problem.
+
+`DateBar` counts `perf.threads` at `t`. Across a streamed seek those two
+belong to different moments: `store.perf` holds the window for where the
+viewer *was* until the new one lands, so every thread in it that merged
+between the old time and the new one reads as closed. The number does not go
+stale, it collapses. Polled every 150 ms from the seek rather than after it:
+
+```
+Linux        75%    1 for 2.7 s, then 355      (1 hides the readout entirely)
+             90%    3 for 2.7 s, then 426
+             95%    2 for 2.7 s, then 119
+Kubernetes   75%    1 for ~1 s,  then 113
+             90%    4 for ~1 s,  then 107
+             95%   15 for ~1 s,  then  72
+```
+
+Every settled value is plausible; only the interval was wrong, which is why
+this read as a bad count rather than a bad moment. Fixed by gating the readout
+on `store.buffering` — already derived once a frame as "the stage cannot draw
+the moment the clock is on", which is exactly the condition under which this
+arithmetic is meaningless. Untouched on a plan held whole, where `buffering`
+is false throughout, and rare during playback, where a page is pre-swapped
+before the clock reaches it.
+
+The same shape as §0e: a fresh clock read against a stale plan. Two symptoms,
+one habit — and the reason both went unnoticed is that every instrument in
+`x/` waited on `buffering === false`, which returns the pre-seek value on the
+first ask.
+
 ## 0d. The frontier clip was not airtight, and MASTER never leaves the frame — 2026-09-08
 
 Two things `proposal-picture-and-claim.md` §7 left open, both settled by
@@ -92,10 +194,15 @@ not drawing. Use the pixels.
 
 ---
 
-## 0c. OPEN: the caption disagrees with the date above it, on every streamed scrub — 2026-09-07
+## 0c. The caption disagreed with the date above it — 2026-09-07
 
-**Not fixed. Three attempts, each of which fixed something real and none of
-which changed the symptom.** Found by a review of the live build.
+**Cause found and fixed on 2026-09-08; see §0e above for the mechanism, which
+is not any of the six guessed at here.** Kept as written because the
+eliminations below are sound and were what made the sixth findable — and
+because the "era label is stuck too" lead in the last paragraph is false, and
+a note that only says so somewhere else is a note that will be followed again.
+
+Found by a review of the live build.
 
 Reproduce with `x/caption-lag.mjs kubernetes/kubernetes --live` (reads the
 caption **once** per seek; reading twice is what hid this). Live at 35% of

@@ -314,22 +314,45 @@ async function prepareCatalogWindow(t: number, manual = false, opts: { seek?: bo
      * time, and the walk must not re-announce history the viewer has already
      * been told about.
      *
-     * But **at the start for a seek**, because the walk is also the only thing
-     * that chooses a caption, and starting it past `t` means nothing is ever
-     * chosen for the moment just requested. That is what a visitor saw on
-     * every streamed scrub: the caption from before the seek stayed on screen
-     * beside a hero date that had moved years. Measured on the live build at
-     * 35% of Kubernetes — hero June 2017, twelve eligible events within two
-     * seconds of the clock, caption dated 2014-06-28, and stable at 2.5 s, so
-     * not a race. At 75%: hero November 2021, caption 2017-06-21.
+     * But **at the start whenever nothing on screen describes `t`**, because
+     * the walk is the only thing that chooses a caption: starting it past the
+     * playhead means nothing can ever be chosen for the moment the clock is
+     * on, only for moments after it. That is what a visitor saw on every
+     * streamed scrub — the caption from before the seek left up beside a hero
+     * date that had moved years.
+     *
+     * Asked of the state, not of the caller, and that is the whole fix.
+     *
+     * This used to read `opts.seek !== false && !player.playing`, on the
+     * assumption that `opts.seek` distinguishes a seek from a refetch. It does
+     * not: `opts.seek` says whether *this request must move the playhead when
+     * it lands*, and `player.beforeSeek` — the one path that is unambiguously
+     * a seek — passes `seek: false` precisely **because** the clock has
+     * already been moved and must not be moved twice. So the flag read
+     * `false` for every scrub of a streamed history, the pointer was planted
+     * past `t`, and the walk was left with nothing it was allowed to say.
+     *
+     * Measured on this build before the change, Kubernetes paused at 45% with
+     * the covering window resident: `captionPtr` 452 of 727 events, exactly
+     * `findIndex(impact > t)`; 209 eligible events sat at or before the clock
+     * and the walk consumed none of them; 79 calls to `updateCaption` over
+     * 3.3 s all returned at `want === held`. Running the clock for 700 ms
+     * moved `t` past event 452 and the caption corrected itself immediately,
+     * which is what made this look like a race for two days. Hero April 2018
+     * over a caption dated 2014-06-28 throughout.
+     *
+     * The two questions the old flag was conflating are now asked separately:
+     * this one of the caption, and "does the playhead move on arrival" below,
+     * which still belongs to `opts.seek`.
      *
      * Re-walking is cheap — 727 events on Kubernetes — and `updateCaption`
      * bounds the contest by `CAPTION_RECENCY` and falls back to the newest
      * crossed event, so what it settles on describes the new moment rather
      * than the loudest thing in the history.
      */
-    const seeking = opts.seek !== false && !player.playing;
-    if (seeking) captionPtr = 0;
+    const shown = store.caption.peek();
+    const describesNow = !!shown && shown.performanceImpact <= t && shown.performanceImpact >= t - CAPTION_RECENCY;
+    if (!describesNow) captionPtr = 0;
     else {
       captionPtr = perf.events.findIndex(e=>e.performanceImpact>t);
       if(captionPtr<0)captionPtr=perf.events.length;
@@ -968,7 +991,19 @@ function updateCaption(t: number) {
     pending = pending && !outranks(current!, pending) ? pending : current;
   }
   const want = pending ?? current;
-  if (!want || want === held) return;
+  /**
+   * The same sentence twice is not a new sentence, even out of a new array.
+   *
+   * `held` is an event object out of whichever plan was in hand when the line
+   * was last taken, and a streamed window swap replaces every one of them with
+   * a fresh object carrying the same `id`. Reference equality alone therefore
+   * called a re-derived caption "different" and announced it again to a screen
+   * reader. Harmless while the pointer was planted past `t` — nothing was ever
+   * re-derived — and reachable now that a window arriving with no description
+   * of `t` on screen re-walks from the start, which is a pre-swap in a quiet
+   * stretch where the caption on screen is more than `CAPTION_RECENCY` old.
+   */
+  if (!want || want === held || (held != null && want.id === held.id)) return;
 
   // A caption too brief to read is not a caption. Held for a moment, unless
   // something more salient wants the line.

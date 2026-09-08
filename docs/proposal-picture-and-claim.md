@@ -163,17 +163,30 @@ over A3-as-first-resort is that the number it reports is now worth reporting.
 4. **Is the republish worth it now**, or does this wait and batch with shelf
    pacing?
 
-## 7. Still open, found while testing this
+## 7. Found while testing this — all three closed, 2026-09-08
+
+Full accounts and the measurements in `docs/status.md` §0d and §0f.
 
 - **"3 branches open" at 90% of Linux**, down from 355 at 75% with 2,317 nodes
-  still resident. Not plausible, and it is the same readout this proposal
-  rewrites.
-- **Two conflicting definitions of "main's head"** in the renderer: the camera
-  composes around `spineTip` (the drawn end of the stroke) while the audit
-  reports `spineHeadNode` (the newest landed commit). One run put the head at
-  −4030 px on a 1600 px frame, which would mean MASTER off the left edge
-  entirely. Until these agree, "nothing past MASTER" cannot be demonstrated
-  even where it is true by construction.
-- **The frontier clip** — `min(playhead, main's newest commit)` — is
-  implemented and airtight by construction, but unverified observationally for
-  the reason above.
+  still resident. **Reproducible to the digit, and the count was never wrong.**
+  `DateBar` counts `perf.threads` at `t`, and across a streamed seek those are
+  two different moments: the plan for where the viewer *was* is still in hand,
+  so every thread in it that merged in between reads as closed. It shows 3 for
+  2.7 seconds and then 426. Gated on `store.buffering` now. §0f.
+- **Two conflicting definitions of "main's head"** in the renderer.
+  **Resolved, and the frontier's is the right one:** the clip means the stroke
+  between main's head and the commit after it is not drawn, so the eased tip
+  was describing ink that had been clipped away. One search, one frontier,
+  `spineTip` clamped to it. §0d.
+- **MASTER off the left edge.** **Not reproducible.** Over 22 samples across
+  streamed Kubernetes, the demo and four fixtures, main's head is at 1376 px of
+  a 1600 px frame at every one — the low edge of the band the camera holds it
+  in. The −4030 px reading is not a state this build reaches, and
+  `present.spec.ts` now checks it rather than assuming it.
+- **The frontier clip** — `min(playhead, main's newest commit)` — was
+  **not** airtight, which reading the canvas back is what established. Four
+  passes went round it: the travelling spark, the merge fanfare, the tip
+  beacons, and the contributor energy trail. 15 performers drawn past main's
+  head on Kubernetes at 25% with `overhang` reading 0, and bright ink 223 px
+  past the frontier on a fixture. Fixed and bounded at 28 px, which is a glyph
+  radius. §0d.
