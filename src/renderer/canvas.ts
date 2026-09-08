@@ -307,6 +307,24 @@ export class StageRenderer {
   private ctx: CanvasRenderingContext2D;
   private glow: HTMLCanvasElement;
   private glowCtx: CanvasRenderingContext2D;
+  /**
+   * Successive halvings of the glow layer, 1/4 to 1/32 of the stage.
+   *
+   * These replace `ctx.filter = 'blur(...)'`, which was costing 20.9 ms of a
+   * 49 ms frame on `torvalds/linux` at 55% -- 43% of the frame for one
+   * assignment. Canvas2D `filter` is not the GPU blur it resembles: it is a
+   * Skia image filter over a bitmap the size of the draw, on the raster
+   * thread, every frame, charged per pixel regardless of how few strokes went
+   * in. See `docs/proposal-frame-budget.md` for the four-arm attribution.
+   *
+   * A bilinear upscale *is* a blur, performed by the sampler for free, so the
+   * bloom is built by halving down and drawing back up. Halving steps matter:
+   * bilinear sampling reads a 2x2 neighbourhood, so a 2x reduction is exactly
+   * a box average, while jumping 1/2 straight to 1/8 skips pixels and
+   * sparkles on a moving starfield.
+   */
+  private mips: HTMLCanvasElement[] = [];
+  private mipCtxs: CanvasRenderingContext2D[] = [];
   private perf: CompiledPerformance | null = null;
   private edgeBounds: Float32Array = new Float32Array(0);
   private edgeBuckets: number[][] = [];
@@ -826,6 +844,14 @@ export class StageRenderer {
     this.ctx = ctx;
     this.glow = document.createElement('canvas');
     this.glowCtx = this.glow.getContext('2d')!;
+    // Four levels: 1/4, 1/8, 1/16 and 1/32 of the stage. The first two carry
+    // the bloom every frame; the last two are only read for the landing
+    // page's wide second pass. At 1600x900 the whole chain is under 40 KB.
+    for (let i = 0; i < 4; i++) {
+      const c = document.createElement('canvas');
+      this.mips.push(c);
+      this.mipCtxs.push(c.getContext('2d')!);
+    }
     // One count, used by both the allocation and the loop that fills it.
     //
     // They disagreed. The array was sized for 280 stars, 90 were filled, and
@@ -1176,6 +1202,11 @@ export class StageRenderer {
     this.canvas.height = Math.round(this.height * this.dpr);
     this.glow.width = Math.max(1, Math.round(this.canvas.width / 2));
     this.glow.height = Math.max(1, Math.round(this.canvas.height / 2));
+    for (let i = 0; i < this.mips.length; i++) {
+      const d = 4 << i;
+      this.mips[i]!.width = Math.max(1, Math.round(this.canvas.width / d));
+      this.mips[i]!.height = Math.max(1, Math.round(this.canvas.height / d));
+    }
   }
 
   get camera(): CameraCue | null {
@@ -2506,7 +2537,35 @@ export class StageRenderer {
       ctx.rect(0, 0, this.canvas.width, Math.max(1, stageBottom * this.dpr));
       ctx.clip();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.filter = 'blur(6px)';
+      /**
+       * Halve down the chain, then draw two levels back up.
+       *
+       * `copy` on the way down so each level is the level above resampled and
+       * nothing accumulates between frames. Smoothing is left at its default
+       * bilinear: on a 2x reduction that is a box average, which is what is
+       * wanted, and 'high' asks Chromium for a costlier resample that buys
+       * nothing here.
+       *
+       * The pair read back is 1/8 and 1/16, not 1/4 and 1/8, and that was
+       * measured rather than guessed. An N-times bilinear upscale is a tent of
+       * half-width N, near enough a Gaussian of sigma N/sqrt(6); against the
+       * 6 device px this replaces, 1/4 and 1/8 are sigma 1.6 and 3.3, both far
+       * too tight. Shipping them raised the brightest horizontal band 46% and
+       * the lit share 43% while the stage mean moved only 8%, which is the
+       * signature of light concentrated rather than added. 1/8 and 1/16 are
+       * sigma 3.3 and 6.5, which brackets it.
+       *
+       * Two levels rather than one because a lone bilinear upscale is a tent
+       * filter, which shows as a visible square on an isolated bright stroke.
+       */
+      for (let i = 0; i < this.mips.length; i++) {
+        const m = this.mipCtxs[i]!;
+        const src: HTMLCanvasElement = i === 0 ? this.glow : this.mips[i - 1]!;
+        m.globalCompositeOperation = 'copy';
+        m.drawImage(src, 0, 0, src.width, src.height, 0, 0, this.mips[i]!.width, this.mips[i]!.height);
+        // Only the landing page's wide pass reads below 1/16, so stop there.
+        if (i === 2 && !this.shopWindow) break;
+      }
       // Not `* this.energy`. The strokes that fill this buffer are already
       // scaled by it, so scaling the composite too made the blurred light go
       // as energy squared — 24/n, not sqrt(24/n) — which is a total bloom that
@@ -2514,19 +2573,35 @@ export class StageRenderer {
       // build on public-apis at 66 live edges: the brightest branch band fell
       // 32%, the stage mean 15%, and lit pixels from 6.13% to 4.01%. The taper
       // was doing roughly twice the job it was asked to do.
-      ctx.globalAlpha = this.settings.noFlash ? 0.55 : 0.85;
-      ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
+      /**
+       * Split across the two levels rather than spent on one.
+       *
+       * The sum is the 0.85 the single blurred pass used, because a blur
+       * conserves the light it spreads and so does a bilinear upscale, so the
+       * total is what has to match. The split sets how the halo falls off:
+       * weighted towards 1/4 keeps the core of a stroke bright, and the 1/8
+       * tap supplies the spread the 6 px Gaussian had.
+       *
+       * Gated on the pixel measurements in `x/stage-metrics.mjs`, not on
+       * looking about right.
+       */
+      const tight = this.settings.noFlash ? 0.34 : 0.52;
+      const wide = this.settings.noFlash ? 0.21 : 0.33;
+      ctx.globalAlpha = tight;
+      ctx.drawImage(this.mips[1]!, 0, 0, this.mips[1]!.width, this.mips[1]!.height, 0, 0, this.canvas.width, this.canvas.height);
+      ctx.globalAlpha = wide;
+      ctx.drawImage(this.mips[2]!, 0, 0, this.mips[2]!.width, this.mips[2]!.height, 0, 0, this.canvas.width, this.canvas.height);
       if (this.shopWindow) {
         // A second, wider pass of the same light, so the picture reads as one
         // scene rather than a scatter of bright strokes. It was twice this
         // strength and the page paid for it: a background that wins the
         // attention it is competing for has stopped being a background. This
         // spreads light already drawn and claims nothing new.
-        ctx.filter = 'blur(30px)';
+        // 1/32 of the stage, which read back up is roughly the 30 px spread
+        // this replaces. Same alpha: it is the same light, spread further.
         ctx.globalAlpha = this.settings.noFlash ? 0.08 : 0.14;
-        ctx.drawImage(this.glow, 0, 0, this.glow.width, this.glow.height, 0, 0, this.canvas.width, this.canvas.height);
+        ctx.drawImage(this.mips[3]!, 0, 0, this.mips[3]!.width, this.mips[3]!.height, 0, 0, this.canvas.width, this.canvas.height);
       }
-      ctx.filter = 'none';
       ctx.restore();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     }

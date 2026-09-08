@@ -224,9 +224,32 @@ test.describe('the last frame shows the history it just played', () => {
  *
  * Two assertions, because the first alone is satisfiable by the wrong thing:
  * one caption placed near the right edge would move the rightmost lit column
- * without filling anything. So the ninth and tenth twelfths of the frame each
- * have to carry ink of their own, which is the measurement that read 0.00% in
- * six of six samples.
+ * without filling anything. So a twelfth of the frame has to carry ink of its
+ * own, which is the measurement that read 0.00% in six of six samples.
+ *
+ * ---
+ *
+ * **The threshold is the band, not three quarters, and that is a decision
+ * rather than a measurement.**
+ *
+ * Everything above is still true: 0.82 does put more history on screen, and
+ * this test asserted ink past 0.75 because that followed. The owner then
+ * reported 0.82 as "so far right now" against the 55-60% they remembered, and
+ * chose the band back at 0.62-0.72. The reasoning against the measurement is
+ * that an empty right-hand band is not only waste, it is also headroom: the
+ * head sits at the band's left edge, so the space to its right is where
+ * arriving work is seen coming.
+ *
+ * So the ink no longer reaches three quarters, by design. Measured on the demo
+ * at 1600x900 after the revert: 62.3%, 67.8% and 62.7% at 35%, 60% and 85%.
+ * The floor is 0.58, which the head clears at every sample and which still
+ * fails if the camera drifts back towards the middle of the frame -- the
+ * original complaint this file exists for. The twelfth checked is the eighth
+ * (0.583 to 0.667), where the head actually lands.
+ *
+ * This is written down rather than deleted because the next person to measure
+ * ink per twelfth will find the right of the frame empty and be tempted to
+ * "fix" it again. It has been fixed, and then unfixed on purpose.
  *
  * Not asserted: `presentAudit().mainHeadScreenX`. That is main's newest
  * *landed commit*, and the camera composes around the drawn end of the stroke,
@@ -239,7 +262,7 @@ test.describe('the last frame shows the history it just played', () => {
  */
 test.describe('the frontier reaches the right of the frame', () => {
   for (const at of [0.35, 0.6, 0.85]) {
-    test(`ink reaches past three quarters of the width at ${Math.round(at * 100)}% of the demo`, async ({ page }) => {
+    test(`ink reaches the head band at ${Math.round(at * 100)}% of the demo`, async ({ page }) => {
       await page.goto('/#demo=1');
       await waitForReady(page);
       await page.evaluate((f) => {
@@ -273,9 +296,8 @@ test.describe('the frontier reaches the right of the frame', () => {
       });
 
       test.skip(r.inkFrac == null, 'nothing is drawn at this point');
-      expect(r.inkFrac!, `the rightmost lit column is at ${(r.inkFrac! * 100).toFixed(1)}% of the width`).toBeGreaterThan(0.75);
-      expect(r.twelfths[8], `ink in the ninth twelfth of the frame (all twelve: ${r.twelfths.join(',')})`).toBeGreaterThan(0);
-      expect(r.twelfths[9], `ink in the tenth twelfth of the frame (all twelve: ${r.twelfths.join(',')})`).toBeGreaterThan(0);
+      expect(r.inkFrac!, `the rightmost lit column is at ${(r.inkFrac! * 100).toFixed(1)}% of the width`).toBeGreaterThan(0.58);
+      expect(r.twelfths[7], `ink in the eighth twelfth of the frame (all twelve: ${r.twelfths.join(',')})`).toBeGreaterThan(0);
     });
   }
 });
@@ -431,33 +453,50 @@ test.describe('the page keeps its controls', () => {
  * the chip to the rightmost lit pixel on its own row: 26, 46, 52, 53, 62, 72,
  * 76, 91, 95, 100, 122, 123, 132 px, against the 50 it was drawn at.
  *
- * The second half is the fade. It went to zero, measured from the spine's
- * *first* commit, so the one label that says which line is main was on screen
- * for 5.2 seconds of a 163-second show and 5.2 seconds of a twelve-hour one —
- * and those 5.2 seconds are the opening, when there is one line on the stage
- * and nothing for the name to distinguish it from. It now floors instead of
- * vanishing.
+ * The second half is the fade, and it has been reversed. The argument for a
+ * floor was that going to zero left the one label naming the main line on
+ * screen for 5.2 seconds of a 163-second show, and that those 5.2 seconds are
+ * the opening, when there is one line on the stage and nothing for the name to
+ * distinguish it from. The owner asked twice for the plate to appear and then
+ * fade out, and a floor of 0.3 is not fading out. The key on the stage now
+ * names the main line in its own right, so the plate is no longer the only
+ * thing that does.
  *
- * Both halves in one test because both are about the same object and the same
- * frames, and because the anchor cannot be measured at all while the chip is
- * absent.
+ * So the chip is present for a window and absent afterwards, and this asserts
+ * both. The absence is asserted rather than merely tolerated because a floor
+ * is a one-character change and reviewers have twice restored it.
+ *
+ * Measured on the demo at 1600x900: present from about 1 s to about 6 s, which
+ * is `PLATE_HOLD` 4 plus `PLATE_FADE` 1.2 from the spine's first commit at
+ * roughly 0.8 s. Absent at 0.3 s because the spine has not begun. The gap from
+ * the chip to the nearest ink over that window: 16.0, 18.5, 18.0, 19.9 px.
+ *
+ * The anchor is checked only while the chip is on screen, since it cannot be
+ * measured otherwise -- which is exactly why the two halves share a test.
  */
 test.describe('the nameplate belongs to the line', () => {
-  test('the MAIN chip stays on screen and stands next to the ink', async ({ page }) => {
+  test('the MAIN chip stands next to the ink for its window, then goes', async ({ page }) => {
     await page.goto('/#demo=1');
     await waitForReady(page);
     const dur = await page.evaluate(() => window.__gittimeline.duration);
-    const seen: Array<{ t: number; gap: number | null }> = [];
-    for (const f of [0.1, 0.3, 0.5, 0.7, 0.9]) {
-      await page.evaluate((t) => {
+    const seen: Array<{ t: number; gap: number | null; present: boolean }> = [];
+    // Absolute seconds, not fractions of the duration. The plate's life is
+    // measured from the spine's first commit in real seconds, so on a
+    // twelve-hour history a tenth of the duration is hours past the fade.
+    // Reading it at fractions is what made the old version of this test claim
+    // the chip was permanent.
+    const HELD = [1, 2, 3, 4];
+    const GONE = [8, dur * 0.5];
+    for (const t of [...HELD, ...GONE]) {
+      await page.evaluate((tt) => {
         window.__gittimeline.pause();
-        window.__gittimeline.seek(t);
-      }, dur * f);
+        window.__gittimeline.seek(tt);
+      }, t);
       await page.waitForTimeout(250);
       const r = await page.evaluate(async () => {
         await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
         const plate = window.__gittimeline.spineLabel;
-        if (!plate) return { t: window.__gittimeline.time, gap: null };
+        if (!plate) return { t: window.__gittimeline.time, gap: null, present: false };
         const c = document.querySelector('[data-testid="stage-canvas"]') as HTMLCanvasElement;
         const off = document.createElement('canvas');
         off.width = c.width;
@@ -476,21 +515,28 @@ test.describe('the nameplate belongs to the line', () => {
             const y = py + d;
             if (y < 0 || y >= height) continue;
             const i = (y * width + x) * 4;
-            if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 60) return { t: window.__gittimeline.time, gap: plate.x - x / dpr };
+            if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 60) return { t: window.__gittimeline.time, gap: plate.x - x / dpr, present: true };
           }
         }
-        return { t: window.__gittimeline.time, gap: null };
+        return { t: window.__gittimeline.time, gap: null, present: true };
       });
-      seen.push({ t: Math.round(r.t * 10) / 10, gap: r.gap == null ? null : Math.round(r.gap * 10) / 10 });
+      seen.push({ t: Math.round(r.t * 10) / 10, gap: r.gap == null ? null : Math.round(r.gap * 10) / 10, present: r.present });
     }
 
-    const absent = seen.filter((s) => s.gap == null);
-    expect(absent, `the chip is missing or has no line beside it at ${JSON.stringify(seen)}`).toEqual([]);
+    const held = seen.slice(0, HELD.length);
+    const gone = seen.slice(HELD.length);
+
+    // It is there, on the line, for its window.
+    expect(held.filter((s) => !s.present), `the chip is missing during its hold at ${JSON.stringify(seen)}`).toEqual([]);
+    expect(held.filter((s) => s.gap == null), `the chip has no line beside it at ${JSON.stringify(seen)}`).toEqual([]);
     // 45 rather than the 30 it is drawn at: the measurement is to the nearest
     // *lit pixel*, and between two commits the nearest lit thing is the line
     // itself, which stops where the stroke stops. Before the fix this ran to
-    // 132 px on mdBook and the chip vanished entirely after 5.2 seconds.
-    for (const s of seen) expect(s.gap!, `the gap from the chip to the ink at t=${s.t} (all: ${JSON.stringify(seen)})`).toBeLessThan(45);
+    // 132 px on mdBook. Measured 16-20 px now.
+    for (const s of held) expect(s.gap!, `the gap from the chip to the ink at t=${s.t} (all: ${JSON.stringify(seen)})`).toBeLessThan(45);
+
+    // And it is gone afterwards, which is the point of the fade.
+    expect(gone.filter((s) => s.present), `the chip is still drawn after the fade at ${JSON.stringify(seen)}`).toEqual([]);
   });
 });
 

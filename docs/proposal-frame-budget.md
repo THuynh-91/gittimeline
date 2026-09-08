@@ -1,7 +1,8 @@
 # Proposal: buy the frame back from one line of code
 
-**Status:** proposed, not implemented. Measured 2026-09-08.
-**Instruments:** `x/frame-budget.mjs`, `x/glow-cost.mjs` (both gitignored).
+**Status:** step 1 implemented and measured 2026-09-08. Steps 2 to 4 open.
+**Instruments:** `x/frame-budget.mjs`, `x/glow-cost.mjs`, `x/stage-metrics.mjs`,
+`x/bloom-sweep.mjs`, `x/landing-pixels.mjs` (all gitignored).
 
 ## The complaint
 
@@ -173,3 +174,87 @@ downsample ratio is a constant, not a sample of anything.
 4. Persist earned quality.
 5. Re-measure. Plot cost against active edges at two seeks before proposing
    anything about the strokes.
+
+
+---
+
+# Results of step 1
+
+Implemented as a four-level mip chain at 1/4, 1/8, 1/16 and 1/32 of the stage,
+halving at each step, with the bloom read back from 1/8 and 1/16 under
+`lighter`. No `ctx.filter` remains in the renderer.
+
+## Pacing, `torvalds/linux`, 1600x900
+
+| | before | after | |
+|---|---|---|---|
+| **dense, 55%** | | | |
+| fps | 25.6 | **32.7** | +28% |
+| mean frame | 39.1 ms | 30.6 ms | |
+| p95 frame | 50.0 ms | **33.4 ms** | one whole vsync |
+| frames over 33.4 ms | 43% | **10%** | |
+| **sparse, 10%** | | | |
+| fps | 22.8 | **26.7** | +17% |
+| frames over 33.4 ms | 67% | **37%** | |
+
+The share of frames missing two vsyncs is the number that matters for the
+complaint. "Laggy" is not a mean, it is variance, and 43% to 10% is the
+difference between a stage that hitches every other frame and one that mostly
+holds 30.
+
+Note the sparse case: 101 active edges ran *slower* than 363 did, before and
+after. A per-pixel cost does not care how few strokes went in, which is the
+overdraw diagnosis confirmed from the other direction.
+
+## The picture, on paused frames at fixed clocks
+
+| where | lit % | stage mean | brightest band | p99 luma |
+|---|---|---|---|---|
+| dense 55% | +0.5% | +0.3% | +0.6% | |
+| landing 2 s | 0.0% | 0.0% | 0.0% | 0.0% |
+| landing 6 s | +1.0% | +0.8% | +3.8% | +2.1% |
+| landing 12 s | +0.9% | +0.7% | +1.9% | +1.7% |
+| sparse 10% | +5.7% | +2.9% | +2.4% | |
+
+Deterministic: a second run of the landing measurement was identical to the
+digit, so these are signal rather than noise.
+
+Shipped at that. The deltas are small, they are all in the brightening
+direction, and the one prior objection to a change here was to a version that
+*dimmed* the brightest band 32%. The trend -- larger where the stage is sparser
+-- is the mip taps holding peaks better than a Gaussian on isolated strokes.
+
+## Two measurement errors worth keeping
+
+**The pixel comparison was confounded by the thing it was gating.** The first
+version of `x/stage-metrics.mjs` read pixels after its 240-frame pacing run, so
+the two builds were photographed 9.6 s and 7.5 s into the history and the
+difference in content was reported as a 46% brightening of the bloom. What
+exposed it was `x/bloom-sweep.mjs` scaling the bloom alpha to **zero** and
+still seeing the "brighter" frame. Pixels are now read on a paused frame at an
+exact clock, before playback.
+
+**A conclusion drawn with the broken instrument is still void.** Moving the
+taps from 1/4 and 1/8 down to 1/8 and 1/16 was measured as "no change" and
+kept anyway on the sigma argument. That measurement was confounded, so whether
+the deeper pair is better remains **untested**. It is the first thing to
+re-measure if the brightening ever matters.
+
+## Two tests were wrong, and not because of this change
+
+Running the render-sensitive specs turned up four failures in
+`tests/e2e/present.spec.ts` that reproduce on `eef06d6` without any of this.
+Both encode behaviour the owner deliberately reversed in `655909d`, and neither
+was re-run at the time:
+
+- *ink reaches past three quarters of the width* -- asserts the 0.82 head band.
+  The band is 0.62 by request. Measured after the revert: 62.3%, 67.8%, 62.7%.
+  Rewritten to assert the head clears 0.58 and the eighth twelfth carries ink,
+  with the decision recorded in the file so it is not "fixed" again.
+- *the MAIN chip stays on screen* -- asserts a plate floor. `PLATE_FLOOR` is 0
+  by request, twice given. Rewritten to assert the chip is on the line for its
+  window (present 1-4 s, gap to ink 16-20 px) **and absent afterwards**, since
+  a floor is a one-character change and has twice been restored by reviewers.
+
+55 of 55 chromium specs pass across `demo stage present clock fallback muted
+explore narrow`, plus lint and 193 unit tests.
