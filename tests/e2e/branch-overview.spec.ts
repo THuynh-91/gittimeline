@@ -86,11 +86,12 @@ for (const stem of ['kubernetes-kubernetes', 'torvalds-linux']) {
     expect(motion.clockRate).toBeGreaterThan(0.9);
 
     // Everything below reads the canvas back with `getImageData`, and that has
-    // to happen *after* the frame measurement. Measured: probing before it
-    // took Kubernetes from 60 fps to 37 and Linux from 48 to 35, because one
-    // readback is enough for Chromium to stop accelerating that canvas for the
-    // rest of its life. A check that quietly halves the thing it is checking
-    // is worse than no check.
+    // to happen *after* the frame measurement. One readback is enough for
+    // Chromium to stop accelerating that canvas for the rest of its life, so a
+    // probe placed before the measurement degrades the thing it is checking.
+    // Moving it here was worth about 5 fps when measured — which was inside
+    // that session's noise, so treat the number as indicative and the ordering
+    // as the point.
     //
     // Nothing is drawn after now, read off the frame rather than argued from
     // the code. The tolerance is 5 px because the glyphs that sit *on* the

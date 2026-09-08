@@ -36,24 +36,30 @@ const DEPTH_NEAR = 5;
  * Depth is quantised so that 600 filaments cost twelve `stroke()` calls rather
  * than 600 — six depth steps, each split above and below the spine.
  *
- * Not a micro-optimisation; it is what pays for the curvature. What actually
- * dominates a frame here is not the stroke count, though. Measured
- * unthrottled at Linux's 600-thread peak, on this machine:
+ * Not a micro-optimisation; it is what pays for the curvature. Measured
+ * unthrottled in `x/bench/`, which replays the 600 real active rows from
+ * Linux's peak through this same drawing:
  *
  *   flat colour, every line width <= 1 ................  7.0 ms
  *   flat colour, widths 0.6-1.4 ...................... 12.5 ms
  *   one CanvasGradient per bucket as `strokeStyle` .... 61.0 ms
  *   flat colour + one destination-in alpha ramp ....... 17.5 ms
  *   flat colour + one source-over scrim ............... 11.7 ms
+ *   filaments only, batched .......................... 5.9 ms
+ *   filaments only, one stroke each .................. 8.5 ms
  *
- * Two findings ran the design. Skia has a fast hairline path for stroke widths
- * at or below one device pixel and a slow geometry-expanding path above it, so
- * *every* width in this file stays under 1 and depth is carried by alpha
- * instead. And a gradient `strokeStyle` over a path with hundreds of subpaths
- * is catastrophic — nine times the cost of a flat colour — so the head-to-tail
- * falloff is not painted at all: it comes from filament *density*, which
- * genuinely thins out towards the past, plus two CSS overlays that cost
- * nothing per frame. See `branchOverview.css`.
+ * Three findings ran the design, and the expected one came last. Skia has a
+ * fast hairline path for stroke widths at or below one device pixel and a slow
+ * geometry-expanding path above it, so *every* width in this file stays under
+ * 1 and depth is carried by alpha instead — that is the 12.5 against 7.0, and
+ * it is the largest single lever here. A gradient `strokeStyle` over a path
+ * with hundreds of subpaths is catastrophic, nine times a flat colour, so the
+ * head-to-tail falloff is not painted at all: it comes from filament
+ * *density*, which genuinely thins towards the past, plus two CSS overlays
+ * that cost nothing per frame (see `branchOverview.css`). Batching itself is
+ * the smallest of the three at 1.4x, and it is the reason the whole drawing
+ * ends up *cheaper* than the straight-line version it replaced at 284 and 350
+ * lines, where the old code issued one fractional-width stroke per line.
  */
 const DEPTH_BUCKETS = 6;
 /**
@@ -85,8 +91,9 @@ const MIN_PAST_SECONDS = 8;
  * graph's camera and would let this view hide lines the header is still
  * promising, which is invariant 1 — the count equals the lines drawn.
  *
- * At a = 1.9 with 300 lanes a side, the innermost lanes sit about 1.7 px apart
- * and the outermost about 0.35 px. Both numbers are the point.
+ * At a = 1.9 with 300 lanes a side in the 230 px this leaves them, the
+ * innermost lanes sit 1.71 px apart and the outermost 0.26 px. Both numbers
+ * are the point.
  */
 export function lens(u: number, a: number): number {
   if (a < 1e-3) return u;

@@ -125,7 +125,7 @@ field compresses. Then fade alpha with `|lane|`, a `laneFade` of this view's
 own.
 
 *Trade-off:* the far field goes sub-pixel — 300 lanes a side in ~250 px means
-the outer lanes sit 0.35 px apart. They become a wash. That is the point (it is
+the outer lanes sit 0.26 px apart. They become a wash. That is the point (it is
 what `laneFade`'s comment argues for: "still *there* … without asking to be
 traced individually") but it must be said plainly against **invariant 1**: all
 600 lines are still stroked, and the old view was already at 0.83 px, so this
@@ -196,17 +196,22 @@ design was actually decided:
 | flat colour, every stroke width ≤ 1 | **7.0** |
 | flat colour, widths 0.6–1.4 | 12.5 |
 | flat colour, one single stroke at width 1.0 | 6.4 |
+| filaments only, batched into twelve strokes | 5.9 |
+| filaments only, one stroke per filament | 8.5 |
 | one `CanvasGradient` per bucket as `strokeStyle` | **61.0** |
 | flat colour + one `destination-in` alpha ramp | 17.5 |
 | flat colour + one `source-over` scrim | 11.7 |
 
 Two findings ran the design, and neither was the one expected:
 
-- **Stroke count barely matters; stroke width does.** Twenty-four batched
+- **Stroke width matters far more than stroke count.** Twenty-four batched
   strokes at width 1.0 cost the same as one (6.4 ms), while the same
   twenty-four at widths spanning 0.6–1.4 cost 12.5 ms. Skia has a fast hairline
   path at or below one device pixel and a slow geometry-expanding path above
   it. So every width in this file is under 1 and depth is carried by alpha.
+  Batching is worth much less than that — 5.9 ms against 8.5 for one stroke per
+  filament, 1.4× — but it is free, and it is why the new drawing comes out
+  *cheaper* than the old one below about 350 lines.
 - **A gradient `strokeStyle` over a path with hundreds of subpaths is
   catastrophic** — nine times a flat colour. The head-to-tail falloff is
   therefore not painted at all. It comes from filament *density*, which
@@ -216,59 +221,66 @@ Two findings ran the design, and neither was the one expected:
 
 ### The real application
 
-240 real frames while playing, this machine, 1600×1000, Chromium, view open.
-"Capped" is what a viewer gets; "free" removes the vsync ceiling so the number
-is the actual cost of a frame and shows the headroom.
+240 real frames while playing, this machine, 1600×1000, Chromium, view open,
+through `x/ov2.mjs`. "Capped" is what a viewer gets; "free" removes the vsync
+ceiling so the number is the actual cost of a frame.
 
-| | capped median | capped p95 | capped worst | free median |
-|---|---|---|---|---|
-| Linux, 600 lines — before | 16.5 ms (61 fps) | 26.8 ms | 50.9 ms | 6.6 ms |
-| Linux, 600 lines — after | 16.8 ms (60 fps) | 35.5 ms | 66.0 ms | **9.1 ms** |
-| Linux, 350 lines — before | 16.6 ms (60 fps) | 25.0 ms | 55.5 ms | 4.8 ms |
-| Linux, 350 lines — after | 16.7 ms (60 fps) | 30.2 ms | 55.9 ms | **5.7 ms** |
-| Kubernetes, 284 — before | 16.8 ms (60 fps) | 25.3 ms | 47.0 ms | 3.7 ms |
-| Kubernetes, 284 — after | 16.6 ms (60 fps) | 22.9 ms | 43.5 ms | **4.3 ms** |
+**Every number below was re-taken on a quiet machine, because the first set was
+wrong.** See the note at the end of this section.
 
-**Invariant 4's gate is ≥ 50 fps median at 350 lines. It is 60.** The extra
-0.6–2.5 ms of real work is paid out of headroom and does not reach the median.
-
-### What the tail costs, and it does cost something
-
-The e2e spec measures the *mean* frame rate over 5 s (Kubernetes) and 15 s
-(Linux) rather than the median, and that is where the change shows. Measured
-like for like, tracing off, the same spec against the previous build and this
-one:
-
-| | before | after |
+| capped | before: median · mean · p95 · worst | after: median · mean · p95 · worst |
 |---|---|---|
-| Kubernetes, 284 | 60.1 fps · p99 16.8 ms · worst 16.8 ms | 56.9 / 59.4 / 56.7 fps · p99 33.4 ms |
-| Linux, 600 | 59.7 fps · p99 16.8 ms · worst 49.9 ms | 56.4 / 58.5 fps · p99 33.4 ms |
+| Kubernetes, 284 | 16.6 ms · 60.2 fps · 21.8 · 28.4 | 16.8 ms · 60.2 fps · 22.0 · 31.2 |
+| Kubernetes, 284 (repeat) | 16.7 ms · 60.1 fps · 20.5 · 26.4 | 16.6 ms · 59.2 fps · 26.2 · 42.1 |
+| Linux, 350 | 16.7 ms · 58.4 fps · 27.7 · 45.3 | 16.7 ms · 60.1 fps · 22.2 · 25.5 |
+| Linux, 600 | 16.5 ms · 58.2 fps · 25.4 · 74.0 | 16.6 ms · 58.8 fps · 25.5 · 43.5 |
 
-The old view at 284 lines **never dropped a frame** — p99 and worst were both
-one vsync interval. The new one drops roughly one frame in a hundred. That is
-the honest price of six thousand antialiased hairline segments where there used
-to be six hundred straight ones, and it is the curvature itself, not an
-accident: in the bench, dropping the segment cap from nine to one saved only
-2.3 ms of 12.5, so the cost is in rasterising the strokes, not in computing
-them.
+| free (no vsync ceiling) | before median · mean | after median · mean |
+|---|---|---|
+| Kubernetes, 284 | 4.9 ms · 6.4 ms | **3.9 ms · 5.3 ms** / 3.8 · 4.6 |
+| Linux, 350 | 4.9 ms · 6.6 ms | **4.7 ms · 5.5 ms** |
+| Linux, 600 | 6.4 ms · 7.8 ms | **7.4 ms · 8.1 ms** / 7.5 · 8.1 |
 
-Under Playwright's trace recording — which screencasts the page and so loads
-the machine the way a weak one would — the reduced headroom is much more
-visible: 60.0 → 41.3 fps on Kubernetes and 45.7 → 40.4 on Linux. That number is
-not what a viewer gets, but it is the best available proxy for how this will
-behave on a slow device, and it is worse than before.
+**Invariant 4's gate is ≥ 50 fps median at 350 lines. It is 60, before and
+after.** And the result at the low end is the opposite of what was expected:
+**the new drawing is cheaper than the old one up to about 350 lines** — 3.9 ms
+against 4.9 at Kubernetes' peak — because the old code issued one `stroke()`
+per line at a fractional width and the new one batches twelve hairlines. That
+saving pays for the curvature outright until the ten-fold rise in segment count
+overtakes it, which happens somewhere between 350 and 600. At 600 the new
+drawing costs **+1.0 ms a frame**, out of 16.7.
 
-### Tried and measured, kept or dropped on the evidence
+The frame-time tail at 600 lines got *better*, not worse: p99 35.9 → 32.3 ms
+and worst 74.0 → 43.5 ms. The one place the after column looks worse is the
+second Kubernetes repeat (worst 42.1 ms against 26.4), and repeats of the same
+build differ by that much in either direction, so it is not a finding.
 
-- `will-change: transform` on the overlay, to give it its own compositing
-  layer: **no measurable change** (58.75 vs 59.2 fps). Reverted.
-- Taking `store.time` out of the drawing effect's dependencies, which stops it
-  tearing down and re-entering `draw` fifteen extra times a second: **no
-  measurable change**, kept anyway because it is plainly correct.
-- Not reassigning the canvas backing store unless the size changed, and moving
-  the lit ground from the canvas to its wrapper so it is not re-rasterised with
-  it: **no measurable change**, kept for the same reason. The old code was
-  reallocating and clearing a 3072×1888 buffer fifteen times a second.
+### The measurement that was wrong, and how it was caught
+
+An earlier draft of this section reported a real tail regression: 60.1 → 57 fps
+at Kubernetes and "the old view never dropped a frame, this one drops about one
+in a hundred". **That was contention, not code.** Another agent was building
+and running its own suite on this machine throughout, and every "after" number
+was taken while it was and every "before" number was not.
+
+Two things went wrong and both are worth naming, because neither announced
+itself:
+
+- **The A/B was not an A/B.** The comparison was made with
+  `git stash push -- <the four files>` … measure … `git stash pop`. By then the
+  work was already committed, so the push had nothing to stash and silently
+  stashed nothing — and `git stash pop` answering "No stash entries found" was
+  the only sign, in a command whose output was piped through `grep fps`. Both
+  halves of that comparison measured the same build, which is exactly why they
+  agreed so well and why the agreement was reassuring rather than suspicious.
+  The reliable way to do it, and what the numbers above use, is
+  `git checkout <sha> -- <files>` with a `git diff --stat HEAD` afterwards to
+  prove the file changed.
+- **Frame timings on a shared machine are not comparable across time.** The
+  spread between repeats of one build is ±3 fps and up to 40 ms of worst frame.
+  Anything smaller than that is not a result. The `free` column is the number
+  to trust: it measures work rather than scheduling, and it moved consistently
+  and in the direction the design predicts.
 
 ### Two process findings worth more than they look
 
@@ -277,9 +289,11 @@ behave on a slow device, and it is worse than before.
   showed the view with its falloff switched off, and nothing in the picture
   said why. The query is gone; the overlays are not decoration.
 - **A `getImageData` probe placed before a frame measurement invalidates it.**
-  The new frontier-clip check in the spec cost Kubernetes 5 fps and Linux 5 fps
-  purely by reading the canvas back before the measurement ran — one readback
-  is enough for Chromium to stop accelerating that canvas. It now runs after.
+  One readback is enough for Chromium to stop accelerating that canvas for the
+  rest of its life, so the new frontier-clip check was degrading the frame rate
+  it sat in front of. It now runs after the measurement. The 5 fps it appeared
+  to cost was inside that session's noise; the mechanism is not in doubt and
+  the ordering is the point.
 
 ## 5. What this does not fix
 
@@ -293,7 +307,10 @@ behave on a slow device, and it is worse than before.
   construction, so there is a lit vertical comb at 0.78 of the width. It is
   truthful and it reads as "now", but it is a straight line in a picture whose
   whole brief was fewer straight lines.
-- **The tail regression above is real** and I did not get it back.
+- **At 600 threads it costs a millisecond a frame more than the old view.**
+  Under 350 it costs less. Neither is close to the budget, but the top of the
+  range is where this design is most expensive and it is also where it looks
+  least like lines.
 - **Grouped mode is much plainer than desktop, deliberately.** A group of 27
   threads gets one filament from the group's earliest start, the lens is off so
   the labels keep their 22 px budget, and the overlays are reduced to a light
@@ -314,5 +331,7 @@ behave on a slow device, and it is worse than before.
 3. **Should the auto-framing breathe at all**, or hold one span? It currently
    follows the crowd, which is the graph's behaviour; a viewer who wants it
    still has Fit and manual zoom.
-4. **Is one dropped frame in a hundred worth the curvature?** That is the
-   trade, stated plainly, and it is a taste call rather than a measurement.
+4. **Is the 600-line frame worth having at all?** It costs the most and reads
+   the least like lines. Capping the individual-line path lower and grouping
+   above it — the mechanism already exists at 1,024 — would be a defensible
+   choice, and it is a taste call rather than a measurement.
