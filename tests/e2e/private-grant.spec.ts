@@ -35,6 +35,12 @@ test.describe('the private-repository grant', () => {
     const toggle = page.getByTestId('private-token-toggle');
     await expect(toggle, 'a second control exists on the page').toBeVisible();
     await expect(page.getByTestId('private-token-panel')).toHaveCount(0);
+    // The section must not open with a refusal. It did: "Not yet — this is
+    // what it will be" in bold, with this control underneath, and the person
+    // who asked for the feature missed it after it shipped.
+    const section = page.locator('section[aria-labelledby="private-heading"]');
+    await expect(section).toContainText('Yes — with a token you scope yourself');
+    await expect(toggle).toContainText('Set up private access');
     await toggle.click();
     const panel = page.getByTestId('private-token-panel');
     await expect(panel).toBeVisible();
