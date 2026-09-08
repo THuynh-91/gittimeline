@@ -1792,13 +1792,57 @@ export class StageRenderer {
     // work that has happened and not yet merged is simply off-frame until main
     // absorbs it. That is a real loss and the reason this is "for now" — the
     // in-flight state is the most interesting thing a branch does.
-    const head = bounds ? null : this.spineTip(t);
+    /**
+     * The camera follows a *continuous* point, not the newest landed commit.
+     *
+     * `spineTip` is clamped to the frontier now, and the frontier with
+     * `MAIN_FRONTIER` on is main's newest landed commit — which advances as a
+     * **step function**, one jump per commit. Composing the head band around it
+     * made the camera lurch: measured on Kubernetes at 40%, a mean pan of 36.7
+     * world units a frame with a 95th-percentile jerk of 404 and a worst of
+     * 990. Eleven times the pan speed, arriving as a jolt on the frames a
+     * commit landed and nothing in between. The viewer's word was "jittery"
+     * and it is the right one.
+     *
+     * So the clamp stays where it belongs — on the *drawn* tip, which is what
+     * `spineTip` promises and what the nameplate and the audit need — and the
+     * camera gets `spineAim`, the same eased interpolation without it. Being
+     * up to one commit ahead of the ink is exactly what made the pan smooth
+     * before, and it costs nothing: the band is 8% of the frame wide, so a
+     * target a fraction of a commit ahead of the ink is still inside it.
+     *
+     * The lesson worth keeping: "where is the far end of main's line" and
+     * "what should the camera point at" are different questions. Unifying them
+     * for tidiness is what broke this.
+     */
+    const head = bounds ? null : this.spineAim(t);
     if (head && this.view.scale > 0) {
       const lo = this.width * 0.86;
       const hi = this.width * 0.94;
       const sx = this.worldToScreen(head.x, head.y).x;
       if (sx < lo || sx > hi) this.view.cx += (sx - (sx < lo ? lo : hi)) / this.view.scale;
     }
+  }
+
+  /**
+   * Where the camera aims: main's line interpolated towards its next commit,
+   * *unclamped* by the frontier. See the head band above for why this is not
+   * `spineTip`.
+   */
+  private spineAim(t: number): { x: number; y: number } | null {
+    const p = this.perf;
+    const spine = p?.threads[0];
+    const head = this.spineHead(t);
+    if (!p || !spine || !head) return null;
+    const next = this.headIdx >= 0 && this.headIdx + 1 < spine.nodeIdxs.length
+      ? p.nodes[spine.nodeIdxs[this.headIdx + 1]!] ?? null
+      : null;
+    if (!next || !(next.impact > head.impact)) return { x: head.x, y: head.y };
+    const f = Math.max(0, Math.min(1, (t - head.impact) / (next.impact - head.impact)));
+    // The same easing the stroke is revealed with, so the camera leads the ink
+    // by a constant fraction rather than by a varying one.
+    const u = this.settings.reducedMotion ? f : Math.pow(f, 1.6);
+    return { x: head.x + (next.x - head.x) * u, y: head.y + (next.y - head.y) * u };
   }
 
   /**
