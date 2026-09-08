@@ -13,15 +13,118 @@
 .branch-overview header, .branch-overview footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .branch-overview p { margin: 4px 0; font-size: 12px; }
 .branch-overview .overview-explanation { color: #b0bdb9; }
-.branch-overview canvas { flex: 1; min-height: 40px; width: 100%; margin: 8px 0; cursor: pointer; }
+
+/*
+ * The field, its ground and its two overlays.
+ *
+ * `--gt-frontier` is where the playhead is, as a percentage across the plot;
+ * the draw loop writes it whenever the camera pans. `--gt-gutter` is the left
+ * margin the group labels use when the view is grouped, so the scrim below
+ * does not swallow them.
+ *
+ * These are not decoration and are deliberately *not* behind
+ * `prefers-reduced-transparency`: they are the head-to-tail falloff, and
+ * without them the field is a hard-edged rectangle again — which is the thing
+ * the redesign was for. Worth recording that headless Chromium reports
+ * `prefers-reduced-transparency: reduce`, so the first round of screenshots
+ * taken through Playwright showed the view with them switched off and nobody
+ * would have known why.
+ *
+ * Everything in here is compositing the browser does for free. That matters:
+ * the same falloff painted into the frame cost 5 ms a frame as a `fillRect`
+ * with a `CanvasGradient` and 10 ms as a `destination-in` pass, out of a
+ * 16.7 ms budget, and the depth falloff and curvature had already spent it.
+ * See `DEPTH_BUCKETS` in BranchOverview.tsx for the measurements.
+ */
+.branch-overview .overview-field {
+  --gt-frontier: 78%;
+  --gt-gutter: 0px;
+  position: relative;
+  flex: 1;
+  min-height: 40px;
+  margin: 8px 0;
+  border-radius: 9px;
+  /*
+   * A ground lit from where the playhead is, so the filaments have somewhere
+   * to sit. On the wrapper and not on the canvas: an element's background is
+   * re-rasterised when the element is invalidated, and the canvas is
+   * invalidated every time its backing store is touched.
+   */
+  background: radial-gradient(125% 95% at var(--gt-frontier) 50%, #0e131b 0%, #080a10 58%, #05060a 100%);
+}
+.branch-overview canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 9px;
+  cursor: grab;
+  touch-action: none;
+}
+.branch-overview canvas:active { cursor: grabbing; }
+/* A light on the frontier, and a vertical vignette that softens the top and bottom of the field. */
+.branch-overview .overview-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 9px;
+  background:
+    radial-gradient(90px 78% at var(--gt-frontier) 50%, rgba(214, 228, 208, 0.1), rgba(214, 228, 208, 0) 70%),
+    linear-gradient(to bottom, #090d12 0%, rgba(9, 13, 18, 0) 17%, rgba(9, 13, 18, 0) 83%, #090d12 100%);
+}
+/*
+ * The past fading out, in the two halves separately.
+ *
+ * A single horizontal scrim would dim MASTER along with everything else, and
+ * MASTER has to stay prominent. Two, leaving a 7 px band around the spine
+ * untouched, fade the field and leave the spine burning through the middle of
+ * it — which is the composition the graph has.
+ */
+.branch-overview .overview-veil::before,
+.branch-overview .overview-veil::after {
+  content: "";
+  position: absolute;
+  left: var(--gt-gutter);
+  right: 0;
+  pointer-events: none;
+  /*
+   * Stops at 0.9, not 1. Fully opaque ink at the left edge erased the deepest
+   * past outright and left 250 px of dead black in the frame — measured off
+   * `x/ovshots/v3-*`, where a magnified crop of the left sixth was pure #000.
+   * The oldest threads should be nearly gone, not gone.
+   */
+  background: linear-gradient(to right, rgba(9, 13, 18, 0.9) 0%, rgba(9, 13, 18, 0.52) 20%, rgba(9, 13, 18, 0) 52%);
+}
+.branch-overview .overview-veil::before { top: 0; bottom: calc(50% + 7px); }
+.branch-overview .overview-veil::after { top: calc(50% + 7px); bottom: 0; }
+/*
+ * Grouped mode keeps the light on the frontier and loses the rest.
+ *
+ * A ten-row view has no atmosphere to build and does have text in it: the
+ * vertical vignette was dimming the outermost two group labels to
+ * unreadable, and the scrim was eating the ones in the gutter. Legibility
+ * wins on a phone; the field is plainer there and that is the trade.
+ */
+.branch-overview .overview-field[data-grouped] .overview-veil {
+  background: radial-gradient(90px 78% at var(--gt-frontier) 50%, rgba(214, 228, 208, 0.08), rgba(214, 228, 208, 0) 70%);
+}
+.branch-overview .overview-field[data-grouped] .overview-veil::before,
+.branch-overview .overview-field[data-grouped] .overview-veil::after { display: none; }
+
 .branch-overview button, .branch-overview select { min-height: 36px; background: #172127; color: #f0eadb; border: 1px solid #667572; border-radius: 5px; padding: 6px 10px; }
 .branch-overview select { max-width: 230px; }
 .branch-overview button:focus-visible, .branch-overview select:focus-visible { outline: 2px solid #f5db99; outline-offset: 2px; }
+/* The camera controls read as one cluster, so they are not taken for four unrelated actions. */
+.branch-overview .overview-camera { display: flex; align-items: center; gap: 6px; }
+.branch-overview .overview-camera button { min-width: 36px; padding: 6px 8px; font-size: 12px; }
+.branch-overview .overview-camera span { font-size: 11px; color: #93a3a0; font-variant-numeric: tabular-nums; min-width: 74px; }
 @media (max-width: 600px) {
   .branch-overview { inset: 62px 6px 240px; padding: 10px; }
   .branch-overview button, .branch-overview select { min-height: 44px; }
   .branch-overview header { gap: 4px; }
   .branch-overview select { max-width: 180px; }
+  .branch-overview .overview-camera button { min-width: 44px; }
+  .branch-overview .overview-camera span { display: none; }
 }
 @media (max-height: 600px) {
   .branch-overview { inset: 8px 8px 8px; z-index: 10; }
