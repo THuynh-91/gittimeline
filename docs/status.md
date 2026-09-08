@@ -1,12 +1,94 @@
 # Where GitTimeline stands, and what needs work
 
-Last revised 2026-09-06. Everything here is either measured or read in the
+Last revised 2026-09-08. Everything here is either measured or read in the
 source at the commit named beside it. Where something is inherited from an
 earlier note and has not been re-checked, it says so — a stale list is worse
 than a short one, because it spends attention on things already fixed.
 
 This supersedes `x/ROADBLOCKS.md`, about a third of which had been fixed by the
 time anyone read it again.
+
+---
+
+## 0d. The frontier clip was not airtight, and MASTER never leaves the frame — 2026-09-08
+
+Two things `proposal-picture-and-claim.md` §7 left open, both settled by
+measurement.
+
+**Two definitions of "main's head" — resolved, and the frontier is the right
+one.** The camera's head band composed around `spineTip`, the drawn end of
+main's stroke; `presentAudit` reported `spineHeadNode`, the newest landed
+commit; and `render` had a third copy of the same search inline. Before the
+frontier clip both were right about different things. After it only one is:
+`drawPolyline` clips every stroke at `min(playhead, main's newest commit)`, so
+the stroke from the head towards the commit after it **is not drawn at all**,
+and the eased tip was describing ink that had been clipped away — the camera
+composed around a point with nothing at it and the nameplate stood 50 px right
+of *that*. There is one search now (`spineHead`), one frontier (`frontierX`),
+and `spineTip` is clamped to it, so the two numbers are equal by construction
+while `MAIN_FRONTIER` is on. On the demo they differed by 60 to 147 world
+units before the clamp; `present.spec.ts` now asserts the identity and fails
+three ways without it.
+
+**MASTER does not leave the frame.** The −4030 px reading in §7 is not
+reproducible: over 3 points on streamed Kubernetes, 3 on the demo and 16 on
+four fixtures, `mainHeadScreenX` is **1376 px of a 1600 px frame at every
+single sample** — 86.0% of the width, which is the low edge of the head band
+(`width * 0.86`). The camera holds it there and nothing observed moves it.
+`present.spec.ts` now asserts main's head is on the frame at every sample,
+so the claim is checked rather than assumed.
+
+**The clip was not airtight. Four passes went round it.** `MAIN_FRONTIER`'s own
+comment called it impossible for anything to be drawn past MASTER, and
+`presentAudit().overhang` could never have contradicted it: overhang counts
+nodes *eligible* to be drawn, so it reads **0** on a frame with a spark, a
+merge ring and an energy trail all lit past main's head. Reading the canvas
+back is what found it:
+
+- **bodies** — the travelling spark. Bounded by the playhead through
+  `travelU` and by nothing else. **15 performers drawn right of main's head on
+  streamed Kubernetes at 25% of its show**, 7 at 50%, 1 at 75%, the furthest
+  49 px past MASTER.
+- **impact effects** — the merge ring, wave and spokes, anchored on a commit
+  that might itself be past the frontier.
+- **live tip beacons** — the pulsing ring on an unmerged branch, which is
+  precisely the object most likely to sit past main's head.
+- **`drawPartial`** — the contributor energy trail, whose comment said it did
+  "the same clipping `drawPolyline` does" and which clipped against the view
+  window only. Drawn under `lighter` compositing, so it was the brightest of
+  the four: bright ink 164 px past the frontier on `03-two-parallel-threads`
+  at 20%, with `overhang` at 0.
+
+All four now drop anything anchored past the frontier, the same way the node
+pass drops a commit. Measured at 1600×900 with labels off, as pixels past
+`frontierScreenX` at a channel maximum above 80, over four fixtures at four
+points each:
+
+```
+before   223 223 223 169 114  89  87  81  76  73  40  15  14  12   5   2
+after     15  13  12  11  10   9   9   9   7   6   6   6   6   5   4   2
+```
+
+**The residual is not zero and cannot be.** The commit *at* main's head is
+drawn, and it is a disc with a radius and a halo, so its right half is
+legitimately past the line its centre sits on. 2 to 15 px is a glyph radius.
+`present.spec.ts` bounds it at 28 px, which every sample clears after the fix
+and ten of sixteen fail before it.
+
+Labels are turned off at the setting for that measurement rather than excluded
+from the scan. MASTER's nameplate stands `PLATE_GAP` — 50 px, now a named
+constant that `presentAudit` reports — right of the head it names, and merge
+captions 12 px right of their node; those are labels, not history, and a scan
+that has to guess which rows to skip is exactly the trap `present.spec.ts`
+declined to walk into the first time. With labels on, Kubernetes lights
+pixels 156 px past main's head and every one of them is the text of a merge
+caption.
+
+**One instrument to distrust:** `window.__gittimeline.bodies()` places each
+body linearly in time, while the renderer places it through `travelU`, which
+eases. It over-reports how far a spark has travelled and it still reports
+bodies past the frontier after the fix, because it describes eligibility and
+not drawing. Use the pixels.
 
 ---
 

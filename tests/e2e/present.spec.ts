@@ -85,3 +85,148 @@ test.describe('nothing is drawn before it happens', () => {
     });
   }
 });
+
+/**
+ * Nothing is drawn past MASTER, and this time it was read off the canvas.
+ *
+ * `MAIN_FRONTIER` clips every stroke and drops every commit right of main's
+ * newest landed commit, and `canvas.ts` called that airtight. It was not, and
+ * nothing here could have caught it: `presentAudit().overhang` counts nodes
+ * *eligible* to be drawn rather than nodes drawn, so it reads zero on a frame
+ * with a spark, a merge ring and a branch's energy trail all lit past MASTER.
+ * `proposal-picture-and-claim.md` section 7 recorded the clip as "implemented
+ * and airtight by construction, but unverified observationally". Verified now,
+ * and it was false.
+ *
+ * Four passes went through neither `drawPolyline` nor the node guard:
+ *
+ *   bodies         the travelling spark, bounded by the playhead through
+ *                  `travelU` and by nothing else. 15 performers drawn right of
+ *                  main's head on streamed Kubernetes at 25% of its show.
+ *   effects        the merge ring, wave and spokes, anchored on a commit that
+ *                  might itself be past the frontier.
+ *   tip beacons    the pulsing ring on an unmerged branch, which is precisely
+ *                  the object most likely to sit past main's head.
+ *   drawPartial    the contributor energy trail, which clipped against the
+ *                  view window only while its comment claimed it did "the same
+ *                  clipping `drawPolyline` does". Under `lighter` compositing,
+ *                  so it was the brightest of the four.
+ *
+ * Measured at 1600x900 with labels off, over four fixtures at four points
+ * each, as pixels past `frontierScreenX` at a channel maximum above 80:
+ *
+ *   before   223, 223, 223, 169, 114, 89, 87, 81, 76, 73, 40, 15, 14, 12, 5, 2
+ *   after     15, 13, 12, 11, 10, 9, 9, 9, 7, 6, 6, 6, 6, 5, 4, 2
+ *
+ * `MAX_SPILL_PX` is 28, which every sample above clears after the fix and ten
+ * of sixteen fail before it. It is not zero and cannot be: the commit *at*
+ * main's head is drawn, and it is a disc with a radius and a halo, so its
+ * right half is legitimately past the line its centre sits on. What the bound
+ * says is that nothing with its own position out there is being drawn — and
+ * the residual is a glyph radius, which is what 2-15 px is.
+ *
+ * Labels are turned off at the setting rather than excluded from the scan.
+ * MASTER's nameplate stands `PLATE_GAP` (50 px) right of the head it names and
+ * merge captions 12 px right of their node; those are labels, not history,
+ * and a scan that has to guess which rows to skip is the trap this file's
+ * first block declined to walk into. Turning them off removes the guessing.
+ */
+const MAX_SPILL_PX = 28;
+
+/** Labels off before the app boots: they are legitimately right of the head. */
+const LABELS_OFF = () => localStorage.setItem('gittimeline.settings.v1', JSON.stringify({ labels: 'minimal' }));
+
+test.describe('nothing is drawn past MASTER', () => {
+  for (const fixture of ['05-long-running-side-thread', '12-merge-storm', '21-pull-request-treadmill', '03-two-parallel-threads']) {
+    test(`${fixture}: no ink past main's head`, async ({ page }) => {
+      await page.setViewportSize({ width: 1600, height: 900 });
+      await page.addInitScript(LABELS_OFF);
+      await page.goto('/');
+      await waitForReady(page);
+      await page.evaluate((f) => window.__gittimeline.loadFixture(f), fixture);
+      await waitForReady(page);
+
+      const worst: Array<{ at: number; past: number; front: number; overhang: number }> = [];
+      for (const at of [0.2, 0.4, 0.6, 0.8]) {
+        await page.evaluate((f) => {
+          window.__gittimeline.pause();
+          window.__gittimeline.seek(window.__gittimeline.duration * f);
+        }, at);
+        const r = await page.evaluate(async () => {
+          // Three frames, because the camera is smoothed and the frontier is a
+          // property of the frame that was drawn rather than of the seek.
+          await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+          const a = window.__gittimeline.presentAudit();
+          if (!a || a.frontierScreenX == null) return null;
+          const c = document.querySelector('[data-testid="stage-canvas"]') as HTMLCanvasElement;
+          const rect = c.getBoundingClientRect();
+          const dpr = c.width / rect.width;
+          const off = new OffscreenCanvas(c.width, c.height);
+          const o = off.getContext('2d')!;
+          o.drawImage(c, 0, 0);
+          const { data, width, height } = o.getImageData(0, 0, c.width, c.height);
+          let right = -1;
+          for (let x = width - 1; x >= 0 && right < 0; x--) {
+            for (let y = 0; y < height; y++) {
+              const i = (y * width + x) * 4;
+              if (Math.max(data[i]!, data[i + 1]!, data[i + 2]!) > 80) { right = x; break; }
+            }
+          }
+          return { front: a.frontierScreenX, right: right < 0 ? null : right / dpr, overhang: a.overhang, head: a.mainHeadScreenX, w: rect.width };
+        });
+        test.skip(!r, 'the frontier has no position at this point');
+        // The whole measurement is meaningless if main's head is off the frame:
+        // "past the head" would then be most of the stage. It never is — the
+        // camera holds it at 86% of the width — and saying so here is what
+        // turns that into a checked fact rather than an assumption.
+        expect(r!.head, "main's head is on the frame").not.toBeNull();
+        expect(r!.head!, "main's head is on the frame").toBeGreaterThan(0);
+        expect(r!.head!, "main's head is on the frame").toBeLessThan(r!.w);
+        worst.push({ at, past: r!.right == null ? -Infinity : r!.right - r!.front, front: r!.front, overhang: r!.overhang });
+      }
+      // Reported together so a failure says which point and by how much,
+      // rather than stopping at the first one.
+      const bad = worst.filter((w) => w.past > MAX_SPILL_PX);
+      expect(bad, `ink past main's head, in px: ${JSON.stringify(worst.map((w) => ({ at: w.at, past: Math.round(w.past), overhang: w.overhang })))}`).toEqual([]);
+    });
+  }
+
+  /**
+   * The camera and the audit describe the same point.
+   *
+   * The head band composes around `spineTip` — the drawn end of main's stroke
+   * — and every measurement was reported against the newest landed commit.
+   * While the frontier is on those are the same point, because the stroke
+   * between the head and the commit after it is clipped away and `spineTip` is
+   * clamped to the clip. Before the clamp they differed by however far the
+   * current stroke had eased, and one run put main's head at -4030 px on a
+   * 1600 px frame with nothing available to say which of the two numbers was
+   * being reported.
+   *
+   * This asserts the *equality*, not a tolerance, because it is an identity
+   * and not an approximation. It is conditional on `MAIN_FRONTIER` being on,
+   * which is a constant and not a setting for exactly this sort of reason: if
+   * it is ever switched off, the eased tip becomes correct again and this test
+   * is the thing that should be made to say so.
+   */
+  for (const at of [0.25, 0.5, 0.75]) {
+    test(`the camera's head and the audit's head are one point at ${Math.round(at * 100)}%`, async ({ page }) => {
+      await page.goto('/#demo=1');
+      await waitForReady(page);
+      await page.evaluate((f) => {
+        window.__gittimeline.pause();
+        window.__gittimeline.seek(window.__gittimeline.duration * f);
+      }, at);
+      const a = await page.evaluate(async () => {
+        await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(res))));
+        return window.__gittimeline.presentAudit();
+      });
+      test.skip(!a || a.mainHeadX == null || a.mainTipX == null, 'main has no head at this point');
+      expect(a!.mainTipX!, "the drawn end of main's stroke is its newest commit").toBeCloseTo(a!.mainHeadX!, 6);
+      expect(a!.frontierX!, 'and the frontier is that same point').toBeCloseTo(a!.mainHeadX!, 6);
+      // Which is what makes the screen readings comparable, and the reading
+      // the composition is judged on.
+      expect(a!.mainTipScreenX!).toBeCloseTo(a!.mainHeadScreenX!, 3);
+    });
+  }
+});

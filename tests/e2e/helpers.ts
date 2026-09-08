@@ -24,8 +24,16 @@ declare global {
       manualCamera: boolean;
       zoomLocked: boolean;
       viewport: { cx: number; cy: number; scale: number; worldW: number; worldH: number } | null;
-      /** The same viewport, plus the geometry it is looking at. */
-      view: { cx: number; cy: number; scale: number; worldW: number; worldH: number; geomMinX: number | null; geomMaxX: number | null } | null;
+      /**
+       * The same viewport, plus the geometry it is looking at and the window
+       * loaded for it. `window` is null on a plan held whole.
+       *
+       * The window bounds are how a test waits for a *streamed* seek to
+       * settle: `buffering` is recomputed in the frame loop, so it can still
+       * read false on the first ask after a seek, and a wait on it alone falls
+       * through onto the previous scrub's plan.
+       */
+      view: { cx: number; cy: number; scale: number; worldW: number; worldH: number; geomMinX: number | null; geomMaxX: number | null; window: { start: number; end: number; minX: number; maxX: number } | null } | null;
       nodeX: number[] | null;
       waveform: number[] | null;
       zoom(factor: number): void;
@@ -54,8 +62,19 @@ declare global {
         mainHeadImpact: number | null;
         presentScreenX: number | null;
         mainHeadScreenX: number | null;
+        /** The camera's own quantity: the drawn end of main's stroke. */
+        mainTipX: number | null;
+        mainTipScreenX: number | null;
+        /** The clip every stroke is drawn through, and the plate to exclude. */
+        frontierX: number | null;
+        frontierScreenX: number | null;
+        plateGap: number;
+        plateAt: { x: number; y: number } | null;
         maxLandedX: number;
         viewScale: number;
+        unlandedInFrame: number;
+        minUnlandedScreenX: number;
+        unlandedSample: Array<{ sx: number; sy: number; impact: number; kind: string }>;
       } | null;
       setToken(t: string | null): void;
       /** Walk the pages again with everything already cached. */

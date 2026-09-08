@@ -24,6 +24,17 @@ import { volumeIsCapped, volumePhrase } from '@/model/volume';
  */
 const MAIN_FRONTIER = true;
 
+/**
+ * How far right of the head it names MASTER's nameplate stands, in pixels.
+ *
+ * Read by the label pass, which draws it, and by `presentAudit`, which has to
+ * hand a pixel measurement enough to exclude it: the plate is the rightmost
+ * lit object on the stage for the first five seconds of every spine, and
+ * counting it as history is the trap that has twice made "nothing is drawn
+ * past MASTER" look false when it was true.
+ */
+const PLATE_GAP = 50;
+
 export type Quality = 'full' | 'reduced' | 'minimal';
 
 /** Ordered, so "whichever asks for less" is a comparison rather than a chain. */
@@ -597,16 +608,16 @@ export class StageRenderer {
     // waiting on a merge, and is the one thing this app can show that a
     // topological tool cannot. Their thread endings say which it is: `merged`
     // means it landed later, `tip` means it never did.
-    // Main's newest *landed commit*, not `spineTip` — that returns the drawn
-    // end of the stroke, which has no impact on it to compare against.
-    const spine = p.threads[0];
-    let tip: NodeGeom | null = null;
-    if (spine) {
-      for (let i = spine.nodeIdxs.length - 1; i >= 0; i--) {
-        const nd = p.nodes[spine.nodeIdxs[i]!];
-        if (nd && nd.impact <= t + 0.001) { tip = nd; break; }
-      }
-    }
+    // Out of `spineHead`, which is the only definition of main's head — the
+    // same call the camera, the nameplate and the frontier make. This was a
+    // fourth copy of that search, written inline here, and while it existed a
+    // reading taken from it could not be compared against the shot it was
+    // taken from.
+    const tip: NodeGeom | null = this.spineHead(t);
+    // The camera's quantity and the clip, from this same frame; see the two
+    // fields they are reported in below.
+    const tipPos = this.spineTip(t);
+    const front = this.frontierX(t);
     let overhang = 0;
     const endings: Record<string, number> = {};
     let worstOverhangSeconds = 0;
@@ -642,6 +653,34 @@ export class StageRenderer {
       // which is the default, and the state that needs guarding.
       presentScreenX: worldX == null ? null : this.worldToScreen(worldX, tip ? tip.y : 0).x,
       mainHeadScreenX: tip ? this.worldToScreen(tip.x, tip.y).x : null,
+      /**
+       * The camera's quantity, beside the frontier's, off one frame.
+       *
+       * `spineTip` is the drawn end of main's stroke and is what the head band
+       * composes around; `mainHeadX` above is main's newest landed commit and
+       * is what the frontier clips at. Reporting only the second while the
+       * camera used the first is how one run came to put main's head at
+       * -4030 px on a 1600 px frame with nothing available to say which of the
+       * two numbers was wrong. They are equal whenever `MAIN_FRONTIER` is on,
+       * because `spineTip` is clamped to the frontier — and `present.spec.ts`
+       * asserts that rather than trusting this paragraph.
+       */
+      mainTipX: tipPos ? tipPos.x : null,
+      mainTipScreenX: tipPos ? this.worldToScreen(tipPos.x, tipPos.y).x : null,
+      /**
+       * The clip itself, and where MASTER's nameplate is standing.
+       *
+       * A pixel scan is the only way to check that nothing is drawn past
+       * MASTER — `overhang` counts nodes *eligible* to be drawn, not nodes
+       * drawn, so it cannot verify a clip — and a pixel scan finds the plate,
+       * which is a label 50 px right of the head it names rather than a piece
+       * of history. So the scan is given what it needs to account for it.
+       * `plateAt` is null on the frames where the plate has faded out.
+       */
+      frontierScreenX: Number.isFinite(front) ? this.worldToScreen(front, tip ? tip.y : 0).x : null,
+      frontierX: Number.isFinite(front) ? front : null,
+      plateGap: PLATE_GAP,
+      plateAt: this.mainLabelAt ? { x: this.mainLabelAt.x, y: this.mainLabelAt.y } : null,
       overhang,
       overhangEndings: endings,
       worstOverhangSeconds,
@@ -1778,24 +1817,6 @@ export class StageRenderer {
    * so the eased reveal and the linear interpolation differ by a pixel or two
    * at most — far less than the tens of pixels of error being corrected.
    */
-  /**
-   * Main's newest *landed commit*, as a node.
-   *
-   * `spineTip` returns the drawn end of the stroke, which is interpolated
-   * mid-travel and has no impact on it. The frontier needs the commit, because
-   * the question it answers is "what has main actually received".
-   */
-  private spineHeadNode(t: number): NodeGeom | null {
-    const p = this.perf;
-    const spine = p?.threads[0];
-    if (!p || !spine) return null;
-    for (let i = spine.nodeIdxs.length - 1; i >= 0; i--) {
-      const nd = p.nodes[spine.nodeIdxs[i]!];
-      if (nd && nd.impact <= t + 0.001) return nd;
-    }
-    return null;
-  }
-
   private spineTip(t: number): { x: number; y: number } | null {
     const p = this.perf;
     const spine = p?.threads[0];
@@ -1830,6 +1851,41 @@ export class StageRenderer {
       const u = this.settings.reducedMotion ? f : Math.pow(f, 1.6);
       x = head.x + (next.x - head.x) * u;
       y = head.y + (next.y - head.y) * u;
+      /**
+       * And no further than the frontier, because that is where the ink stops.
+       *
+       * This function's contract is "the far end of main's line **as drawn**",
+       * and the frontier changed what that is. `drawPolyline` clips every
+       * stroke at `frontierX`, which with `MAIN_FRONTIER` on is main's newest
+       * landed commit — so the stroke from `head` towards `next` is not drawn
+       * at all, and the eased interpolation above was describing ink that had
+       * already been clipped away. The camera then composed the head band
+       * around a point with nothing at it, and the nameplate stood 50 px right
+       * of *that*.
+       *
+       * This is the second of the two conflicting definitions of "main's head"
+       * that `proposal-picture-and-claim.md` section 7 records: the camera
+       * composing around `spineTip` while the audit reported the head node.
+       * They are not two opinions about one quantity. Before the frontier both
+       * were right about different things — the drawn end of the stroke, and
+       * the newest commit — and after it only the commit is drawn, so only the
+       * commit is left. Clamping here makes the two the same number by
+       * construction while `MAIN_FRONTIER` is on, and leaves the eased tip
+       * intact if it is ever switched off, which is the state the easing was
+       * written for and is still correct for.
+       *
+       * Measured before this, streamed Kubernetes paused at 25/50/75%: the
+       * camera's tip sat 90-100% of a commit gap right of the head node, and
+       * the nameplate stood at the head node's x plus 50 px plus that gap,
+       * with no ink between the two.
+       */
+      const front = this.frontierX(t);
+      if (x > front) {
+        const d = x - head.x;
+        const k = Math.abs(d) > 1e-9 ? Math.max(0, Math.min(1, (front - head.x) / d)) : 0;
+        y = head.y + (y - head.y) * k;
+        x = Math.max(head.x, Math.min(x, front));
+      }
     }
     this.tipFrame = this.frameCounter;
     this.tipAt = t;
@@ -1841,10 +1897,32 @@ export class StageRenderer {
   private tipPos: { x: number; y: number } | null = null;
 
   /**
-   * The newest commit on the main line that has landed.
+   * The newest commit on the main line that has landed. The only definition.
    *
    * Binary search, because the spine can be a third of a million commits, and
-   * cached for the frame because both the camera and the nameplate want it.
+   * cached for the frame because the camera, the nameplate, the frontier and
+   * the audit all want it. `nodeIdxs` is in impact order on every path that
+   * builds it — the compiler emits it that way, `geometryPage` preserves that
+   * order, and `assembleWindow` refills it from nodes already sorted by impact
+   * — which is what makes the search legal. `presentAudit` reports
+   * `nonMonotone`, so a plan that broke the invariant would be caught rather
+   * than silently mis-searched.
+   *
+   * There used to be a second copy of this, `spineHeadNode`, a linear reverse
+   * scan added for the frontier on the grounds that "`spineTip` has no impact
+   * on it". Two searches for one quantity is how the renderer came to hold two
+   * definitions of main's head, with the camera composing around one and every
+   * measurement reported against the other — and no way to tell which of the
+   * two a number came from. It is one function now, and `spineTip` is a
+   * *position* derived from it and clamped to the frontier, so the shot and
+   * the audit cannot disagree.
+   *
+   * `t + 0.001` and not `t`, which is the node pass's own test
+   * (`nd.impact > t + 0.001` skips). The two were a millisecond apart and the
+   * millisecond was not harmless: it is the window in which main's newest node
+   * is eligible to be drawn while the frontier still sits at the commit
+   * before it, so the very node the frontier exists to admit was dropped by
+   * `nd.x > this.presentX`.
    */
   private spineHead(t: number): NodeGeom | null {
     const p = this.perf;
@@ -1856,7 +1934,7 @@ export class StageRenderer {
     let at = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t) {
+      if (p.nodes[spine.nodeIdxs[mid]!]!.impact <= t + 0.001) {
         at = mid;
         lo = mid + 1;
       } else hi = mid - 1;
@@ -1866,6 +1944,28 @@ export class StageRenderer {
     this.headIdx = at;
     this.headNode = at >= 0 ? p.nodes[spine.nodeIdxs[at]!]! : null;
     return this.headNode;
+  }
+
+  /**
+   * The frontier, in world units: no ink is laid down right of this.
+   *
+   * One function, because `render` sets `presentX` from it and `spineTip`
+   * clamps to it, and a frontier that two callers each worked out for
+   * themselves is how the picture came to disagree with the numbers describing
+   * it. Cheap enough to call more than once a frame: `xAtTime` is a two-point
+   * fit and `spineHead` is cached per frame.
+   *
+   * `Infinity` when the playhead's x is unknown, which is the case before a
+   * plan is resident — the same value `drawPolyline` was already written to
+   * accept.
+   */
+  private frontierX(t: number): number {
+    let front = this.xAtTime(t) ?? Infinity;
+    if (MAIN_FRONTIER) {
+      const head = this.spineHead(t);
+      if (head) front = Math.min(front, head.x);
+    }
+    return front;
   }
   /**
    * The rightmost point any body was drawn at last frame, in world units.
@@ -2086,11 +2186,7 @@ export class StageRenderer {
      * `MAIN_FRONTIER` is the switch. On, per the request; off restores the
      * playhead as the only bound.
      */
-    this.presentX = this.xAtTime(t) ?? Infinity;
-    if (MAIN_FRONTIER) {
-      const mainHead = this.spineHeadNode(t);
-      if (mainHead) this.presentX = Math.min(this.presentX, mainHead.x);
-    }
+    this.presentX = this.frontierX(t);
 
     // Where the history-sweep light is right now: a slow pass over everything
     // that has already been drawn, repeating every twelve seconds.
@@ -2233,6 +2329,12 @@ export class StageRenderer {
       if (th.end > t) continue;
       const last = nodes[th.nodeIdxs[th.nodeIdxs.length - 1]!];
       if (!last || last.x < vx0 || last.x > vx1) continue;
+      // And for beacons. A tip's newest commit can sit right of main's head -
+      // that is exactly what an unmerged branch is — and the ring marking it
+      // went through neither the node guard nor `drawPolyline`, so the one
+      // object on the stage that pulses in place was being drawn past MASTER
+      // on the entries with the largest overhang.
+      if (last.x > this.presentX) continue;
       const pulse = this.settings.reducedMotion ? 0.5 : 0.5 + 0.5 * Math.sin(t * 2.2 + last.idx);
       ctx.beginPath();
       ctx.arc(last.x, last.y, 7 + pulse * 3, 0, Math.PI * 2);
@@ -2741,12 +2843,26 @@ export class StageRenderer {
    * The same clipping `drawPolyline` does, for the same reason: on a thread
    * that has been open for months this stretch can be thousands of points long
    * while a screen-width of it is visible.
+   *
+   * It said that and did half of it. `drawPolyline` clips against **two**
+   * bounds — the view window and `presentX`, the frontier — and this one had
+   * only the view window, so the contributor energy trail was the one stroke
+   * on the stage that ran past main's head. Under `lighter` compositing, which
+   * makes it among the brightest things drawn.
+   *
+   * Measured on `03-two-parallel-threads` at 80%, labels off, main's head held
+   * at 1376 px of a 1600 px frame: bright ink (channel max above 190) reached
+   * **71 px past the frontier** with `overhang` at 0 — no node past main's
+   * head at all — and it survived dropping the bodies, the fanfare and the
+   * beacons, which is what identified it. 164 px on the same fixture at 20%.
+   * With this it is 3-4 px, which is the stroke's own width.
    */
   private drawPartial(ctx: CanvasRenderingContext2D, pts: Float32Array, u0: number, u1: number) {
     const count = pts.length >> 1;
     if (count < 2) return;
     const x0 = this.clipX0;
     const x1 = this.clipX1;
+    const front = this.presentX;
     const f0 = u0 * (count - 1);
     const f1 = u1 * (count - 1);
     const a = pointAt(pts, u0, this.tmp);
@@ -2756,11 +2872,28 @@ export class StageRenderer {
     let py = a.y;
     let penDown = false;
     const step = (nx: number, ny: number) => {
-      if (!((px < x0 && nx < x0) || (px > x1 && nx > x1))) {
-        if (!penDown) ctx.moveTo(px, py);
-        ctx.lineTo(nx, ny);
-        penDown = true;
-      } else penDown = false;
+      if ((px < x0 && nx < x0) || (px > x1 && nx > x1) || px > front) {
+        penDown = false;
+        px = nx;
+        py = ny;
+        return;
+      }
+      // The segment crosses the frontier: draw up to it and lift the pen, so
+      // the next segment cannot continue from a point that was interpolated
+      // rather than reached. Exactly `drawPolyline`'s arithmetic.
+      let ex = nx;
+      let ey = ny;
+      let reached = true;
+      if (nx > front) {
+        const d = nx - px;
+        const k = Math.abs(d) > 1e-9 ? (front - px) / d : 0;
+        ex = front;
+        ey = py + (ny - py) * k;
+        reached = false;
+      }
+      if (!penDown) ctx.moveTo(px, py);
+      ctx.lineTo(ex, ey);
+      penDown = reached;
       px = nx;
       py = ny;
     };
@@ -2952,6 +3085,34 @@ export class StageRenderer {
     const isPerformer = e.body === 'performer';
     const size = (isPerformer ? 4.6 : 3) * (e.kind === 'aggregate' ? 1.25 : 1);
     const pos = pointAt(e.pts, u, this.tmp);
+    /**
+     * The frontier, for sparks. Nothing anchored past main's head is drawn.
+     *
+     * `travelU` bounds `pos` by the playhead and `drawPolyline` clips the
+     * stroke this spark is travelling along at `presentX` — but the spark
+     * itself went through neither, so with `MAIN_FRONTIER` on it ran past the
+     * cut end of its own line. Measured on streamed Kubernetes with labels
+     * off, main's head held at 1376 px of a 1600 px frame: **15 performers
+     * drawn right of the frontier at 25% of the show, 7 at 50%, 1 at 75%**,
+     * the furthest at 1425 px — 49 px past MASTER — and the rightmost bright
+     * pixel on the canvas at 1409-1418 px, which is 33-42 px past it. That is
+     * the observational refutation of "nothing is ever drawn past MASTER" that
+     * `overhang` could never have produced: `overhang` was 0 at two of those
+     * three points, because it counts nodes eligible to be drawn and a spark
+     * is not a node.
+     *
+     * Dropped rather than clamped, which is what the node pass does with a
+     * commit past the frontier (`nd.x > this.presentX` skips). Clamping would
+     * pile every held spark onto one vertical line and invent an event there.
+     *
+     * Before `frontWorldX` deliberately, and this is the one place the two
+     * differ: that field is "the furthest right anything is *drawn*", and it
+     * is recorded before the *frame* cull below so the framing makes room for
+     * a spark that is off the side of the stage but still on it. A spark the
+     * frontier refuses is not on the stage at all, so the framing must not
+     * reserve room for it.
+     */
+    if (pos.x > this.presentX) return;
     // The furthest right anything is actually drawn, which is not the furthest
     // right anything has landed. `recentBounds` measures commits; the comets
     // travelling toward commits that have not landed are all in front of them,
@@ -3103,6 +3264,14 @@ export class StageRenderer {
       if (age < 0 || age > 3) continue;
       const nd = this.nodeBySha.get(ev.subjectIds[0]!);
       if (!nd) continue;
+      // The frontier, for fanfare. A ring, a wave and a set of spokes are all
+      // annotations of one commit, so the commit's own admission decides
+      // theirs: a merge sitting past main's head is not drawn, and neither is
+      // the light announcing it. Their radii still spill right of the line -
+      // they are radial and centred on a node the frontier admits — which is
+      // bounded by the largest effect radius rather than by zero, and
+      // `present.spec.ts` states that bound instead of pretending it is zero.
+      if (nd.x > this.presentX) continue;
       const budget = ev.effectBudget;
       // A ring used to tighten onto the merge node for the six tenths of a
       // second *before* it landed: a light in the empty space ahead of the
@@ -3527,7 +3696,12 @@ export class StageRenderer {
       const lineY = head.y;
       // Twice what it was. At 25 the plate read as attached to the line —
       // close enough to be part of the stroke rather than a label on it.
-      const GAP = 50;
+      //
+      // Named at module scope now, because `presentAudit` has to report it: a
+      // pixel scan looking for ink past MASTER finds this plate first, and the
+      // only way it can account for it is to know how far right of the head it
+      // sits.
+      const GAP = PLATE_GAP;
       // Held on the stage when the head has run off it, which is the usual
       // case on a long history: the camera frames the work and the line
       // continues past the edge, so the plate waits at the margin.
