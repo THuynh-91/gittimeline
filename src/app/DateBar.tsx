@@ -215,7 +215,17 @@ export function DateBar() {
               chose three years of a nine-minute history is four minutes into
               it before the first frame, and finished with three and a half
               minutes left on the counter. */}
-          <b>{fmtClock(win ? t - win.start : t)}</b> / {fmtClock(win ? win.end - win.start : perf.duration)}
+          {/* The total is rounded; the position is not, and the difference
+              matters because these two numbers mean different things.
+              A position floors: at 2:42.7 you are in the forty-second second
+              and `02:43` would be a second you have not reached. A *length*
+              does not floor, it rounds, which is what the card and the scope
+              dialog both do — and while this floored, mdBook's 162.5-second
+              plan read `02:42` here against `2 min 43 s` in both of those and
+              on the card that was clicked to get here. A viewer counted four
+              different figures for one history; this was one of them, and it
+              was a rounding rule rather than a disagreement about the plan. */}
+          <b>{fmtClock(win ? t - win.start : t)}</b> / {fmtClock(Math.round(win ? win.end - win.start : perf.duration))}
         </span>
       </div>
     </div>

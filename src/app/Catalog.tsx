@@ -3,6 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { askCatalogScope } from './controller';
 import { trackCatalogOpen } from './analytics';
 import { hash01 } from '@/model/prng';
+import { FRAME_SECONDS, SECONDS_PER_NODE } from '@/choreography/pace';
 import { catalogUrl, externalCatalog } from './catalogLocation';
 
 /**
@@ -182,34 +183,66 @@ export interface CatalogEntry {
  */
 const SLOW_SECONDS = 5;
 
-/**
- * How much of a plan a year has to hold before it is worth offering: eight
- * seconds, and at least a five-hundredth of the whole show.
- *
- * Both halves earn their place. Eight seconds is about sixty arrivals, which is
- * the least that can be called something you watched; below it a year is a
- * stray commit or two that happened to fall on the wrong side of a January.
- * The fraction is what stops a very long plan offering those anyway — Linux
- * runs twelve hours, and three seconds of it is not a year.
- *
- * What used to put near-empty years on the list was almost never the repository
- * being quiet. It was one commit with a broken timestamp: presentation time may
- * only move forward, so a single bad clock dragged every descendant with it and
- * left behind a scatter of years holding two seconds each. Linux was the
- * extreme case — five commits stamped 2030, 2037, 2077 and 2085 had pushed
- * 1,475,072 of its 1,481,850 dates forward, and its plan spent nine of its
- * twelve hours in years that have not happened.
- *
- * That is fixed where it belongs, in `correctTimestamps`: a stamp later than
- * the moment the repository was read is not propagated. This floor is no longer
- * load-bearing for Linux, whose years now run 2005 to 2026. It stays because a
- * genuinely quiet year is still a real thing, and because a handful of imported
- * commits dated 1996 or 2001 survive honestly at the other end of the history
- * and are not worth offering as a span of their own.
- */
-const spanFloor = (duration: number) => Math.max(8, duration / 500);
-
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+/**
+ * How many commits this show actually draws, one at a time.
+ *
+ * ## Why the card needs this number
+ *
+ * A first-time visitor read the shelf side by side and concluded, correctly
+ * from what it said, that the numbers on it mean nothing:
+ *
+ * | entry | commits | runs |
+ * | --- | --- | --- |
+ * | Chromium | 1,817,062 | 2 min 45 s |
+ * | Linux | 1,481,850 | 12 h |
+ * | LLVM | 595,778 | 2 min 35 s |
+ * | Rust | 339,084 | 8 h 58 min |
+ *
+ * Chromium's own blurb says "larger than Linux", the card headlines COMMITS,
+ * and the page above insists nothing is shortened by playing it faster than it
+ * can be followed. All three are true and together they are unintelligible: a
+ * 1.8-million-commit history in under three minutes, beside one where 1.4
+ * million takes twelve hours.
+ *
+ * The missing quantity is the one the pacing is actually built on. `compile.ts`
+ * gives every *visible* arrival the same beat — `SECONDS_PER_NODE` — and
+ * collapses routine pull requests into counted ribbons until what is left fits
+ * the budget. So the length follows the arrivals and not the commits, and the
+ * collapse rate is what differs by four orders of magnitude across this shelf:
+ * Kubernetes keeps 89.4% of its commits as arrivals, Chromium keeps 0.07%.
+ * Chromium is a million and a half commits on one straight line with 64 merges
+ * in the whole repository; Linux has 111,926, and a merge of a branch with a
+ * story of its own cannot be collapsed without hiding what happened.
+ *
+ * ## Why it is derived here rather than read off the index
+ *
+ * The index does carry a `nodes` field, and it is not this. It is written from
+ * `window.__gittimeline.pace.nodes`, which is `perf.nodes.length` — the nodes
+ * resident in the *streamed window* around the playhead at the moment the
+ * indexer read it. Measured: Linux 533, Chromium 291, mdBook 327, against
+ * plans of 332,275, 1,237 and 1,221 arrivals. Those numbers describe the
+ * buffer, not the show, and putting one on a card would be a fourth wrong
+ * figure for a history rather than a first right one.
+ *
+ * The length, on the other hand, is exact and shipped: `duration = FRAME_SECONDS
+ * + arrivals x SECONDS_PER_NODE`, so the arrivals come back out of it. Checked
+ * against the two figures the codebase records independently — 332,279 arrivals
+ * for Linux (`compile.ts`) and 10.6% of Kubernetes collapsed away — this
+ * inversion reproduces both to within a rounding step.
+ *
+ * It is reported to two significant figures for exactly that reason. The index
+ * stores `Math.round(duration)`, so the last arrival or two is not recoverable,
+ * and "1,237" would be claiming a precision this arithmetic does not have.
+ * "1,200" is the same fact without the false decimals.
+ */
+function arrivalsOf(durationSeconds: number): number {
+  const exact = Math.max(0, (durationSeconds - FRAME_SECONDS) / SECONDS_PER_NODE);
+  if (exact < 100) return Math.round(exact);
+  const step = Math.pow(10, Math.floor(Math.log10(exact)) - 1);
+  return Math.round(exact / step) * step;
+}
 
 /** One decimal below ten megabytes, whole numbers above: 0.4 MB, 18 MB, 222 MB. */
 const size = (bytes: number) => (bytes >= 1e7 ? `${Math.round(bytes / 1e6)} MB` : `${(bytes / 1e6).toFixed(1)} MB`);
@@ -283,10 +316,37 @@ function Pulse({ years }: { years: Array<[number, number]> }) {
  * This is the second line rather than the first: a plan is written once and
  * played by everyone, and an old artifact should not be able to put "2085" in
  * a dropdown.
+ *
+ * ## Every year the plan covers, and no floor
+ *
+ * There used to be one: `spanFloor`, eight seconds or a five-hundredth of the
+ * show, whichever was larger. It was removed, because what it produced was a
+ * picker with holes in it under a badge claiming the whole repository. Measured
+ * against the shipped index:
+ *
+ *  - **React** offered 13, 14, 15, 16, 17, 19 — no 2018, and nothing after
+ *    2019 — while the player's badge read `2013–2026 · ENTIRE REPO`.
+ *  - **mdBook** skipped 2016 and 2024, and January and March of 2016 play, with
+ *    commits in them, in the show the same card starts.
+ *  - **LLVM** dropped eleven of its twenty-one years, **Chromium** eleven of
+ *    twenty, **CPython** six, **Node** three.
+ *
+ * A viewer who has just watched 2016 go past cannot be told 2016 is not
+ * offered; there is no reading of that which is not a bug. And the floor had a
+ * second effect that was worse than the first: `CatalogScope` sums the *offered*
+ * years to price "the whole history", so mdBook's card said 2 min 43 s and the
+ * readout twenty pixels above its own button said 2 min 31 s — the twelve
+ * seconds that the two dropped years hold.
+ *
+ * The reason a floor was wanted at all — that a one-second year is not worth
+ * watching — is now answered by the track rather than by hiding it. Every year
+ * is drawn as wide as the square root of its share, carries its own length in
+ * its tooltip and label, and the readout under the track prices the selection
+ * before it is committed. "2001 · 1 s" is a year a viewer can see is not worth
+ * picking, which is a better answer than a gap they cannot see at all.
  */
 function offeredYears(e: CatalogEntry): Array<[number, number]> {
-  const floor = spanFloor(e.durationSeconds ?? 0);
-  return realYears(e).filter(([, secs]) => secs >= floor).reverse();
+  return [...realYears(e)].reverse();
 }
 
 /**
@@ -348,14 +408,25 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
   // five counts in one row is a specification sheet — and once everything is
   // bold, none of it is.
   const figures = [
-    e.durationSeconds != null ? { value: runtime(e.durationSeconds), label: 'long' } : null,
+    // "LONG" was the label, and on a shelf of twelve cards all twelve said it.
+    // It was written as a unit for the value above it — "2 min 43 s long" — and
+    // rendered as a 9.5px uppercase caption under a bold number, which is the
+    // shape of a *category*. A first-time visitor read the shelf as twelve
+    // cards labelled LONG and asked what the other categories were. There is
+    // no other category; it is how long the thing runs, so it says that.
+    e.durationSeconds != null ? { value: runtime(e.durationSeconds), label: 'to watch' } : null,
     e.commits != null ? { value: fmt(e.commits), label: 'commits' } : null,
-    // Arrivals per second is off the card. It is the number that decides
-    // whether a history is watchable, and it is meaningless to somebody
-    // choosing between projects — "7.7/s" answers a question nobody standing
-    // at a shelf is asking. The length already says what it costs to watch;
-    // the density belongs where it is acted on, not where it is chosen.
-    null,
+    // And how many of those commits get a beat of their own, which is the
+    // number the length is actually made of. See `arrivalsOf`: without it this
+    // shelf says a 1.8-million-commit history runs in under three minutes next
+    // to one where 1.4 million takes twelve hours, and teaches a visitor that
+    // the figures on it are decoration.
+    //
+    // Arrivals *per second* is still off the card. It is the number that
+    // decides whether a history is watchable and it is meaningless to somebody
+    // choosing between projects — "7.7/s" answers a question nobody standing at
+    // a shelf is asking, and it is the same 7.7 on every entry here anyway.
+    e.durationSeconds != null ? { value: fmt(arrivalsOf(e.durationSeconds)), label: 'on stage' } : null,
   ].filter((f): f is { value: string; label: string } => f !== null);
 
   const pulseYears = realYears(e);
@@ -372,7 +443,12 @@ function Card({ entry, featured }: { entry: CatalogEntry; featured: boolean }) {
       file: e.file,
       label: e.scope ? `${e.title} · ${e.scope}` : e.title,
       durationSeconds: e.durationSeconds ?? 0,
-      nodes: e.nodes ?? 0,
+      // Derived, not `e.nodes`. The index's field is the streamed window's
+      // resident node count and not the plan's arrivals — see `arrivalsOf` for
+      // the three measurements that establish that — so passing it on would
+      // put a number in `CatalogQuestion` that its own doc comment describes
+      // wrongly.
+      nodes: e.durationSeconds != null ? arrivalsOf(e.durationSeconds) : 0,
       commits: e.commits ?? 0,
       bytes: cost,
       openSeconds: e.openSeconds,

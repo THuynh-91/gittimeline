@@ -143,6 +143,246 @@ test.describe('pre-fetched catalog', () => {
     expect(caption, 'nobody has touched the camera').not.toMatch(/travelling/i);
   });
 
+  /**
+   * A card predicts the experience, and the length is not a category.
+   *
+   * A first-time viewer read the shelf and concluded, correctly from what it
+   * said, that its numbers mean nothing: Chromium's blurb says "larger than
+   * Linux: nearly two million commits" and its card said 2 min 45 s, beside
+   * Linux's 1,481,850 commits at 12 h. LLVM 595,778 at 2 min 35 s beside Rust
+   * 339,084 at 8 h 58 min. And "all twelve cards carry the same duration
+   * label: `LONG`" — which they did, because "long" was written as a unit for
+   * the value above it and renders as a 9.5px uppercase caption, the shape of
+   * a category name.
+   *
+   * The missing quantity is how many commits get a beat of their own, which is
+   * what `compile.ts` builds the length out of. With it on the card the two
+   * pairs above stop contradicting each other and start explaining each other,
+   * and the check for that is arithmetic: every entry must land within a
+   * factor of two of the same arrivals-per-second, because the choreographer
+   * gives every arrival the same beat and the length follows from that.
+   */
+  test('a card says how many commits reach the stage, not just how many exist', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+    const labels = await page.locator('[data-testid="catalog"] .catalog-figure > span').allInnerTexts();
+    const set = [...new Set(labels.map((l) => l.trim().toLowerCase()))];
+    expect(set, 'no card is filed under a category called LONG').not.toContain('long');
+    expect(set, 'the length says what it is').toContain('to watch');
+    expect(set, 'and so does the number the length is made of').toContain('on stage');
+
+    // Every card carries all three, so the trio can be compared across the
+    // shelf rather than only within one card.
+    const cards = await page.locator('[data-testid="catalog"] .catalog-card').count();
+    const perCard = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="catalog"] .catalog-card')].map((c) =>
+        [...c.querySelectorAll('.catalog-figure')].map((f) => ({
+          value: (f.querySelector('b')?.textContent ?? '').trim(),
+          label: (f.querySelector('span')?.textContent ?? '').trim().toLowerCase(),
+        })),
+      ),
+    );
+    expect(perCard.length).toBe(cards);
+    for (const figs of perCard) {
+      expect(figs.map((f) => f.label), 'three figures, in the order that reads as a sentence').toEqual(['to watch', 'commits', 'on stage']);
+      for (const f of figs) expect(f.value, `${f.label} has a value`).not.toBe('');
+    }
+
+    // And the number on the card is the number the pacing is built from: one
+    // beat each, so arrivals over seconds is the same constant everywhere.
+    const paces = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; durationSeconds: number | null }>;
+      return list.filter((e) => e.durationSeconds).map((e) => ({ slug: e.slug, per: (e.durationSeconds! - 4.2) / 0.13 / e.durationSeconds! }));
+    });
+    for (const p of paces) expect(p.per, `${p.slug} lands its arrivals at the one pace this app has`).toBeGreaterThan(4);
+    for (const p of paces) expect(p.per, `${p.slug} lands its arrivals at the one pace this app has`).toBeLessThanOrEqual(9);
+  });
+
+  /**
+   * The year picker offers every year the plan covers, and one length is quoted
+   * for the whole of it.
+   *
+   * Both halves were reported by the same first-time viewer and both had the
+   * same cause, `spanFloor` in `Catalog.tsx`:
+   *
+   *  - "React's year picker only offers 13, 14, 15, 16, 17, 19 — no 2018,
+   *    nothing after 2019 — while the pill at the top of the player says
+   *    2013–2026 · ENTIRE REPO." Measured against the shipped index, the floor
+   *    dropped four of React's ten years, two of mdBook's twelve (2016 and
+   *    2024, both of which play, with commits in them), eleven of LLVM's
+   *    twenty-one and eleven of Chromium's twenty.
+   *  - "mdBook is 2 min 43 s on the card, 2 min 43 s in the modal header, *the
+   *    whole history · 2 min 31 s* in the readout twenty pixels above the
+   *    button." The readout summed the *offered* years, so it was short by
+   *    exactly the twelve seconds the two dropped years hold.
+   *
+   * Asserted for every entry on the shelf rather than a named one, because
+   * opening a card costs nothing — the question is asked before anything is
+   * fetched — and because the entry that happens to have holes changes with
+   * every build.
+   */
+  test('every year the plan covers is offered, and the whole of it is priced once', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+    const entries = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{
+        slug: string;
+        durationSeconds: number | null;
+        years: Array<[number, number]> | null;
+      }>;
+      const now = new Date().getUTCFullYear();
+      return list.map((e) => ({
+        slug: e.slug,
+        durationSeconds: e.durationSeconds,
+        // A year later than this one is not a year of anything; the app leaves
+        // those out and so does this, for the same reason.
+        years: (e.years ?? []).filter(([y]) => y <= now).map(([y]) => y),
+      }));
+    });
+
+    /** The card's own wording for a length, so the two are compared as strings. */
+    const runtime = (seconds: number) => {
+      const s = Math.round(seconds);
+      if (s < 60) return `${s} s`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+      return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
+    };
+
+    for (const e of entries) {
+      if (e.years.length < 2 || !e.durationSeconds) continue;
+      const card = page.getByTestId(`catalog-${e.slug.replace('/', '-')}`);
+      await card.scrollIntoViewIfNeeded();
+      await card.click();
+      const chooser = page.getByTestId('scope-chooser');
+      await expect(chooser).toBeVisible();
+
+      const offered = (await chooser.locator('[data-year]').evaluateAll((els) => els.map((el) => Number((el as HTMLElement).dataset.year)))).sort((a, b) => a - b);
+      expect(offered, `${e.slug} offers every year its plan covers`).toEqual([...e.years].sort((a, b) => a - b));
+
+      // The dialog opens on the whole history, so this is the whole-history
+      // price. It has to be the same string the card and the heading carry.
+      const whole = runtime(e.durationSeconds);
+      await expect(chooser.getByTestId('scope-range-runtime'), `${e.slug} prices the whole history once`).toContainText(whole);
+      await expect(chooser.getByTestId('scope-full'), `${e.slug} offers it at that same length`).toContainText(whole);
+      await expect(chooser.locator('h2').locator('..')).toContainText(whole);
+
+      await chooser.getByTestId('scope-cancel').click();
+      await expect(chooser).toHaveCount(0);
+    }
+  });
+
+  /**
+   * And the player's clock agrees with the card that started it.
+   *
+   * The fourth of the four figures the viewer counted for mdBook: "02:42 on the
+   * player clock" against 2 min 43 s everywhere else. The plan runs 162.5s,
+   * the index stores `Math.round` of it, and `fmtClock` floored — so a length
+   * was being reported by the rule that belongs to a position.
+   */
+  test('the player clock agrees with the card that started it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+    const cheapest = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number; durationSeconds: number | null }>;
+      return list.reduce((a, b) => (b.bytes < a.bytes ? b : a));
+    });
+    await page.getByTestId('catalog').getByTestId(`catalog-${cheapest.slug.replace('/', '-')}`).click();
+    await page.getByTestId('scope-full').click();
+    await waitForReady(page);
+
+    const secs = Math.round(cheapest.durationSeconds ?? 0);
+    const expected = `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+    await expect(page.getByTestId('clock'), `the card said ${secs}s`).toContainText(`/ ${expected}`);
+  });
+
+  /**
+   * The coverage pill on a phone, which needs a real history to reproduce.
+   *
+   * A first-time viewer at 390px: "the coverage pill `2015–2026 · ENTIRE REPO`
+   * renders as a four-line vertical oval that overflows off the top of the
+   * screen with the first line clipped". Measured before the fix, at 390x844
+   * on mdBook: **80px wide, 72px tall, drawn at y = -11** inside a 50px bar.
+   * `.quality` is a `<button>` and so `flex-shrink: 1`, and it carried no
+   * `white-space` — so the truth claim was the element that gave way while the
+   * repository name beside it was explicitly set to truncate.
+   *
+   * It is here rather than in `fallback.spec.ts` because the badge for a
+   * *synthetic* history is the single word "generated", which fits on any
+   * screen. Reproducing it takes a real history with a year range, and a
+   * catalog entry is one that costs no requests to open.
+   */
+  for (const size of [
+    { width: 390, height: 844 },
+    { width: 360, height: 740 },
+  ]) {
+    test(`the coverage pill is one line inside the bar at ${size.width}px`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await page.goto('/');
+      await page.getByTestId('catalog-link').click();
+      if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+      const cheapest = await page.evaluate(async () => {
+        const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
+        return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
+      });
+      await page.getByTestId('catalog').getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+      await page.getByTestId('scope-full').click();
+      await waitForReady(page);
+
+      const badge = page.getByTestId('quality-badge');
+      await expect(badge).toBeVisible();
+      // A real span, so the case under test is actually reached: `generated`
+      // never wrapped and never could.
+      await expect(badge, 'this is the badge that used to wrap').toContainText(/entire repo|partial/);
+      const b = (await badge.boundingBox())!;
+      // The height bound is what catches the wrap: three lines of an 11px
+      // pill measures 54px and four measures 72.
+      expect(b.height, 'the coverage pill is one line').toBeLessThan(30);
+      expect(b.y, 'and not clipped off the top of the screen').toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, 'and inside the window').toBeLessThanOrEqual(size.width + 1);
+      const top = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--chrome-top')));
+      expect(b.y + b.height, 'and inside the bar it belongs to').toBeLessThanOrEqual(top + 1);
+      // The repository name is still readable beside it, rather than having
+      // been squeezed to an ellipsis to pay for the badge.
+      const name = await page.locator('.repo-id strong').boundingBox();
+      expect(name!.width, 'and the name it shares the bar with is still there').toBeGreaterThan(30);
+    });
+  }
+
+  /**
+   * A show that came off the shelf can get back to it.
+   *
+   * "No way back to the shelf from a running show. 'Back to start' is the only
+   * exit and it lands on the landing page." Twelve histories, and from inside
+   * one of them the only door led away from all of them.
+   */
+  test('a show that came off the shelf has a way back to it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('catalog-link').click();
+    if (!(await shelfPresent(page))) test.skip(true, 'no catalog built into this bundle');
+
+    const cheapest = await page.evaluate(async () => {
+      const list = (await (await fetch(window.__gittimeline.catalogUrl('index.json'))).json()).entries as Array<{ slug: string; bytes: number }>;
+      return list.reduce((a, b) => (b.bytes < a.bytes ? b : a)).slug;
+    });
+    await page.getByTestId('catalog').getByTestId(`catalog-${cheapest.replace('/', '-')}`).click();
+    await page.getByTestId('scope-full').click();
+    await waitForReady(page);
+
+    const back = page.getByTestId('player-back');
+    await expect(back, 'the exit says where it goes').toContainText(/selection/i);
+    await back.click();
+    await expect(page.getByTestId('catalog-page')).toBeVisible();
+    await expect(page.getByTestId('catalog')).toBeVisible();
+  });
+
   test('every catalog entry is real, reachable and honestly described', async ({ page }) => {
     await page.goto('/');
     // Asked of wherever the shelf actually is. It used to be published with

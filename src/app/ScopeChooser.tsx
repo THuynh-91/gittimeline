@@ -119,8 +119,26 @@ function CatalogScope({ q }: { q: CatalogQuestion }) {
   const spanSeconds = (lo: number, hi: number) => q.years.reduce((n, [y, secs]) => (y >= lo && y <= hi ? n + secs : n), 0);
   const lo = from != null && to != null ? Math.min(from, to) : null;
   const hi = from != null && to != null ? Math.max(from, to) : null;
-  const chosenSecs = lo != null && hi != null ? spanSeconds(lo, hi) : 0;
   const whole = lo === first && hi === last;
+  /**
+   * The whole history is quoted from the plan's length, not from the sum of
+   * its years.
+   *
+   * Those two are not the same number and cannot be made the same number. The
+   * year table holds the *arrival* time inside each calendar year; the plan's
+   * length also holds `CLOCK_HEAD` and `CLOCK_TAIL` — 4.2 s of opening and
+   * closing tableau — and whatever the clock leaves between two years that do
+   * not touch. Measured across the shipped shelf the residue runs from 0.5 s
+   * (mdBook, Linux) to 2.1 s (LLVM), which is enough to show: LLVM's sum reads
+   * 2 min 33 s against a 2 min 35 s plan, and both were on screen at once.
+   *
+   * A first-time viewer counted four different lengths for one history — the
+   * card, this dialog's heading, this readout and the player's clock. Three of
+   * the four were `durationSeconds` and this readout was the fourth, so this
+   * readout is the one that gives way. A partial range still sums, because
+   * there the sum is the only thing that knows the answer.
+   */
+  const chosenSecs = whole ? q.durationSeconds : lo != null && hi != null ? spanSeconds(lo, hi) : 0;
   // `2015`, not `2015–2015`. One year is a year, and a range of it to itself
   // reads as a typo in the one place the dialog is being precise.
   const chosen = lo == null || hi == null ? '' : lo === hi ? String(lo) : `${lo}–${hi}`;

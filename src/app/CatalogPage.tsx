@@ -59,14 +59,23 @@ export function CatalogPage() {
         </button>
         <header class="page-head">
           <h1>Selection Ready to Watch</h1>
+          {/* Cut from a hundred and fifty words to fifty, and the cut is the
+              fix rather than a tidy-up.
+              What was here argued the case for the cards: that length is what
+              you choose between, that three minutes and twelve hours are not
+              the same evening, that nothing is shortened by playing it faster
+              than it can be followed. All true, all unread — a first-time
+              visitor scrolled past it and then read the cards as proof that
+              the numbers on them mean nothing, because the cards headlined
+              commits and the length did not follow from the commits.
+              The cards say it themselves now: a third figure for how many
+              commits get a beat of their own on stage, which is the quantity
+              the length is actually made of. So this says which three numbers
+              a card carries and stops arguing. */}
           <p class="page-lead">
-            These histories were fetched ahead of time, so opening one costs no GitHub token and no requests at all. Every card
-            says how long its performance runs, because that is the thing you are choosing between, three minutes of a small tool and twelve hours of
-            Linux are not the same evening, and nothing here is shortened by playing it faster than it can be followed.
-            Pick one and it asks how much of it you want before it starts: the whole thing, the last few years, or a single year. Every answer is
-            the same one download, a span is that same plan with the clock told where to begin and where to stop, so choosing less costs nothing and
-            saves nothing but your evening. What a card <em>does</em> cost is written on it: the size of that download, and where unpacking it
-            afterwards is long enough to notice, how long.
+            Fetched ahead of time, so opening one costs no GitHub token and no requests at all. Each card says how long it runs, how many commits it
+            holds, and how many of those get a beat of their own on stage, which is the number the length is made of. Pick one and it asks how much of
+            it you want before it starts; every answer is the same one download.
           </p>
         </header>
         <Catalog />
