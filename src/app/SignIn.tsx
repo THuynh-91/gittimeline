@@ -485,13 +485,30 @@ export function SignIn() {
                 printed. */}
             {measured ? (
               <li>
-                <b>One thing does leave, and it is not your repository.</b> This site counts visits with Google
-                Analytics. Three events: which page you are on, opening one of the ready-made histories, and starting
-                a performance. For a history from the shelf that carries the repository name, because it is already
+              {/* Names what fires, including what Google adds.
+                  This said "three events" and listed only the ones this code
+                  sends. Enhanced measurement is on in the property, so gtag
+                  also reports scroll depth, outbound clicks and file
+                  downloads on its own, and a paragraph naming three was going
+                  to be wrong the moment it shipped. Form interactions are
+                  switched off in the property deliberately: they would fire on
+                  the page holding the token field, they carry field names
+                  rather than values so nothing would leak, and the question
+                  they answer is already answered by the two events below.
+                  Anything changed in the Analytics dashboard changes this
+                  sentence and nothing in the repository will notice, which is
+                  the weakness of writing it by hand. */}
+                <b>Some counting leaves, and it is not your repository.</b> This site uses Google Analytics. From
+                this app: which page you are on, opening one of the ready-made histories, and starting a
+                performance. From Google's own script: how far down a page you scroll, links you follow off the
+                site, and files you download. Not form fields, which are switched off.
+                <br />
+                For a history from the shelf, the start event carries the repository name, because it is already
                 public and listed. For one you open yourself it carries a bucket of the commit count and nothing
                 identifying. And <b>for a private repository it carries the four words "a private repository" and
                 nothing else</b>: no name, no size, no count, because a coarse number attached to a repository
-                somebody chose not to publish is a fingerprint of it. Do Not Track or Global Privacy Control stops it
+                somebody chose not to publish is a fingerprint of it. Cross-device tracking and ad personalisation
+                are both refused in code, not in a setting. Do Not Track or Global Privacy Control stops the lot
                 before the script is fetched, so with either set no analytics code runs at all and no cookie is set.
               </li>
             ) : (
