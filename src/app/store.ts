@@ -147,6 +147,25 @@ export interface Settings {
    * `presentAudit` on the renderer are the numeric form of the same check.
    */
   showPresent: boolean;
+  /**
+   * The key to the picture has been read once, so stop opening it.
+   *
+   * The legend was the whole explanation of the stage and it lived behind a `?`
+   * in the corner. Measured on a first-time viewer: ninety seconds of watching
+   * before she found it, and only because she clicked every icon in the bar. At
+   * 390px the `?` was `display: none`, so there was no route to it at all.
+   *
+   * A key that has to be asked for is not a key. So it opens itself on the
+   * first performance anybody watches and this remembers that it did — the one
+   * fact that separates "explain this" from "nag me". Written by dismissing the
+   * strip, not by a timer: a legend that vanishes while you are still matching
+   * it against the stage is worse than one that was never shown.
+   *
+   * False for a returning viewer whose stored settings predate it, which is
+   * correct rather than merely tolerable: nobody who has stored settings has
+   * seen this strip either.
+   */
+  seenStageKey: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -174,6 +193,7 @@ export const DEFAULT_SETTINGS: Settings = {
   railDock: 'top',
   showRail: true,
   showControls: true,
+  seenStageKey: false,
 };
 
 export interface AppError {
@@ -320,6 +340,16 @@ export const store = {
   travelAt: signal<number | null>(null),
   recording: signal(false),
   toast: signal<string | null>(null),
+  /**
+   * Whether the key to the picture is on screen right now.
+   *
+   * Runtime, and deliberately not the same thing as `seenStageKey`: that one is
+   * "has this ever been read", written once and kept for ever, and this one is
+   * "is it up". Reopening the key from the band must not un-remember that the
+   * viewer already has it, or the strip would come back by itself on the next
+   * history.
+   */
+  stageKeyOpen: signal(false),
 };
 
 export const isBusy = computed(() => {

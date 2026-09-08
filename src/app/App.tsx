@@ -17,6 +17,7 @@ import { FollowButton } from './FollowButton';
 import { ScopeChooser } from './ScopeChooser';
 import { ExploreBar } from './ExploreBar';
 import { ViewToggles } from './ViewToggles';
+import { Legend } from './Legend';
 import { CatalogPage } from './CatalogPage';
 import { SignIn } from './SignIn';
 import { ReposPage } from './ReposPage';
@@ -98,6 +99,13 @@ export function App() {
         // and collided with the date the moment the band's contents grew past
         // it, which is exactly what adding the travel slider did.
         <div class={`band${view.showControls ? '' : ' bare'}`} role="region" aria-label="Date, timeline and transport">
+          {/* The key to the picture, above the toggles and therefore at the
+              very top of the band: closest to the stage it describes, and
+              furthest from the transport. It is in the band rather than
+              floating over the stage so that it cannot collide with anything
+              — the band is a column that grows to hold what is in it, and the
+              key is one wrapping row of it. */}
+          <Legend />
           <ViewToggles />
           <DateBar />
           <ExploreBar />

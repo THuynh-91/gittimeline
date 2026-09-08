@@ -132,12 +132,56 @@ a {
 }
 
 
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* The way out of a running show. See `TopBar.tsx` for where it goes; this is
+   a text button beside the mark at full width and a bare chevron on a phone,
+   where it is also the only exit. */
+.topbar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(13, 15, 22, 0.55);
+  backdrop-filter: blur(8px);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.topbar-back:hover,
+.topbar-back:focus-visible {
+  color: var(--text);
+  border-color: rgba(230, 225, 214, 0.3);
+}
+
+.topbar-back svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .repo-id {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 13px;
   color: var(--text-dim);
+  min-width: 0;
 }
 
 .repo-id strong {
@@ -153,6 +197,18 @@ a {
   border-radius: 999px;
   border: 1px solid var(--line);
   color: var(--text-dim);
+  /* Both of these are the phone defect and neither is cosmetic.
+     A `<button>` is `flex-shrink: 1` by default and this one had no
+     `white-space`, so in a 390px bar the pill — not the repository name beside
+     it, which was set to truncate — was the element that gave way: `2015–2026 ·
+     ENTIRE REPO` wrapped to four lines, stood 72px tall inside a 50px bar and
+     was drawn at y = -11, with its first line clipped off the top of the
+     screen. A truth claim is the last thing in a bar that should be squeezed,
+     so it is now the only thing that cannot be. What gives instead is the
+     owner's name and, where it is redundant, the year range: see the 720px
+     block below and `TopBar.tsx`. */
+  white-space: nowrap;
+  flex: none;
 }
 
 .quality.exact {
@@ -1868,7 +1924,13 @@ kbd {
 @media (max-width: 720px) {
   :root {
     --band: 124px;
-    --chrome-top: 50px;
+    /* 64, not 50. The repository name and the coverage badge stack into two
+       lines here rather than competing for one — see `.repo-id` below — and at
+       50px the second of them had nowhere to go but off the top of the screen,
+       which is exactly what it did. The rail is `display: none` at this width
+       and the panels are positioned from this variable, so growing it costs
+       nothing else. */
+    --chrome-top: 64px;
   }
 
   .rail {
@@ -1884,13 +1946,58 @@ kbd {
     display: none;
   }
 
+  /* The caption gets a line, instead of 60% of one.
+     `.date-meta` is a row — caption, branch count, clock — and at 390px the
+     caption's share of it was 234px against captions that routinely need 300.
+     Measured: `formation · Tag v0.0.2 · 2015-09-24` rendered as
+     `formation · Ta…`, which is the caption saying nothing at all. The two
+     figures beside it are short and fixed-width, so wrapping the row puts them
+     together on the second line and gives the sentence the first one. */
+  .date-meta {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  /* Below the row rather than above it. `order: 1` and not `-1`: the caption
+     wants the full line, but `.date-of` is the label for the 22px date
+     directly above it and has to stay next to it. Ordered first, the readout
+     came out as date / caption / "the show has reached" / clock, with the
+     label two lines away from the thing it labels. */
   .date-meta .caption-line {
-    max-width: 60vw;
+    flex: 1 0 100%;
+    order: 1;
+    max-width: 100%;
+  }
+
+  .date-meta .clock {
+    margin-left: auto;
   }
 
   .topbar {
     padding: 0 12px;
     gap: 8px;
+  }
+
+  /* The mark comes off the player's bar, and only the player's.
+     At this width the top-left of a player is where the way out lives, not
+     where a logo does — and the wordmark's hundred pixels are what pay for the
+     repository name and the coverage badge to both be legible on a 390px
+     screen. `.topbar-back` replaces it as the exit and goes somewhere more
+     useful: back to the shelf, when the shelf is where this came from. */
+  .topbar .landing-mark {
+    display: none;
+  }
+
+  .topbar-back {
+    padding: 6px;
+    gap: 0;
+  }
+
+  /* The chevron alone. Not `display: none` on the word — the button keeps its
+     accessible name from `aria-label`, and a 26px round target is the back
+     affordance every phone already has. */
+  .topbar-back span {
+    display: none;
   }
 
   /* The left-hand group gives way; the controls do not.
@@ -1901,7 +2008,7 @@ kbd {
      Playwright called the button visible while the click landed on nothing.
      The same shape of fault as the repository rows: content outside the window
      with nothing saying so. */
-  .topbar > div:first-of-type {
+  .topbar-left {
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
@@ -1919,26 +2026,50 @@ kbd {
        phone has and also the width a 1280px window has at 200% zoom, where
        there is no shortage of screen at all.
 
-       It is also the only remaining route to Help at this width, because the
-       badge opens it and `.icon-btn.optional` is hidden just below.
-
-       The name truncates; the badge does not shrink. */
+       Stacked rather than in a row, which is what stopped the badge wrapping
+       to four lines and hanging off the top of the screen. Side by side, the
+       name and the badge were 105px and 170px of a bar that also holds an exit
+       and four controls; one above the other they each get the full 175px the
+       column has. `--chrome-top` is 64px here to hold both. */
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
     min-width: 0;
+    line-height: 1.25;
   }
 
   .repo-id strong {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    /* Whatever is left after the wordmark and the controls have taken theirs.
+    max-width: 100%;
+    /* Whatever is left after the exit and the controls have taken theirs.
        A fixed 38vw was 148px of a 390px bar on top of a 114px control cluster
        and a 100px wordmark, which does not fit and was not made to. */
     min-width: 0;
     flex: 0 1 auto;
+  }
+
+  /* The owner drops, the repository does not. `rust-lang/mdBook` is 105px and
+     `mdBook` is 45; at this width that difference decides whether the name is
+     read or arrives as `rust-lang/…`. Both halves stay in the badge's
+     accessible name and in Help's "This repository". */
+  .repo-owner {
+    display: none;
+  }
+
+  /* The years drop from the badge, unless the years *are* the claim.
+     `2015–2026 · ENTIRE REPO` is 170px and `ENTIRE REPO` is 95, and the years
+     are the half with a substitute: the date hero directly below is a year at
+     22px and the scrubber carries year ticks across its full width. A chosen
+     span keeps them, because `2016 · PARTIAL` is a sentence whose subject is
+     the year and the hero below is showing that same year for an unrelated
+     reason. */
+  .quality:not(.has-span) .q-years,
+  .quality:not(.has-span) .q-sep {
+    display: none;
   }
 
   .band {
@@ -1999,10 +2130,44 @@ kbd {
     margin: 0 auto 18px;
   }
 
+  /* Only the camera. Help used to be `optional` too, so `?` was
+     `display: none` at this width and the panel holding the legend, the sound
+     note, the keyboard map and this repository's coverage had no route to it
+     at all — a first-time viewer on a phone had nothing whatever explaining
+     what she was looking at. The camera is the one control here a viewer can
+     genuinely do without, because double-tapping the stage does the same
+     thing. `.speed` came off this list for the same reason it was on it: it
+     was measured as missing, not as unnecessary. */
   .icon-btn.optional,
-  .scale-toggle,
-  .speed {
+  .scale-toggle {
     display: none;
+  }
+
+  /* Playback speed is back, and the row it lives in is what makes room.
+     Five buttons, a 42px play and the select come to 336px at the desktop
+     10px gap, which is 364 inside a 390px window and 4px over inside a 360px
+     one. At 8px it is 354, which fits both. The select's own padding comes in
+     a little for the same reason. */
+  .transport {
+    gap: 8px;
+  }
+
+  .speed {
+    padding: 6px 7px;
+    flex: none;
+  }
+
+  /* The key wraps to two or three rows here, which is why its gaps come in:
+     five items at the desktop 18px column gap is 620px of a 366px line. */
+  .stage-key {
+    gap: 3px 14px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+
+  .stage-key-art svg {
+    width: 28px;
+    height: 16px;
   }
 }
 
@@ -2397,7 +2562,14 @@ kbd {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 10px 26px;
+  /* Three figures now, not two, and a non-featured card has about 223px of
+     inner width. At the old 26px column gap and 72px minimum the third one
+     ("1,200 / ON STAGE") wrapped to a row of its own on every small card,
+     which reads as a footnote rather than as the third of three facts. At 18px
+     and 52px the widest case measures 78 + 52 + 52 + 36 = 218 and all three
+     sit on one line; anything narrower still wraps, gracefully, because each
+     label travels with its own value. */
+  gap: 10px 18px;
 }
 
 .catalog-figure {
@@ -2406,7 +2578,7 @@ kbd {
   gap: 2px;
   /* Enough that the shortest value ("12 h") still holds a column the eye can
      follow down to its label, without forcing the longest onto its own line. */
-  min-width: 72px;
+  min-width: 52px;
 }
 
 .catalog-figure b {
@@ -2841,10 +3013,110 @@ kbd {
   margin-left: 4px;
 }
 
-.vbtn.icon {
-  padding: 3px 7px;
-  font-size: 11px;
-  line-height: 1.2;
+/* A label rather than a second mute button. The `🔊` that used to be here was
+   the one emoji in an interface of hand-drawn strokes, and it was the second
+   control for a state the top bar already toggles. See `Volume.tsx`. */
+.volume-mark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-faint);
+}
+
+.volume-mark svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- the key to the picture ----------
+
+   A row of the band, above the toggles. Drawn marks with two or three words
+   beside each, opened by itself on a viewer's first performance and closed for
+   good by its own ×. `Legend.tsx` carries the measurement and the rejected
+   alternatives; this is only its shape.
+
+   It wraps rather than scrolls. A horizontally scrolling key hides half of
+   itself behind a gesture nobody is told about, which is the same defect as
+   hiding the whole of it behind a `?`. */
+.stage-key {
+  align-self: stretch;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-top: 6px;
+  margin-bottom: 4px;
+  /* Room for the × at the end, which is out of the flow. */
+  padding-right: 28px;
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.stage-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.stage-key-art {
+  display: inline-flex;
+  flex: none;
+}
+
+.stage-key-art svg {
+  width: 34px;
+  height: 18px;
+  overflow: visible;
+}
+
+.stage-key-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+  /* Out of the flow, at the strip's own top-right, and that is the third
+     arrangement rather than the first.
+     `margin-left: auto` pushed it to the far right of a wrapped row, which at
+     390px meant its own row: the five items came to two rows and the × made a
+     third, holding one 20px control. Simply leaving it in the flow after the
+     last item was worse — row two measured 330px of a 362px line, so the ×
+     still wrapped, and by four pixels, which is the kind of margin that
+     survives one screenshot and not one more word of copy.
+     Absolute is the only version that cannot wrap. The cost is that on a
+     1440px stage it sits at the right end of a full-width strip rather than
+     beside the last item, which is where a dismiss belongs on something that
+     spans the window anyway. */
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.stage-key-close:hover,
+.stage-key-close:focus-visible {
+  color: var(--text);
+  border-color: rgba(230, 225, 214, 0.3);
+}
+
+.stage-key-close svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .volume-range {

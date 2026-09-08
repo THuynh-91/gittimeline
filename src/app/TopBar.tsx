@@ -56,16 +56,30 @@ export function TopBar() {
   // and nothing else on the page says so.
   const chosen = store.span.value;
   const chosenLabel = chosen ? (chosen.from === chosen.to ? String(chosen.from) : `${chosen.from}–${chosen.to}`) : null;
-  const badge =
-    completeness === 'synthetic'
-      ? 'generated'
-      : chosenLabel
-        ? `${chosenLabel} · partial`
-        : span
-          ? completeness === 'exact'
-            ? `${span} · entire repo`
-            : `${span} · partial`
-          : completeness;
+  /**
+   * The badge in two parts, because at 390px only one of them fits.
+   *
+   * Measured before this split, at 390x844: the pill read `2015–2026 · ENTIRE
+   * REPO`, wrapped to **four lines**, stood 72px tall inside a 50px bar and
+   * was drawn at y = -11 — the first line clipped off the top of the screen.
+   * A `<button>` has `flex-shrink: 1` and this one had no `white-space`, so
+   * the truth claim was the element that gave way while the repository name
+   * beside it kept its width.
+   *
+   * The fix is not to shrink the type. It is that the years are the part with
+   * a substitute: the date hero underneath is a year at 30px, and the scrubber
+   * is labelled with year ticks across its whole width. The state word has no
+   * substitute anywhere on the screen. So the years are the half that drops
+   * when the bar is narrow, and only when they are redundant — a *chosen*
+   * span keeps them, because there the year is the claim ("2016 · partial")
+   * and the hero underneath is showing the same year for a different reason.
+   *
+   * Nothing is dropped from the accessible name or the tooltip, which carry
+   * the whole sentence at every width.
+   */
+  const state = completeness === 'synthetic' ? 'generated' : chosenLabel ? 'partial' : completeness === 'exact' ? 'entire repo' : 'partial';
+  const years = completeness === 'synthetic' ? null : (chosenLabel ?? span);
+  const badge = years ? `${years} · ${state}` : state;
   const summary = chosenLabel ? `Playing ${chosenLabel} out of ${span ?? 'the whole history'}. ${perf.coverage.summary}` : perf.coverage.summary;
   const toggle = (id: PanelId) => (store.panel.value = panel === id ? 'none' : id);
   const btn = (id: PanelId, label: string, icon: () => preact.JSX.Element, testId?: string, optional = false) => (
@@ -73,9 +87,38 @@ export function TopBar() {
       {icon()}
     </button>
   );
+  /**
+   * The way out, and where it goes.
+   *
+   * "Back to start" on the wordmark was the only exit a running show had, and
+   * it lands on the landing page — so a visitor who picked Linux off the shelf
+   * and wanted something else had to go home and find the shelf again. Twelve
+   * histories, and no way back to them from inside one.
+   *
+   * `outcome === 'artifact'` is set by `loadCatalogEntry` and by nothing else,
+   * so it is exactly "this came off the shelf". Where it did, the exit goes to
+   * the shelf; where it did not, there is no shelf to return to and it goes
+   * where the wordmark went. One control, correct destination, rather than two
+   * controls a viewer has to choose between.
+   *
+   * It is also why the wordmark comes off the bar under 720px: at that width
+   * the left of a player is where the exit lives, not where a logo does, and
+   * its hundred pixels are what pay for the repository name and the badge to
+   * both fit on the same screen.
+   */
+  const fromShelf = store.outcome.value === 'artifact';
+  const leave = () => {
+    pause();
+    store.panel.value = 'none';
+    store.mode.value = fromShelf ? 'catalog' : 'landing';
+  };
   return (
-    <header class="topbar">
-      <div style="display:flex;align-items:center;gap:18px">
+    <header class={`topbar${fromShelf ? ' from-shelf' : ''}`}>
+      <div class="topbar-left">
+        <button type="button" class="topbar-back" aria-label={fromShelf ? 'Back to the selection' : 'Back to start'} title={fromShelf ? 'Back to the selection' : 'Back to start'} onClick={leave} data-testid="player-back">
+          <Icons.back />
+          <span>{fromShelf ? 'Selection' : 'Start'}</span>
+        </button>
         <button
           type="button"
           class="landing-mark as-link"
@@ -90,10 +133,29 @@ export function TopBar() {
         </button>
         <div class="repo-id">
           <strong>
-            {perf.source.owner}/{perf.source.name}
+            {/* The owner is the half that drops at phone width. `mdBook` is
+                45px and `rust-lang/mdBook` is 105, and on a 390px bar that
+                difference is the whole of whether the name gets to be read at
+                all or arrives as `rust-lang/…`. The aria-label on the badge
+                beside it still says both, and so does Help. */}
+            <span class="repo-owner">{perf.source.owner}/</span>
+            {perf.source.name}
           </strong>
-          <button type="button" class={`quality ${completeness}`} title={summary} onClick={() => toggle('help')} aria-label={`Coverage: ${badge}. ${summary}`} data-testid="quality-badge">
-            {badge}
+          <button
+            type="button"
+            class={`quality ${completeness}${chosenLabel ? ' has-span' : ''}`}
+            title={summary}
+            onClick={() => toggle('help')}
+            aria-label={`Coverage: ${badge}. ${summary}`}
+            data-testid="quality-badge"
+          >
+            {years && (
+              <>
+                <span class="q-years">{years}</span>
+                <span class="q-sep"> · </span>
+              </>
+            )}
+            <span class="q-state">{state}</span>
           </button>
         </div>
       </div>
@@ -109,7 +171,14 @@ export function TopBar() {
             window narrows. */}
         {btn('events', 'Events (E)', Icons.list, 'events-button')}
         {btn('settings', 'Settings', Icons.settings, 'settings-button')}
-        {btn('help', 'Help (?)', Icons.help, 'help-button', true)}
+        {/* Also not `optional` any more, and that flag was the whole of the
+            defect: `.icon-btn.optional` is `display: none` under 720px, so on
+            a phone the Help panel — which holds the legend, the sound note,
+            the keyboard map and this repository's coverage — had no route to
+            it whatever. The camera is the one control on this bar a viewer can
+            genuinely do without, because double-tapping the stage does the
+            same thing; an explanation is not. */}
+        {btn('help', 'Help (?)', Icons.help, 'help-button')}
       </div>
     </header>
   );

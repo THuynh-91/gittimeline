@@ -5,6 +5,7 @@ import { loadDemo, loadRepo } from './controller';
 import { parseRepoUrl } from '@/github/url';
 import { Icons } from './icons';
 import { SiteBar } from './SiteBar';
+import { useCatalogEntries } from './Catalog';
 
 
 /**
@@ -117,6 +118,11 @@ export function Landing() {
   const err = store.inputError.value;
   const recent = store.recent.value;
   const typed = !!store.input.value.trim();
+  // The same static `index.json` the shelf reads, which the browser has
+  // already cached by the time anyone gets here — the catalog page mounts this
+  // hook too. Null while it is unknown, and the button below has a form for
+  // that case rather than rendering "one of 0".
+  const shelfCount = useCatalogEntries().entries?.length ?? 0;
 
   // One list, never two. Repositories you have already watched are a better
   // suggestion than four picked by us, so when they exist they take the line
@@ -194,9 +200,27 @@ export function Landing() {
         </p>
 
         {/* The other way in, and the only one that costs a visitor nothing at
-            all, so it gets its own line and its own weight. */}
+            all, so it gets its own line and its own weight.
+
+            It said "Selection ready to watch →", which is a status and not an
+            invitation. A first-time visitor: *"I clicked it because it was the
+            only thing left, not because it offered me anything."* The word
+            "selection" is this project's own name for the shelf and means
+            nothing to somebody who has never seen it — it could as easily be
+            about the text cursor.
+
+            So the button says what pressing it gets you, and says how much of
+            it there is. The count is read from the shelf itself rather than
+            written here, because a number in a string is a number that goes
+            stale the next time a build adds an entry.
+
+            The two forms are the same sentence with and without the number, so
+            that the label settling from one to the other — `index.json` is a
+            2.4 KB static file, but it is still a fetch — reads as a number
+            arriving rather than as the button changing its mind about what it
+            does. */}
         <button type="button" class="shelf-cta" onClick={() => (store.mode.value = 'catalog')} data-testid="catalog-cta">
-          Selection ready to watch
+          {shelfCount ? `Watch one of ${shelfCount} big repositories` : 'Watch a big repository'}
           <span aria-hidden="true">→</span>
         </button>
       </div>

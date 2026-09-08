@@ -148,6 +148,30 @@ function timeToXFrac(perf: CompiledPerformance, t: number, scale: 'performance' 
   return (h - h0) / Math.max(1, h1 - h0);
 }
 
+/**
+ * A landmark, said once.
+ *
+ * The tooltip printed `${kind}: ${label}` for every landmark, and two of the
+ * three kinds carry their own name as the label: `events.ts` writes
+ * `kind: 'merge', label: 'merge'` and `kind: 'present', label: 'present'`. So
+ * the scrubber said **`merge: merge`** and **`present: present`**, beside
+ * legitimate pairs like `tag: v0.5.1` — reported by a first-time viewer as the
+ * app talking to itself. An octopus merge was worse still: `merge: octopus
+ * merge`.
+ *
+ * The kind is only worth saying when it says something the label does not, so
+ * the prefix is dropped when the label already contains it. `tag: v0.5.1`
+ * keeps its prefix, because `v0.5.1` alone does not say what it is.
+ *
+ * `present` on its own is a word rather than a fact, so that one is spelled
+ * out: it is the mark at the end of the history, and "present day" is what the
+ * caption calls the same moment.
+ */
+function landmarkLine(kind: string, label: string): string {
+  if (kind === 'present') return 'present day';
+  return label.toLowerCase().includes(kind.toLowerCase()) ? label : `${kind}: ${label}`;
+}
+
 function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines: string[] } | null {
   const h = mapMonotone(perf.timeMap, t, true);
   const lines: string[] = [];
@@ -159,7 +183,7 @@ function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines:
   // 5,272-commit repository, said "No commits" at every position. Saying
   // nothing about counts is the honest answer when there is nothing to say;
   // `accessibility.md` promises exactly that and this was the counter-example.
-  if (!perf.activity.length) return { head: fmtDate(h), lines: near.slice(0, 2).map((l) => `${l.kind}: ${l.label}`) };
+  if (!perf.activity.length) return { head: fmtDate(h), lines: near.slice(0, 2).map((l) => landmarkLine(l.kind, l.label)) };
   const first = perf.activity[0]!;
   const width = first.historicalEnd - first.historicalStart;
   const idx = Math.min(perf.activity.length - 1, Math.max(0, Math.floor((h - first.historicalStart) / width)));
@@ -167,7 +191,7 @@ function tooltipAt(perf: CompiledPerformance, t: number): { head: string; lines:
   lines.push(`${b.knownCommitCount} known commit${b.knownCommitCount === 1 ? '' : 's'} in this span`);
   if (b.activeThreadCount != null && b.activeThreadCount > 1) lines.push(`${b.activeThreadCount} concurrent threads`);
   if (b.mergeCount) lines.push(`${b.mergeCount} merge${b.mergeCount === 1 ? '' : 's'}`);
-  for (const l of near.slice(0, 2)) lines.push(`${l.kind}: ${l.label}`);
+  for (const l of near.slice(0, 2)) lines.push(landmarkLine(l.kind, l.label));
   lines.push(`${fmtClock(t)} · coverage ${b.coverage}`);
   return { head: fmtDate(h), lines };
 }
