@@ -6,6 +6,7 @@ import { AUTH_BASE, signInWithGitHub } from './auth';
 import { showLanding, clearStoredHistories } from './controller';
 import { Icons } from './icons';
 import { useCatalogEntries } from './Catalog';
+import { isMeasurementId } from './analytics';
 
 /**
  * Connecting a GitHub account.
@@ -248,10 +249,22 @@ export function SignIn() {
   const connected = !!store.token.value;
   const configured = !!AUTH_BASE;
   /**
-   * Whether this build has analytics at all, read the same way `analytics.ts`
-   * reads it, so the consent copy below cannot disagree with the bundle.
+   * Whether this build has analytics at all, decided by the **same function**
+   * `initAnalytics` uses, not by a copy of its rule.
+   *
+   * This was a hand-copied regex and the copy was not the same predicate:
+   * `/^G-[A-Z0-9]{6,}$/i` here against `/^G-[A-Z0-9]{4,20}$/` there. Wider in
+   * two directions and narrower in one, so an id of four or five characters
+   * after `G-` is accepted by `analytics.ts`, loads gtag, sets a cookie and
+   * sends a request, while this page prints "Nothing leaves at all on this
+   * deployment". A false privacy disclosure on a collecting build, which is
+   * the exact error class the commit that added this line exists to prevent,
+   * and the comment that used to sit here claimed the two could not disagree.
+   *
+   * `isMeasurementId` is exported and unit-tested. Importing it is the only
+   * way the claim is actually true.
    */
-  const measured = /^G-[A-Z0-9]{6,}$/i.test(String(import.meta.env.VITE_GA_ID ?? ''));
+  const measured = isMeasurementId(String(import.meta.env.VITE_GA_ID ?? ''));
   /**
    * Counted, not written down. This said "eight more" when the shelf held
    * twelve, and said the histories "ship with the site" when they are fetched
@@ -395,7 +408,7 @@ export function SignIn() {
                 <b>That somewhere is a function, not a server.</b> <code>worker/</code> holds a Cloudflare Worker of about two kilobytes which does that single call and nothing else, no database, no idle process, nothing retained.
               </li>
               <li>
-                <b>It is written and tested, not deployed.</b> Twenty-seven unit tests, run in CI on every change since they turned out not to be, and end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
+                <b>It is written and tested, not deployed.</b> Twenty-seven unit tests, which now run on every change after a spell when they quietly did not, and end-to-end checks in the real Workers runtime: a forged state, a truncated state, a missing cookie and a rewritten return address are each refused before a code ever reaches GitHub.
               </li>
               <li>
                 <b>Two things need an account nobody but the owner has.</b> A GitHub OAuth application, which has no API, so it cannot be scripted, and a Cloudflare deploy. <code>worker/README.md</code> has the steps.

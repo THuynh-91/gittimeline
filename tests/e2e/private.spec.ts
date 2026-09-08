@@ -171,7 +171,23 @@ test.describe('a repository that changes visibility', () => {
     await page.getByTestId('url-input').fill('acme/widget');
     await page.getByTestId('play-button').click();
     // The probe answers "private", which evicts what the earlier visit wrote.
-    await page.waitForTimeout(2500);
+    //
+    // Waited for, not slept through. `confirmStillPublic` is called as
+    // `void confirmStillPublic(repo)` -- deliberately, so the history starts
+    // playing while the check runs -- so the eviction lands whenever the fetch,
+    // `cache.clearRepository` and `refreshRecent` happen to finish. A fixed
+    // 2,500 ms was enough on a quiet machine and not enough under the full
+    // three-engine suite, where this failed once while passing in isolation:
+    // the assertion below was reading the disk before the eviction it is
+    // waiting for. The same shape of flake as the 1,200 ms sleep removed from
+    // `large.spec.ts`, and the fix is the same: wait for the observation under
+    // test rather than for a duration.
+    await expect
+      .poll(async () => (await page.evaluate(readEverything)).includes('acme/widget'), {
+        message: 'the private repository is evicted from the device',
+        timeout: 20_000,
+      })
+      .toBe(false);
 
     const disk = await page.evaluate(readEverything);
     expect(disk, 'the dataset and its pages are gone').not.toContain('acme/widget');

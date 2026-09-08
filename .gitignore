@@ -32,3 +32,11 @@ scripts/_measure-server.mjs
 
 # One-off probe scripts and measurement harnesses, same reason as above.
 x/
+
+# Screenshots and logs dropped in the working tree while looking at the app.
+# A release review found seven of these untracked and unignored, in a repo
+# whose own history includes committing one by accident, and warned against
+# `git add -A`. Ignoring them is cheaper than remembering.
+/*.png
+/debug.log
+/docs/image.png

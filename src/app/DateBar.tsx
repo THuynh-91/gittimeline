@@ -82,7 +82,34 @@ export function DateBar() {
    * already had this right: `Timeline.tsx` mentions concurrency only when
    * `activeThreadCount > 1`.
    */
-  const showOpen = open > 1;
+  /**
+   * On a streamed history this readout carries **no number**, and that is the
+   * third attempt at it rather than the first.
+   *
+   * `open` counts threads in `store.perf`, which on a windowed plan is a
+   * couple of thousand nodes out of hundreds of thousands. Three mechanisms
+   * were tried and each failed on measurement:
+   *
+   *  - bare `open > 1`. Polled on Linux seeking from 10% to 90%: 104, then
+   *    **2** for 1.3 s, then 426.
+   *  - plus `!buffering`. A single trace showed a minimum of 104 and looked
+   *    fixed; a poll under load still caught **8** against a settled 426.
+   *  - plus "does the plan cover the clock". Identical numbers, 8..426 and
+   *    2..107, because the swapped-in window *does* cover the clock while its
+   *    thread list is still filling. There is no boolean that closes this.
+   *
+   * And "At least N" made it worse than the bare number it replaced: an
+   * unexplained figure became an affirmative lower bound that was wrong by two
+   * orders of magnitude.
+   *
+   * So the honest form on a window is the qualitative one. `stats.threads` is
+   * read from the summary rather than the resident window, so the total in the
+   * title is stable and true; only the instantaneous count is unavailable, and
+   * it is the thing that cannot be had. A whole plan keeps its exact number,
+   * because there the count is of everything there is.
+   */
+  const windowed = !!perf.window;
+  const showOpen = windowed ? open > 0 : open > 1;
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
@@ -91,9 +118,15 @@ export function DateBar() {
       <div class="date-hero" data-testid="date-hero">
         {d ? (
           <>
+            {/* Day first when it is shown at all.
+                It used to come last, after the year, with no punctuation
+                between: a first-time viewer read "JANUARY 2022 3" as a stray
+                digit and filed it as a rendering bug. It was 3 January 2022.
+                The day only appears on a history too short to span years,
+                where knowing the day is the point. */}
+            {!spansYears && <span class="day">{d.getUTCDate()}</span>}
             <span class="month">{MONTHS[d.getUTCMonth()]}</span>
             <span class="year">{d.getUTCFullYear()}</span>
-            {!spansYears && <span class="day">{d.getUTCDate()}</span>}
           </>
         ) : (
           <span class="month">No commits yet</span>
@@ -168,11 +201,11 @@ export function DateBar() {
             data-testid="open-threads"
             title={
               perf.window
-                ? `At least ${open} branch threads are working in this part of the history, out of ${perf.stats.threads} in the whole of it. Only the loaded section is counted, and the stage draws a limited number of lanes, so this is not a count of the lines you can see.`
+                ? `This history has ${perf.stats.threads.toLocaleString()} branch threads in all. How many are working at this exact moment cannot be counted from the part of it that is loaded, so no number is claimed here.`
                 : `${open} branch threads are working at this point, out of ${perf.stats.threads} in this history. The stage draws a limited number of lanes, so this is not a count of the lines you can see.`
             }
           >
-            <b>{perf.window ? 'At least ' : ''}{open}</b> {open === 1 ? 'branch' : 'branches'} open
+            {windowed ? <b>Many</b> : <b>{open}</b>} {!windowed && open === 1 ? 'branch' : 'branches'} open
           </span>
         )}
         <span class="clock" data-testid="clock">
