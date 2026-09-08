@@ -1008,31 +1008,43 @@ export class StageRenderer {
   }
 
   /** Hold a spine segment for the pass after the bloom, reusing the slot. */
-  private keepSpine(pts: Float32Array, u: number, alpha: number) {
-    /**
-     * And note how far along the main line the ink has actually got.
-     *
-     * `spineTip` claims to be "the far end of the main line *as drawn*" and is
-     * not: it interpolates between the newest landed commit and the next one by
-     * how much of the *time* between their impacts has passed, and an edge has
-     * its own `start` and `end` which need not span that gap — so on a spine
-     * built from ribbons the tip runs ahead of the ink. Measured on mdBook,
-     * thirteen frames in the first six seconds: the gap from the nameplate to
-     * the rightmost lit pixel on its own row ran 26, 46, 52, 53, 62, 72, 76,
-     * 91, 95, 100, 122, 123, 132 px, against the 50 it is drawn at. A viewer
-     * reported "the MAIN chip consistently floats 70-100px to the right of the
-     * line head it's labelling" and was reading the low end of that off a
-     * screen.
-     *
-     * This is the ink. `u` indexes the point list and the spine is laid out
-     * flat and evenly in x, so interpolating x by `u` is the same arithmetic
-     * `drawPolyline` uses to decide where to stop, and `presentX` is the same
-     * clip. Two array reads and a multiply, per visible spine segment.
-     */
+  /**
+   * How far along the main line the ink has got, in world units.
+   *
+   * `spineTip` claims to be "the far end of the main line *as drawn*" and is
+   * not: it interpolates between the newest landed commit and the next one by
+   * how much of the *time* between their impacts has passed, and an edge has
+   * its own `start` and `end` which need not span that gap — so on a spine
+   * built from ribbons the tip runs ahead of the ink. Measured on mdBook,
+   * thirteen frames in the first six seconds: the gap from the nameplate to
+   * the rightmost lit pixel on its own row ran 26, 46, 52, 53, 62, 72, 76, 91,
+   * 95, 100, 122, 123, 132 px, against the 50 it is drawn at. A viewer
+   * reported "the MAIN chip consistently floats 70-100px to the right of the
+   * line head it's labelling" and was reading the low end of that off a
+   * screen.
+   *
+   * This is the ink. `u` indexes the point list and the spine is laid out flat
+   * and evenly in x, so interpolating x by `u` is the same arithmetic
+   * `drawPolyline` uses to decide where to stop, and `presentX` is the same
+   * clip. Two array reads and a multiply, per visible stretch of the spine.
+   *
+   * Called from every pass that draws a stretch of main, which is three of
+   * them and not one: the deferred structural stroke below, *and* the two
+   * ribbon paths, which return before reaching it. Missing the ribbons left
+   * the plate 68 px short of the end of the line on React's closing frame —
+   * on top of four commits, with the line running through it — because the
+   * last stretch of main there is a counted run rather than individual
+   * commits.
+   */
+  private noteSpineInk(pts: Float32Array, u: number) {
     const lastX = pts[pts.length - 2]!;
     const x0 = pts[0]!;
     const end = Math.min(this.presentX, x0 + (lastX - x0) * Math.max(0, Math.min(1, u)));
     if (end > this.spineDrawnX) this.spineDrawnX = end;
+  }
+
+  private keepSpine(pts: Float32Array, u: number, alpha: number) {
+    this.noteSpineInk(pts, u);
     const slot = this.spineRedraw[this.spineCount];
     if (slot) {
       slot.pts = pts;
@@ -2866,6 +2878,9 @@ export class StageRenderer {
       return;
     }
     if (e.kind === 'aggregate') {
+      // Before the early return: a counted run of commits on main is main, and
+      // this pass draws it rather than handing it to the deferred spine stroke.
+      if (spine) this.noteSpineInk(e.pts, 1);
       const count = this.aggregateByNode[e.child]?.memberCount ?? 0;
       const width = Math.min(16, 5 + Math.log2(1 + count) * 1.6);
       ctx.strokeStyle = rgba(spine ? ivory : slate, alpha * 0.28);
