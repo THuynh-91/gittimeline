@@ -58,17 +58,24 @@ test.describe('the largest history', () => {
       // 900 nodes and 852 edges at the same point.
       await page.evaluate((t) => window.__gittimeline.seek(t), duration * frac);
       await page.waitForFunction(() => !window.__gittimeline.buffering, null, { timeout: 120_000 });
-      const drawn = await page.evaluate(async () => {
+      await page.evaluate(() => {
         const g = window.__gittimeline;
         const prof = g.render;
         prof.enabled = true;
         prof.counts.nodesDrawn = 0;
         prof.counts.edgesDrawn = 0;
         g.play();
-        await new Promise((r) => setTimeout(r, 1200));
-        g.pause();
-        prof.enabled = false;
-        return { nodes: prof.counts.nodesDrawn, edges: prof.counts.edgesDrawn };
+      });
+      // Playing can request a second geometry window after the seek completes.
+      // Wait for the observation under test, not a timeout inside that fetch.
+      await page.waitForFunction(() => {
+        const g = window.__gittimeline;
+        return !g.buffering && g.render.counts.nodesDrawn + g.render.counts.edgesDrawn > 0;
+      }, null, { timeout: 60000 });
+      const drawn = await page.evaluate(() => {
+        const g = window.__gittimeline;
+        g.pause(); g.render.enabled = false;
+        return { nodes: g.render.counts.nodesDrawn, edges: g.render.counts.edgesDrawn };
       });
       expect(drawn.nodes + drawn.edges, `${longest} at ${Math.round(frac * 100)}% of ${(duration / 60).toFixed(0)} min drew ${drawn.nodes} nodes and ${drawn.edges} edges`).toBeGreaterThan(0);
     }

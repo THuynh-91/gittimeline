@@ -1,0 +1,28 @@
+.branch-overview {
+  position: fixed;
+  inset: 72px 20px 225px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border: 1px solid #536363;
+  border-radius: 12px;
+  background: #090d12;
+  color: #e7ece8;
+}
+.branch-overview header, .branch-overview footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.branch-overview p { margin: 4px 0; font-size: 12px; }
+.branch-overview .overview-explanation { color: #b0bdb9; }
+.branch-overview canvas { flex: 1; min-height: 40px; width: 100%; margin: 8px 0; cursor: pointer; }
+.branch-overview button, .branch-overview select { min-height: 36px; background: #172127; color: #f0eadb; border: 1px solid #667572; border-radius: 5px; padding: 6px 10px; }
+.branch-overview select { max-width: 230px; }
+.branch-overview button:focus-visible, .branch-overview select:focus-visible { outline: 2px solid #f5db99; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .branch-overview { inset: 62px 6px 240px; padding: 10px; }
+  .branch-overview button, .branch-overview select { min-height: 44px; }
+  .branch-overview header { gap: 4px; }
+  .branch-overview select { max-width: 180px; }
+}
+@media (max-height: 600px) {
+  .branch-overview { inset: 8px 8px 8px; z-index: 10; }
+}

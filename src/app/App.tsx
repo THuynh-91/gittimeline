@@ -17,6 +17,7 @@ import { FollowButton } from './FollowButton';
 import { ScopeChooser } from './ScopeChooser';
 import { ExploreBar } from './ExploreBar';
 import { ViewToggles } from './ViewToggles';
+import { BranchOverview } from './BranchOverview';
 import { CatalogPage } from './CatalogPage';
 import { SignIn } from './SignIn';
 import { ReposPage } from './ReposPage';
@@ -82,6 +83,7 @@ export function App() {
         {mode === 'landing' ? <Landing /> : mode === 'catalog' ? <CatalogPage /> : mode === 'signin' ? <SignIn /> : mode === 'repos' ? <ReposPage /> : null}
       </div>
       <ScopeChooser />
+      {showPlayer && perf && <BranchOverview />}
       <Prelude />
       {showPlayer && store.buffering.value && <div class="buffering" role="status">Loading this part of history… <button type="button" onClick={()=>{store.mode.value='catalog';}}>Back to selection</button></div>}
       {showPlayer && perf && !chromeHidden && <TopBar />}

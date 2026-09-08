@@ -82,7 +82,7 @@ export function DateBar() {
    * already had this right: `Timeline.tsx` mentions concurrency only when
    * `activeThreadCount > 1`.
    */
-  const showOpen = open > 1;
+  const showOpen = open > 1 && !store.branchOverviewOpen.value;
   const partial = perf.coverage.completeness !== 'exact' && perf.source.provider === 'github';
   const spansYears = perf.timeMap.length > 1 && perf.timeMap[perf.timeMap.length - 1]![0] - perf.timeMap[0]![0] > 400 * 86_400_000;
 
@@ -146,8 +146,8 @@ export function DateBar() {
             this point; the busiest moment of this history has 16." Both
             numbers were right, about different questions. */}
         {showOpen && (
-          <span class="open-threads" data-testid="open-threads" title={`${open} of this history's ${perf.stats.threads} branches have started by this point and have not been merged.`}>
-            <b>{open}</b> {open === 1 ? 'branch' : 'branches'} open
+          <span class="open-threads" data-testid="open-threads" title="Unmerged branch threads represented in this section of history. This is not a count of visible lines; streamed sections may omit other branches.">
+            <b>{perf.window ? 'At least ' : ''}{open}</b> {open === 1 ? 'branch' : 'branches'} open
           </span>
         )}
         <span class="clock" data-testid="clock">

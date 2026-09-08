@@ -35,6 +35,14 @@ test('allowlist excludes raw inputs, monoliths and stale pages; revision is dete
   assert.equal(JSON.parse(a.listing).entries[0].openSeconds,null);
 });
 test('refuses stale engines',t=>{const root=fixture(t,({summary})=>{summary.engine={layoutVersion:4};});assert.throws(()=>collectRelease(root,root,engine),/Rebuild required/);});
+test('includes and integrity-checks the optional activity overview',t=>{
+  const bytes=gzipSync('[]');
+  const root=fixture(t,({manifest})=>{manifest.overview={file:'overview.bin',hash:sha256(bytes),bytes:bytes.length};});
+  writeFileSync(join(root,'test-repo.pages/overview.bin'),bytes);
+  assert.ok(collectRelease(root,root,engine).files.some(f=>f.name.endsWith('/overview.bin')));
+  writeFileSync(join(root,'test-repo.pages/overview.bin'),'corrupt');
+  assert.throws(()=>collectRelease(root,root,engine),/Integrity mismatch/);
+});
 test('refuses corrupted pages',t=>{const root=fixture(t);writeFileSync(join(root,'test-repo.pages/p0.bin'),'corrupted');assert.throws(()=>collectRelease(root,root,engine),/Integrity mismatch/);});
 test('refuses missing time intervals',t=>{const root=fixture(t,({resources})=>{resources[1].min=5;});assert.throws(()=>collectRelease(root,root,engine),/Missing interval/);});
 test('refuses traversal',t=>{const root=fixture(t,({manifest})=>{manifest.transcript='../outside';});assert.throws(()=>collectRelease(root,root,engine),/Unsafe resource/);});

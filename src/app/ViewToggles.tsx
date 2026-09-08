@@ -43,6 +43,7 @@ export function ViewToggles() {
         Controls
       </button>
       <Volume />
+      {(!store.perf.value?.window || store.perf.value?.branchOverview || store.catalogManifest.value?.overview) && <button type="button" class="vbtn" data-testid="toggle-branch-overview" aria-pressed={store.branchOverviewOpen.value} onClick={() => { store.branchOverviewOpen.value = !store.branchOverviewOpen.value; }}>All branches</button>}
     </div>
   );
 }

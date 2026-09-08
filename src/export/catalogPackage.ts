@@ -18,13 +18,14 @@ export interface CatalogManifest {
   version: number;
   summary: CompiledPerformance;
   index: { file: string; hash: string; bytes: number };
+  overview?: { file: string; hash: string; bytes: number };
   years: Array<[number, number]>;
   highlights: Array<[number, number]>;
   transcript: string;
 }
 
 export function emptyPlan(p: CompiledPerformance): CompiledPerformance {
-  return { ...p, nodes: [], edges: [], threads: [], events: [], camera: [], timeMap: [], tempoMap: [],
+  return { ...p, branchOverview: undefined, nodes: [], edges: [], threads: [], events: [], camera: [], timeMap: [], tempoMap: [],
     activity: [], waveform: new Float32Array(), eras: [], contributors: [], aggregates: [], refs: [], landmarks: [], transcript: [] };
 }
 

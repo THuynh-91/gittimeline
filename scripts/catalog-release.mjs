@@ -55,6 +55,7 @@ export function collectRelease(catalogDir, packageDir, engine, smokeRepo = null)
     for (const r of times) { if (r.min > covered) throw new Error(`Missing interval: ${entry.slug}`); covered = Math.max(covered, r.max); }
     if (covered < p.duration || !index.some(r => r.kind === 'geometry')) throw new Error(`Incomplete package: ${entry.slug}`);
     add(packageDir, `${dir}/${manifest.transcript}`);
+    if (manifest.overview) add(packageDir, `${dir}/${manifest.overview.file}`, manifest.overview);
     if (entry.logo) add(catalogDir, entry.logo);
     // Old openSeconds measured a monolith; do not advertise it as streaming latency.
     const packageBytes = [...files.values()].filter(f => f.name.startsWith(`${dir}/`)).reduce((n,f) => n+f.bytes,0);

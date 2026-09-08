@@ -35,6 +35,7 @@ try {
   const {readCompiledPerformance,streamCompiledPerformance}=await server.ssrLoadModule('/src/export/performance.ts');
   const {emptyPlan,geometryPage,highlightsOf,PACKAGE_VERSION,WINDOW_SECONDS}=await server.ssrLoadModule('/src/export/catalogPackage.ts');
   const {mapMonotone}=await server.ssrLoadModule('/src/choreography/clock.ts');
+  const {branchActivityOf}=await server.ssrLoadModule('/src/model/branchOverview.ts');
   const {characterOf,registerFor}=await server.ssrLoadModule('/src/audio/score.ts');
   for(const slug of slugs) {
     const stem=slug.replace('/','-');
@@ -96,7 +97,11 @@ try {
     writeFileSync(`${dir}/transcript.txt.gz`,gzipSync(p.transcript.join('\n')));
     // Exact aggregate membership is an explicit separate download, never needed to draw a ribbon.
     await pipeline(Readable.from((function*(){for(const a of p.aggregates)yield JSON.stringify(a)+'\n';})()),createGzip(),createWriteStream(`${dir}/aggregates.ndjson.gz`));
-    const manifest={format:'gittimeline-catalog',version:PACKAGE_VERSION,summary,index:{file:indexFile,hash:indexHash,bytes:index.length},years,highlights:highlightsOf(p),transcript:'transcript.txt.gz'};
+    const overviewData=gzipSync(JSON.stringify(branchActivityOf(p)));
+    const overviewHash=createHash('sha256').update(overviewData).digest('hex');
+    const overviewFile=`${overviewHash}.overview.bin`;
+    writeFileSync(`${dir}/${overviewFile}`,overviewData);
+    const manifest={format:'gittimeline-catalog',version:PACKAGE_VERSION,summary,index:{file:indexFile,hash:indexHash,bytes:index.length},overview:{file:overviewFile,hash:overviewHash,bytes:overviewData.length},years,highlights:highlightsOf(p),transcript:'transcript.txt.gz'};
     writeFileSync(`${dir}/manifest.json`,JSON.stringify(manifest));
     console.log(JSON.stringify({slug,pages:resources.length,manifestBytes:statSync(`${dir}/manifest.json`).size,indexBytes:index.length,bytes:resources.reduce((n,r)=>n+r.bytes,0),maxDecoded:Math.max(...resources.map(r=>r.decodedBytes))}));
   }

@@ -365,7 +365,16 @@ export interface Landmark {
   eventId: string;
 }
 
+export interface BranchActivity {
+  id: string;
+  label: string;
+  start: number;
+  end: number;
+}
+
 export interface CompiledPerformance {
+  /** Complete branch activity intervals, independent of resident geometry pages. */
+  branchOverview?: BranchActivity[];
   /** Present only on a bounded catalog view; the compiler's complete result has none. */
   window?: { key: string; start: number; end: number; minX: number; maxX: number; residentBytes: number; manifestUrl: string };
   soundtrack?: 'calm' | 'driving' | 'frantic';

@@ -115,14 +115,18 @@ function PrivateTokenGrant() {
 
   return (
     <div class="grant-token">
+      {/* A button, not a `linkish` span. It was the latter, sitting in a
+          paragraph of prose under a bold "Not yet", and was missed by the
+          person who asked for it — after it had shipped. A control that
+          performs the thing the section is about should look like a control. */}
       <button
         type="button"
-        class="linkish"
+        class="btn primary"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         data-testid="private-token-toggle"
       >
-        {open ? 'Hide' : 'Use a fine-grained token instead'}
+        {open ? 'Hide token setup' : 'Set up private access'}
       </button>
 
       {open && (
@@ -379,24 +383,29 @@ export function SignIn() {
             GitHub without passing through anything of ours. */}
         <section class="grant" aria-labelledby="private-heading">
           <h2 id="private-heading">Your private repositories</h2>
-          {/* Stated as what it will be, because it is not what it is.
-              This section described a second authorization in the present
-              tense — "you pick exactly which repositories to grant" — while
-              the sign-in above it requests no scopes at all and there is no
-              second authorization to accept. A page that describes a feature
-              it does not have is the one kind of copy this project cannot
-              afford, because everything else it claims about what it does
-              with your data is asking to be taken on trust. */}
+          {/* The working answer first.
+              This section used to open with "Not yet — this is what it will
+              be" in bold, describing the GitHub App that is not built, with
+              the control that *does* work underneath it. A viewer who had
+              already signed in read the heading, read "Not yet", and stopped —
+              twice, and said so the second time. Leading with a refusal and
+              burying the answer under it is worse than the original problem of
+              having no answer at all, because it looks like a considered no.
+              So: what works, then what is missing. */}
           <p class="grant-lead">
-            <b>Not yet — this is what it will be.</b> Watching a private repository will be a second, separate
-            authorization: a small GitHub App you install on <b>exactly the repositories you choose</b>, granted
-            read-only and revocable per repository. Signing in today does not ask for it and cannot see a private
-            repository. When it exists, these are the terms it will keep.
+            <b>Yes — with a token you scope yourself.</b> The sign-in above deliberately asks for{' '}
+            <b>no permissions at all</b>, which is why it cannot see a private repository: a token with no scopes
+            reads exactly what a stranger reads. Reaching further is a separate, deliberate step, and you decide in
+            GitHub's own interface which repositories it covers.
           </p>
-          {/* Until it exists, the thing that does work — said here rather than
-              left in Settings under a heading about rate limits, which is
-              where a viewer went looking for it and did not find it. */}
           <PrivateTokenGrant />
+          <p class="grant-lead grant-later">
+            <b>A better version is coming.</b> A small GitHub App you install on exactly the repositories you
+            choose, revocable per repository, with nothing to paste anywhere. It is not built yet — a GitHub App has
+            to be created through GitHub's own interface, which has no API — and until it is, the token above is the
+            honest route rather than the ideal one. <code>docs/private-repositories.md</code> explains the
+            difference.
+          </p>
           <ul>
             <li>
               <b>Your repository never leaves the browser.</b> Your browser talks to <code>api.github.com</code> directly. The commit history is read, drawn on your screen, and never sent anywhere else — not the commits, not the messages, not the names, not the shape of the graph.

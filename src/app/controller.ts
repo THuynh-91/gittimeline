@@ -776,7 +776,7 @@ function frame(now: number) {
   }
   const t = player.t;
   if (renderer) {
-    if(player.buffered)renderer.render(t, dt);
+    if(player.buffered && !(store.mode.peek() === 'player' && store.branchOverviewOpen.peek())) renderer.render(t, dt);
     const cam = renderer.camera;
     if (cam && cam.state !== store.cameraState.peek()) store.cameraState.value = cam.state;
   }

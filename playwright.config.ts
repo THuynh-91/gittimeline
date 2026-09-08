@@ -70,7 +70,7 @@ export default defineConfig({
      * The mute regression reads native media state because a getter that says
      * zero does not establish silence, especially on WebKit.
      */
-    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback|clock|muted)\.spec\.ts/ },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback|clock|muted)\.spec\.ts/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'], launchOptions: { firefoxUserPrefs: { 'media.volume_scale': '0.0' } } }, testMatch: /(explore|fallback|clock|muted|branch-overview)\.spec\.ts/ },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: /(explore|fallback|clock|muted|branch-overview)\.spec\.ts/ },
   ],
 });

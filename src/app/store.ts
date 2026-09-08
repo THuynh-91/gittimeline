@@ -251,6 +251,7 @@ function loadSettings(): Settings {
 }
 
 export const store = {
+  branchOverviewOpen: signal(false),
   buffering: signal(false),
   catalogManifest: signal<CatalogManifest | null>(null),
   phase: signal<AppPhase>('IDLE'),

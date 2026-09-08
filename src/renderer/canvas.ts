@@ -15,6 +15,15 @@ import { volumeIsCapped, volumePhrase } from '@/model/volume';
  * atmosphere → settled paths → spine → active trajectories → nodes →
  * bodies (performers/pulses) → impact effects → labels.
  */
+/**
+ * Whether main's newest commit bounds the drawing as well as the playhead.
+ *
+ * A constant rather than a setting: it changes what the picture *claims*, and
+ * a stage that means two different things depending on a switch is worse than
+ * one that means one thing. See `presentX` in `render` for what it costs.
+ */
+const MAIN_FRONTIER = true;
+
 export type Quality = 'full' | 'reduced' | 'minimal';
 
 /** Ordered, so "whichever asks for less" is a comparison rather than a chain. */
@@ -265,6 +274,21 @@ export class StageRenderer {
   private aggregateEdges: EdgeGeom[] = [];
   private unknownEdges: EdgeGeom[] = [];
   private mergeLabelNodes: NodeGeom[] = [];
+  /**
+   * How much of its colour a thread keeps, by how far its lane is from the
+   * spine. Depth, so that raising `MAX_LANES` from 12 to 240 reads as a dense
+   * field rather than as two hundred lines of equal weight all shouting.
+   *
+   * Near lanes are untouched — the structure a viewer actually follows is the
+   * spine and the handful of threads around it. Beyond `NEAR` the falloff is
+   * gradual to a floor, so a distant lane is still *there*, still lands its
+   * merge on main, and still contributes to the sense of how much is going on,
+   * without asking to be traced individually.
+   *
+   * Precomputed into a typed array because it is read per edge per frame, and
+   * a history can carry a hundred thousand threads.
+   */
+  private laneFade = new Float32Array(0);
   /**
    * The history's merge count, which is what sets the ancestry budget.
    *
@@ -785,6 +809,19 @@ export class StageRenderer {
     this.unknownEdges = p.edges.filter((edge) => edge.kind === 'unknown');
     this.mergeLabelNodes = p.nodes.filter((node) => node.isMerge && node.mergeVolume >= 6);
     this.mergeCount = p.stats.merges;
+    // Depth by lane distance; see `laneFade`.
+    const NEAR = 5;
+    const SPREAD = 70;
+    const FLOOR = 0.17;
+    const fade = new Float32Array(p.threads.length);
+    for (let i = 0; i < p.threads.length; i++) {
+      const th = p.threads[i]!;
+      const depth = Math.abs(th.lane);
+      fade[i] = th.role === 'primary' && i === 0
+        ? 1
+        : Math.max(FLOOR, Math.min(1, 1 - (depth - NEAR) / SPREAD));
+    }
+    this.laneFade = fade;
     this.taggedNodes = p.nodes.filter((node) => node.tagLabels.length > 0);
     const nameAnonymousThreads = p.stats.threads <= 40;
     this.labelThreads = p.threads.filter((thread) => thread.role !== 'primary' && (!!thread.label || nameAnonymousThreads));
@@ -1697,10 +1734,29 @@ export class StageRenderer {
     // last commit is, which is exactly where a band that insists on seven
     // tenths across would drag the camera away from. Two rules composing into
     // a shot neither of them asked for.
+    //
+    // Moved from 0.6-0.7 to 0.86-0.94, which is the viewer's "it shouldn't go
+    // past the main" answered with the camera rather than with the layout.
+    //
+    // The band was calibrated when merge strokes were revealed ahead of the
+    // clock, so the right third of the frame was full of work that turned out
+    // not to exist (`reviews/strokes-in-the-future.md`). With that fixed,
+    // bright ink stopped at 65-67% of the width and the remaining third was
+    // empty on every entry sampled. Meanwhile what *does* legitimately sit
+    // right of main's head is tens of nodes on two of twelve entries — 85 on
+    // Linux at a quarter through, 20 on Rust, and 0-2 everywhere else.
+    //
+    // So the composition was reserving a third of the stage for almost
+    // nothing, and the little there was is the thing the viewer did not want
+    // to see. Holding the head near the right edge spends that third on
+    // history instead. No commit moves and nothing is withheld from the plan:
+    // work that has happened and not yet merged is simply off-frame until main
+    // absorbs it. That is a real loss and the reason this is "for now" — the
+    // in-flight state is the most interesting thing a branch does.
     const head = bounds ? null : this.spineTip(t);
     if (head && this.view.scale > 0) {
-      const lo = this.width * 0.6;
-      const hi = this.width * 0.7;
+      const lo = this.width * 0.86;
+      const hi = this.width * 0.94;
       const sx = this.worldToScreen(head.x, head.y).x;
       if (sx < lo || sx > hi) this.view.cx += (sx - (sx < lo ? lo : hi)) / this.view.scale;
     }
@@ -1722,6 +1778,24 @@ export class StageRenderer {
    * so the eased reveal and the linear interpolation differ by a pixel or two
    * at most — far less than the tens of pixels of error being corrected.
    */
+  /**
+   * Main's newest *landed commit*, as a node.
+   *
+   * `spineTip` returns the drawn end of the stroke, which is interpolated
+   * mid-travel and has no impact on it. The frontier needs the commit, because
+   * the question it answers is "what has main actually received".
+   */
+  private spineHeadNode(t: number): NodeGeom | null {
+    const p = this.perf;
+    const spine = p?.threads[0];
+    if (!p || !spine) return null;
+    for (let i = spine.nodeIdxs.length - 1; i >= 0; i--) {
+      const nd = p.nodes[spine.nodeIdxs[i]!];
+      if (nd && nd.impact <= t + 0.001) return nd;
+    }
+    return null;
+  }
+
   private spineTip(t: number): { x: number; y: number } | null {
     const p = this.perf;
     const spine = p?.threads[0];
@@ -1983,9 +2057,40 @@ export class StageRenderer {
       glow.translate(-v.cx, -v.cy);
     }
 
-    // Where the present is, in world units, for the stroke clip in
-    // `drawPolyline`. Once a frame rather than per edge: it depends only on t.
+    /**
+     * The frontier: nothing is drawn right of this, in world units.
+     *
+     * Two bounds, and the nearer one wins.
+     *
+     * The playhead, because nothing may be drawn before it happens. That is
+     * the invariant, it is not negotiable, and `travelEase` plus the clip in
+     * `drawPolyline` are what hold it.
+     *
+     * And **main's newest commit**, because a viewer asked that nothing ever
+     * appear past MASTER and a camera band cannot promise it. Holding the head
+     * near the right edge leaves 6-14% of the frame beyond it, which is where
+     * the overhang then sits — 85 nodes on Linux a quarter of the way in, 20
+     * on Rust, 0-2 on the other ten entries. A band makes it rare. A clip
+     * makes it impossible, and "make sure nothing is ever past the MASTER" is
+     * a request for the second.
+     *
+     * What this costs, stated plainly because it is not free: work that has
+     * happened and has not been merged is no longer drawn. It is the most
+     * interesting state a branch can be in — the open pull request — and it is
+     * the one thing this app could show that a topological tool cannot. Every
+     * node it hides is real and, measured on all twelve entries, every single
+     * one belongs to a thread that does eventually merge. They appear when the
+     * merge lands, which is a delay rather than an omission, but a viewer
+     * cannot tell those apart from inside one frame.
+     *
+     * `MAIN_FRONTIER` is the switch. On, per the request; off restores the
+     * playhead as the only bound.
+     */
     this.presentX = this.xAtTime(t) ?? Infinity;
+    if (MAIN_FRONTIER) {
+      const mainHead = this.spineHeadNode(t);
+      if (mainHead) this.presentX = Math.min(this.presentX, mainHead.x);
+    }
 
     // Where the history-sweep light is right now: a slow pass over everything
     // that has already been drawn, repeating every twelve seconds.
@@ -2058,6 +2163,9 @@ export class StageRenderer {
       if (nd.x > vx1) break;
       nodesWalked++;
       if (nd.impact > t + 0.001) continue;
+      // The frontier, for dots. Strokes are clipped inside `drawPolyline`;
+      // a node is all-or-nothing and is dropped here.
+      if (nd.x > this.presentX) continue;
       if (nd.y < vy0 || nd.y > vy1) continue;
       nodesDrawn++;
       this.drawNode(ctx, useGlow ? glow : null, nd, t, ripples, ivory, slate, focusIdx);
@@ -2477,6 +2585,10 @@ export class StageRenderer {
     const threadSel = this.settings.selectedThread;
     const selected = threadSel != null && e.threadIdx === threadSel;
     let alpha = this.settledAlpha(e, t) * (selected ? 1 : dim);
+    // Depth. Not applied to a selected thread or a focused contributor: asking
+    // for one of those is asking to follow it through the crowd, and dimming
+    // the thing that was asked for is the opposite of an answer.
+    if (!selected) alpha *= this.laneFade[e.threadIdx] ?? 1;
     if (focusIdx >= 0 && (e.contributorIdx === focusIdx || e.fromContributorIdx === focusIdx)) alpha = Math.max(alpha, 0.85);
     const lw = 1 / Math.sqrt(this.view.scale);
     if (e.kind === 'unknown') {
