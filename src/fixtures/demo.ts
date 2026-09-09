@@ -111,5 +111,5 @@ export function buildDemoDataset(): Dataset {
   s.commit('docs/site', 'docs-nav', ines, { days: 2, message: 'Navigation for the docs site' });
   s.keep('docs/site');
 
-  return s.build({ description: 'Built-in synthetic performance — no network required.', owner: 'gittimeline' });
+  return s.build({ description: 'Built-in synthetic performance, no network required.', owner: 'gittimeline' });
 }

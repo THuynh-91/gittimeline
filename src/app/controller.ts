@@ -1648,7 +1648,7 @@ async function confirmStillPublic(repo: RepoRef): Promise<void> {
   showLanding();
   store.banner.value = {
     kind: 'offline',
-    message: `${repo.slug} is no longer readable with this connection — it may have been made private or removed. The copy this device had kept has been deleted.`,
+    message: `${repo.slug} is no longer readable with this connection. It may have been made private or removed. The copy this device had kept has been deleted.`,
   };
 }
 
@@ -1689,7 +1689,7 @@ export async function loadRepo(input: string, opts: { autoplay?: boolean; tip?: 
       // spends exactly one, to ask whether this is still a history we may
       // hold. Worth saying rather than rounding to nothing, because the
       // sentence is a claim about somebody's rate limit.
-      if (perf) toast(`Loaded from your last visit — one request, to check it is still readable.`);
+      if (perf) toast(`Loaded from your last visit. One request, to check it is still readable.`);
       return;
     }
   }
@@ -1940,7 +1940,7 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
     if (ready?.matches) {
       lastRepo = null;
       loadPerformance(ready.perf, null, { autoplay: true, outcome: 'artifact', isDemo: false, span });
-      toast(`${label} — fetched and composed ahead of time`);
+      toast(`${label}: fetched and composed ahead of time`);
       void hydrateInspectorDataset(r, ready.dataset);
       return;
     }
@@ -1966,7 +1966,7 @@ export async function loadCatalogEntry(file: string, label: string, span: SpanCh
     if (run?.id !== r.id) return;
     lastRepo = null;
     await compileAndLoad(r, dataset, { autoplay: true, outcome: 'artifact', isDemo: false, span });
-    toast(`${label} — fetched ahead of time, no requests used`);
+    toast(`${label}: fetched ahead of time, no requests used`);
   } catch (err) {
     if (run?.id !== r.id) return;
     fail({
@@ -2254,7 +2254,7 @@ export function toggleAutoCamera() {
     updateSettings({ autoCamera: true });
     store.manualCamera.value = false;
     store.cameraLocked.value = true;
-    toast('Following at your zoom level — press C again for auto framing');
+    toast('Following at your zoom level. Press C again for auto framing');
     return;
   }
   if (renderer.zoomLock != null) {
@@ -2269,7 +2269,7 @@ export function toggleAutoCamera() {
   updateSettings({ autoCamera: false });
   store.manualCamera.value = true;
   store.cameraLocked.value = false;
-  toast('Free look — drag to pan, wheel to zoom, C to follow at this zoom');
+  toast('Free look: drag to pan, wheel to zoom, C to follow at this zoom');
 }
 
 export function toggleReducedMotion() {
@@ -2536,7 +2536,7 @@ export async function copyShareLink() {
     await navigator.clipboard.writeText(link);
     toast('Link copied');
   } catch {
-    toast('Copy failed — the link is shown in the Share panel');
+    toast('Copy failed. The link is shown in the Share panel');
   }
   return link;
 }
@@ -2575,7 +2575,7 @@ export function exportTranscript() {
   // threw and left the button doing nothing at all.
   const perf = store.perf.value;
   if (!perf) return;
-  const text = [`# ${perf.source.owner}/${perf.source.name} — GitTimeline transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');
+  const text = [`# ${perf.source.owner}/${perf.source.name}: GitTimeline transcript`, '', perf.coverage.summary, '', ...perf.transcript].join('\n');
   downloadBlob(new Blob([text], { type: 'text/markdown' }), `${perf.source.owner}-${perf.source.name}-transcript.md`);
   toast('Transcript saved');
 }
@@ -2624,7 +2624,7 @@ export function toggleRecording() {
   };
   recorder.start(250);
   store.recording.value = true;
-  toast('Recording — press again to stop');
+  toast('Recording. Press again to stop');
   if (!player.playing) play();
 }
 
@@ -3002,6 +3002,6 @@ export async function boot() {
   // line of code.
   const signIn = claimTokenFromUrl();
   await loadDemo({ autoplay: true, landing: true });
-  if (signIn === 'token') toast('Signed in with GitHub — about 5,000 requests an hour');
+  if (signIn === 'token') toast('Signed in with GitHub: about 5,000 requests an hour');
   else if (signIn === 'failed') toast(SIGN_IN_FAILED, 9000);
 }

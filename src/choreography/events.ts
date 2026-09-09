@@ -466,7 +466,7 @@ function buildTranscript(events: ChoreographyEvent[], ctx: EventContext): string
   for (const ev of events) {
     if (skip.has(ev.type)) continue;
     const when = ev.historicalTime != null ? fmtDate(ev.historicalTime) : '';
-    lines.push(`[${fmtClock(ev.performanceImpact)}] ${when ? when + ' — ' : ''}${ev.caption}`);
+    lines.push(`[${fmtClock(ev.performanceImpact)}] ${when ? when + ': ' : ''}${ev.caption}`);
   }
   if (ctx.boundaryCount > 0) lines.push(`Coverage note: ${ctx.boundaryCount} commit${ctx.boundaryCount === 1 ? '' : 's'} have parents that were not loaded; earlier topology is not shown.`);
   return lines;

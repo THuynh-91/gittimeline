@@ -621,7 +621,7 @@ export function compilePerformance(ds: Dataset, opts: CompileOptions, onProgress
   // of the two they are looking at.
   if (tc.impossibleTimestamps.length)
     warnings.push(
-      `${tc.impossibleTimestamps.length} commit${tc.impossibleTimestamps.length === 1 ? '' : 's'} claim a date after this history was read — a broken clock on the machine that wrote them. Each is placed just after its parents instead, rather than dragging every later commit forward with it.`,
+      `${tc.impossibleTimestamps.length} commit${tc.impossibleTimestamps.length === 1 ? '' : 's'} claim a date after this history was read, which is a broken clock on the machine that wrote them. Each is placed just after its parents instead, rather than dragging every later commit forward with it.`,
     );
   if (tc.missingTimestamps.length) warnings.push(`${tc.missingTimestamps.length} commit${tc.missingTimestamps.length === 1 ? '' : 's'} had no timestamp and were placed causally.`);
   if (spine.provenance === 'derived') warnings.push(`Primary spine policy: ${spine.policy} (default branch tip was not available).`);
@@ -692,7 +692,7 @@ function emptyPerformance(ds: Dataset, opts: CompileOptions): CompiledPerformanc
         variant: 'empty',
         effectBudget: 1,
         provenance: 'exact',
-        caption: 'No commits yet — a dormant seed',
+        caption: 'No commits yet, a dormant seed',
       },
     ],
     camera: [

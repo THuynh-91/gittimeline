@@ -149,8 +149,8 @@ export function buildDataset(source: RepositorySource, raw: RawCommitRecord[], r
   // one viewer it was "the full known history from GitHub" — 2,401 commits of
   // a repository that does not exist.
   else if (complete && source.provider !== 'github')
-    summary = `${commits.length.toLocaleString('en-US')} commits — a generated history, not a real repository.`;
-  else if (complete) summary = `${commits.length.toLocaleString('en-US')} commits loaded — the full known history from GitHub.`;
+    summary = `${commits.length.toLocaleString('en-US')} commits, a generated history, not a real repository.`;
+  else if (complete) summary = `${commits.length.toLocaleString('en-US')} commits loaded, the full known history from GitHub.`;
   else if (hints.bounded)
     summary = `${commits.length.toLocaleString('en-US')} recent commits loaded. This build was limited to the newest ${commits.length.toLocaleString('en-US')}${reported && reported > commits.length ? ` of ${reported.toLocaleString('en-US')}` : ''}; earlier topology was not included.`;
   else summary = `${commits.length.toLocaleString('en-US')} recent commits loaded; earlier topology is not yet available${reported && reported > commits.length ? ` (GitHub reports about ${reported.toLocaleString('en-US')})` : ''}.`;
