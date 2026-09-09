@@ -40,3 +40,6 @@ x/
 /*.png
 /debug.log
 /docs/image.png
+
+# Subagent worktrees, created by the harness.
+.claude/

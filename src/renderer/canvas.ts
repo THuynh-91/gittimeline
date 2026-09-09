@@ -2701,18 +2701,36 @@ export class StageRenderer {
        * wanted, and 'high' asks Chromium for a costlier resample that buys
        * nothing here.
        *
-       * The pair read back is 1/4 and 1/8, which is the shallowest pair that
-       * still needs only two halvings. The deeper 1/8 and 1/16 pair was tried
-       * first, on the theory that an N-times bilinear upscale is a tent of
-       * half-width N and so 1/4 was far tighter than the 6 device px being
-       * replaced. Measured against paused frames at fixed clocks the two pairs
-       * are within a percent of each other on every pixel statistic, so the
-       * theory did not show up in the picture and the cheaper pair wins.
+       * The pair read back is 1/4 and 1/8, the shallowest pair that still needs
+       * only two halvings. Against the old blur, on paused frames at fixed
+       * clocks, with **only this file** differing between the two builds:
        *
-       * (The 46% brightening once attributed to the shallow pair was a
-       * measurement fault, not the taps: pixels were being read after a
-       * 240-frame pacing run, so the two builds were photographed at different
-       * moments of the history. See `docs/proposal-frame-budget.md`.)
+       *     landing t=6    lit +2.6%   mean +0.4%   band +1.9%   p99 +5.7%
+       *     landing t=12   lit +1.0%   mean +0.1%   band -0.0%   p99 +4.4%
+       *     landing t=20   lit +4.9%   mean +0.2%   band +0.8%   p99 +1.1%
+       *
+       * The landing is where this matters: it is a sparse fixture on a dark
+       * stage, so the bloom is a large share of the light, and it is the only
+       * route that reads the widest level. On a dense history the bloom is
+       * about 4% of the brightest band and measuring there gates nothing.
+       *
+       * That "only this file" is doing real work, because **three readings of
+       * these taps were wrong before this one and all three failed the same
+       * way** -- comparing builds that differed in more than the bloom:
+       *
+       *   - pixels sampled after a 240-frame pacing run, so the faster build
+       *     was photographed earlier in the history than the slower one. The
+       *     content gap was reported as the bloom brightening 46%.
+       *   - the shallow pair judged against the deep pair using that same
+       *     broken harness, concluding "within a percent". Unfounded, though
+       *     the numbers above now vindicate the shallow pair on its own terms.
+       *   - a baseline built before `fixtures/landing.ts` changed topology, so
+       *     the two builds generated *different histories*. The content gap
+       *     was reported as the bloom dimming the stage 41% to 75%, which
+       *     triggered a revert of a change that was never at fault.
+       *
+       * If you touch these numbers: build the baseline from the current tree
+       * with only `canvas.ts` reverted, and nothing else.
        *
        * Two levels rather than one because a lone bilinear upscale is a tent
        * filter, which shows as a visible square on an isolated bright stroke.
