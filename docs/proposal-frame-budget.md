@@ -261,7 +261,7 @@ explore narrow`, plus lint and 193 unit tests.
 
 ---
 
-# The ladder's dead space does not prevent oscillation
+# The ladder's dead space does not prevent oscillation — WRONG, see below
 
 Written down on review of my own change, before any test reported, because the
 argument in `6151584`'s message is wrong and the commit is not pushed yet.
@@ -314,3 +314,61 @@ Untested as written. A subagent is attacking the current version for exactly
 this, and its answer should be read before this is treated as settled — the
 sequence above is reasoning, not a measurement, and this project has a
 documented habit of reasoning that survived until someone measured it.
+
+
+---
+
+# Retraction: the ladder does settle, for a reason I had not found
+
+The section above is wrong in its conclusion, and it was wrong on a fact I
+could have checked in one grep. A subagent reviewing the change caught it.
+
+**`slowShare` is not driven by the frame-time EMA.** It counts individual
+frames at or above `SLOW_FRAME_SECONDS`, which is **100 ms**, not the 60 ms the
+EMA gate uses:
+
+```ts
+this.slowShare = this.slowShare * 0.9 + (dtReal >= SLOW_FRAME_SECONDS ? 0.1 : 0);
+if (this.framesSeen < 90 || this.slowShare < 0.7 || this.frameEma < 0.06 || this.sinceStep < 30) return;
+```
+
+So the sequence above cannot even start. It opens with "sustained 65 ms
+frames", and a run of uniform 65 ms frames marks *no* frame slow, `slowShare`
+decays towards zero, and the descent never fires. A steady load has to be at
+100 ms to descend at all.
+
+Redo the arithmetic with the right number and the loop closes:
+
+| | |
+|---|---|
+| a steady load that descends sits near | 100 ms |
+| the largest rung, `dpr` 2 to 1, divides frame time by | 4 (exactly, being 4x the pixels against a per-pixel cost) |
+| so it lands near | 25 ms |
+| the climb needs the average at or below | 20 ms |
+| result | **blocked, by 5 ms** |
+
+And empirically, which is what I should have done before writing the section
+above: `x/ladder-osc.mjs` held a steady CPU throttle at 3x, 5x and 7x for 45 s
+each with `dpr` 2 requested, watching the step counters. One or two steps at
+the start of each run and **zero in the last third of every one**. It settles.
+Note the counters only count descents, never climbs, so a device cycling would
+show a rising `dprSteppedDown` for as long as you watched. None did.
+
+## What is worth keeping from the mistake
+
+The margin is real but narrow: 25 against 20, so **a rung worth more than 5x
+would reopen the loop**. That is not a comfortable distance from the 4x rung
+that exists. The largest step ever measured here is giving up the whole glow
+pipeline, 49.0 to 18.5 ms, which is 2.6x.
+
+So the invariant is now a test rather than a paragraph.
+`tests/unit/ladder.test.ts` asserts `SLOW_FRAME_SECONDS / CLIMB_EMA_SECONDS`
+exceeds the largest rung's speedup, and the three constants are exported for
+it. Lowering the slow threshold, raising the climb ceiling, or adding a cheaper
+picture that saves more than 5x now fails a test instead of shipping a stage
+that changes resolution every few seconds.
+
+Two lessons, both already written in this file and both ignored anyway. Check
+the constant before reasoning from it. And measure before writing the
+paragraph, not after: the throttle run that settled the question took four
+minutes, and the wrong section took longer than that to write.

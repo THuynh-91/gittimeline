@@ -249,7 +249,7 @@ function saveLadder(l: EarnedLadder): void {
  * "was this frame capped?" as "is this device struggling?" only worked while
  * the two numbers were the same one.
  */
-const SLOW_FRAME_SECONDS = 0.1;
+export const SLOW_FRAME_SECONDS = 0.1;
 
 /**
  * How much of the closing frame's height the history has to occupy.
@@ -270,7 +270,7 @@ const MIN_TABLEAU_FILL = 0.3;
  * much below that. Reached only by a device that has already given up its
  * second device pixel, the bloom and the dust.
  */
-const MIN_RENDER_SCALE = 0.6;
+export const MIN_RENDER_SCALE = 0.6;
 /**
  * A frame fast enough to count towards climbing back up: two vsyncs at 60 Hz.
  *
@@ -278,7 +278,29 @@ const MIN_RENDER_SCALE = 0.6;
  * is deliberate dead space, so a device sitting between the two neither falls
  * nor climbs and the picture stays put.
  */
-const FAST_FRAME_SECONDS = 0.0334;
+export const FAST_FRAME_SECONDS = 0.0334;
+/**
+ * The frame average a device has to hold to earn a rung back.
+ *
+ * Load-bearing, and by a narrower margin than it looks. Together with
+ * `SLOW_FRAME_SECONDS` this is what stops the ladder oscillating, and the
+ * argument is arithmetic rather than the "dead space between 33 ms and 100 ms"
+ * a commit message once claimed -- that gap only stops one frame satisfying
+ * both tests, and a rung change moves frame time discontinuously across it.
+ *
+ * The real reason: descending needs seven frames in ten at or over
+ * `SLOW_FRAME_SECONDS`, so a steady load that descends is sitting near 100 ms.
+ * The largest rung is `dpr` 2 to 1, which is exactly four times fewer pixels
+ * against a cost that is per-pixel, so it lands near 25 ms. Climbing needs
+ * 20 ms. Blocked, with 5 ms to spare.
+ *
+ * **So a rung that improved frame time by more than 5x would reopen the loop.**
+ * The largest measured is the whole glow pipeline at 2.6x (49.0 to 18.5 ms on
+ * torvalds/linux at 55%). `tests/unit/ladder.test.ts` asserts the ratio, so
+ * lowering `SLOW_FRAME_SECONDS` or adding a bigger step fails a test rather
+ * than shipping a stage that changes resolution every few seconds.
+ */
+export const CLIMB_EMA_SECONDS = 0.02;
 
 /**
  * The widest shot a streamed performance may take, in world units.
@@ -1299,7 +1321,7 @@ export class StageRenderer {
    * flickering between two.
    */
   private climbFrameRate() {
-    if (this.fastShare < 0.9 || this.frameEma > 0.02 || this.sinceStep < 120) return;
+    if (this.fastShare < 0.9 || this.frameEma > CLIMB_EMA_SECONDS || this.sinceStep < 120) return;
     // Resolution last on the way down, so first on the way up.
     if (this.dprEarned < 1) {
       this.dprEarned = this.dprEarned < 0.75 ? 0.75 : 1;
