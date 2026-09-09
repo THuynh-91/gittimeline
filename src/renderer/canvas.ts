@@ -197,6 +197,52 @@ const DUST_COUNT = 90;
 const MIN_LANE_PX = 26;
 
 /**
+ * What the device earned last time, so it does not walk the whole ladder again.
+ *
+ * The ladder needs 90 frames before its first step and 30 between rungs, and
+ * those are frames, not seconds: on a device running the demo at 5 fps that is
+ * 18 s before anything gives and about 30 s to reach the floor. Every load.
+ * Which means the worst half-minute of a weak device's experience is the first
+ * one, every single time, and it is the one that decides whether a visitor
+ * stays.
+ *
+ * Persisting a *floor* on its own would be worse than the problem: one bad
+ * sample -- a compile on the same thread, a background tab, a laptop on
+ * battery -- would degrade the picture permanently, with no way back. So this
+ * lands together with `climbFrameRate`, and the two are a pair. Do not keep
+ * one without the other.
+ */
+const LADDER_KEY = 'gittimeline.ladder.v1';
+
+interface EarnedLadder {
+  dpr: number;
+  quality: Quality;
+}
+
+function loadLadder(): EarnedLadder | null {
+  try {
+    const raw = localStorage.getItem(LADDER_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<EarnedLadder>;
+    const dpr = typeof v.dpr === 'number' && v.dpr >= MIN_RENDER_SCALE && v.dpr <= 2 ? v.dpr : null;
+    const quality = v.quality === 'full' || v.quality === 'reduced' || v.quality === 'minimal' ? v.quality : null;
+    if (dpr == null || quality == null) return null;
+    return { dpr, quality };
+  } catch {
+    // Private mode, or a value written by a different version. Start fresh.
+    return null;
+  }
+}
+
+function saveLadder(l: EarnedLadder): void {
+  try {
+    localStorage.setItem(LADDER_KEY, JSON.stringify(l));
+  } catch {
+    /* private mode */
+  }
+}
+
+/**
  * Slow enough to count against the device: ten frames a second.
  *
  * Its own name because it was once the frame loop's `dt` clamp, and reading
@@ -225,6 +271,14 @@ const MIN_TABLEAU_FILL = 0.3;
  * second device pixel, the bloom and the dust.
  */
 const MIN_RENDER_SCALE = 0.6;
+/**
+ * A frame fast enough to count towards climbing back up: two vsyncs at 60 Hz.
+ *
+ * Not the reciprocal of `SLOW_FRAME_SECONDS`. The gap between 33 ms and 100 ms
+ * is deliberate dead space, so a device sitting between the two neither falls
+ * nor climbs and the picture stays put.
+ */
+const FAST_FRAME_SECONDS = 0.0334;
 
 /**
  * The widest shot a streamed performance may take, in world units.
@@ -488,6 +542,8 @@ export class StageRenderer {
    * most of the time" — and it is robust to one frame going the other way.
    */
   private slowShare = 0;
+  /** The share of recent frames comfortably fast; see `climbFrameRate`. */
+  private fastShare = 0;
   /** Frames since the last step, so the ladder cannot spend two rungs at once. */
   private sinceStep = 0;
   /**
@@ -865,6 +921,13 @@ export class StageRenderer {
     this.glow = document.createElement('canvas');
     this.glowCtx = this.glow.getContext('2d')!;
     this.hasCanvasFilter = 'filter' in ctx;
+    // Start where this device left off rather than optimistically. See
+    // `LADDER_KEY`; the climb below is what makes this safe to remember.
+    const earned = typeof localStorage !== 'undefined' ? loadLadder() : null;
+    if (earned) {
+      this.dprEarned = earned.dpr;
+      this.qualityEarned = earned.quality;
+    }
     // Four levels: 1/4, 1/8, 1/16 and 1/32 of the stage. The first two carry
     // the bloom every frame; the last two are only read for the landing
     // page's wide second pass. At 1600x900 the whole chain is under 40 KB.
@@ -1136,8 +1199,13 @@ export class StageRenderer {
     // stop slow frames turning the show into slow motion, a test written
     // against the old value would have silently stopped counting anything.
     this.slowShare = this.slowShare * 0.9 + (dtReal >= SLOW_FRAME_SECONDS ? 0.1 : 0);
+    // The same shape as `slowShare`, for the other direction. A "fast" frame
+    // is one inside two vsyncs at 60 Hz, which is the point at which the stage
+    // stops reading as a stutter.
+    this.fastShare = this.fastShare * 0.9 + (dtReal <= FAST_FRAME_SECONDS ? 0.1 : 0);
     this.sinceStep++;
     this.framesSeen++;
+    this.climbFrameRate();
     /**
      * Sustained, and about the device rather than the moment.
      *
@@ -1160,6 +1228,7 @@ export class StageRenderer {
     if (this.dpr > 1) {
       this.dprEarned = 1;
       renderProfile.counts.dprSteppedDown++;
+      this.rememberLadder();
       this.resize();
       return;
     }
@@ -1169,6 +1238,7 @@ export class StageRenderer {
     if (next) {
       this.qualityEarned = next;
       renderProfile.counts.qualitySteppedDown++;
+      this.rememberLadder();
       this.resize();
       return;
     }
@@ -1201,6 +1271,48 @@ export class StageRenderer {
     if (under == null) return;
     this.dprEarned = under;
     renderProfile.counts.dprSteppedDown++;
+    this.rememberLadder();
+    this.resize();
+  }
+
+  /** Write the current rung, so the next load starts here. See `LADDER_KEY`. */
+  private rememberLadder() {
+    this.fastShare = 0;
+    if (typeof localStorage === 'undefined') return;
+    saveLadder({ dpr: Number.isFinite(this.dprEarned) ? this.dprEarned : 2, quality: this.qualityEarned });
+  }
+
+  /**
+   * And step back up when the frames say the device can hold more.
+   *
+   * Without this the ladder is one-way, which is wrong twice over. Within a
+   * session a device that improves -- a laptop plugged in, a compile
+   * finishing, twenty other tabs closed -- never gets its picture back. And
+   * across sessions, remembering a rung would make one bad minute permanent,
+   * which is why persistence could not ship without this.
+   *
+   * Deliberately harder to climb than to fall, because a wrong step up is
+   * visible as a stutter while a wrong step down is only a slightly softer
+   * picture: nine tenths of frames comfortably fast, an EMA under 20 ms, and
+   * four times as many frames between rungs as the descent needs. So a device
+   * oscillating at the boundary settles at the lower rung rather than
+   * flickering between two.
+   */
+  private climbFrameRate() {
+    if (this.fastShare < 0.9 || this.frameEma > 0.02 || this.sinceStep < 120) return;
+    // Resolution last on the way down, so first on the way up.
+    if (this.dprEarned < 1) {
+      this.dprEarned = this.dprEarned < 0.75 ? 0.75 : 1;
+    } else if (this.qualityEarned !== 'full') {
+      this.qualityEarned = this.qualityEarned === 'minimal' ? 'reduced' : 'full';
+    } else if (this.dprEarned < 2) {
+      this.dprEarned = 2;
+    } else {
+      return;
+    }
+    this.sinceStep = 0;
+    this.fastShare = 0;
+    this.rememberLadder();
     this.resize();
   }
 

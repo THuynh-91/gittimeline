@@ -3,7 +3,20 @@ name: CI
 on:
   pull_request:
   push:
-    branches-ignore: [main, master]
+    # Every branch, main included.
+    #
+    # This was `branches-ignore: [main, master]`, on the reasoning that a push
+    # to main runs the deploy workflow and its verify job covers the same
+    # ground. It does not: deploy's verify runs lint, typecheck, `npm test` and
+    # a single grepped Chromium test, so nothing on main ever ran the Firefox
+    # or WebKit suites, and a WebKit-only defect could reach the live site with
+    # a green tick beside it. That is not hypothetical -- WebKit does not
+    # implement canvas `ctx.filter`, and the bloom rewrite cost it 11% before
+    # anyone measured it.
+    #
+    # It also means a direct push to main, which is how this repository is
+    # actually worked on, had no gate at all.
+    branches: ['**']
 
 permissions:
   contents: read
@@ -48,8 +61,20 @@ jobs:
         working-directory: worker
         run: npm test
       - run: npm run build
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      # All three engines, because the config asks for all three.
+      #
+      # This installed chromium only while `npm run test:e2e` runs the
+      # chromium, firefox and webkit projects, so every Firefox and WebKit test
+      # failed in three or four milliseconds on a missing executable. The
+      # cross-engine coverage this repository believes it has has never once
+      # run. Checked on run 34275999716: 100-odd instant failures, all of them
+      # firefox or webkit.
+      #
+      # Two engines' worth of extra install time is the price of the two
+      # engines' worth of coverage, and WebKit is Safari and every browser on
+      # iOS, which is not a rounding error in an audience.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
       - name: Browser tests against the built output
         run: npm run test:e2e
         env:

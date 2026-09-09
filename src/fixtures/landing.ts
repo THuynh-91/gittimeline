@@ -71,6 +71,25 @@ export function buildLandingDataset(seed: string): Dataset {
   // The main line always exists; side branches come and go around it.
   s.commit('main', id('c'), CAST[0]!, { message: 'Initial commit' });
 
+  /**
+   * `phase` and `period` are what stop this reading as a Gantt chart.
+   *
+   * A review of the landing: "it reads as a Gantt chart". It did, and the
+   * reason was structural rather than cosmetic. Every branch opened from
+   * `main` and merged back to `main`, so the topology was a star, and every
+   * open branch committed on about two steps in three, so each one drew an
+   * unbroken horizontal bar in its own lane. Parallel bars in rows, nothing
+   * crossing: that is a Gantt chart, drawn correctly.
+   *
+   * Two changes, each producing something a star cannot: a branch may be cut
+   * from another open branch, so lines have depth and cross; and a branch may
+   * land in another branch rather than in `main`, so merges are not all one
+   * diagonal into one lane.
+   *
+   * A third change was tried and reverted: making the work bursty rather than
+   * uniform. It broke up the bars by emptying the stage, which is the wrong
+   * trade; the measurement is in the loop below.
+   */
   interface Open { name: string; commits: number; owner: Persona; opened: number }
   const open: Open[] = [];
   let mainOwner = CAST[0]!;
@@ -90,7 +109,12 @@ export function buildLandingDataset(seed: string): Dataset {
     // to give the camera a box with any height to it.
     if (width < 14 && r('open') < 0.55 - width * 0.03) {
       const name = `${pick(KINDS, `k${step}`)}/${pick(AREAS, `a${step}`)}-${step}`;
-      s.branch(name, 'main');
+      // A third of branches are cut from another open branch rather than from
+      // `main`. This is the one change that gives the picture depth: a branch
+      // of a branch has to merge home through its parent, so its line crosses
+      // lanes on the way rather than running straight back to the spine.
+      const host = open.length && r('nest') < 0.34 ? pick(open, `host${step}`) : null;
+      s.branch(name, host ? host.name : 'main');
       open.push({ name, commits: 0, owner: pick(CAST, `o${step}`), opened: step });
     }
 
@@ -110,6 +134,21 @@ export function buildLandingDataset(seed: string): Dataset {
 
     for (const b of open) {
       if (used >= COMMITS) break;
+      /**
+       * Uniform, and that is deliberate after trying the alternative.
+       *
+       * Making the work bursty -- a branch busy for part of a cycle and quiet
+       * for the rest -- was the obvious answer to "it reads as bars", and it
+       * was measured and reverted. Lit pixels on the landing at 32 s fell from
+       * 2.54% to 0.74% and the share of rows carrying any ink from 22% to 11%:
+       * it did break the bars up, by emptying the stage. That undoes the
+       * deliberate work recorded above this loop, which widened the picture to
+       * fourteen lanes precisely so the camera had a box with height to it.
+       *
+       * A starved picture is more Gantt-like, not less, because what is left
+       * is the few longest lines. So the volume stays and the *topology*
+       * carries the change: see `nest` above and `side` below.
+       */
       if (r(`w${b.name}`) > 0.62) continue;
       s.commit(b.name, id('c'), b.owner, { days: 0.2 + r(`bd${b.name}`) * 0.9, message: subject(used) });
       b.commits++;
@@ -127,14 +166,33 @@ export function buildLandingDataset(seed: string): Dataset {
       const taking = octopus ? ripe.slice(0, 3) : [ripe[0]!];
       for (const b of taking) s.keep(b.name);
       const target = octopus ? taking.map((b) => b.name) : taking[0]!.name;
-      const label = octopus ? `Merge ${taking.length} branches` : `Merge ${taking[0]!.name}`;
+      /**
+       * Not always into `main`.
+       *
+       * A single branch sometimes lands in another open branch instead, which
+       * is how work actually converges in a repository of any size: a feature
+       * collects its parts before the whole thing goes home. On the stage it
+       * is the difference between every merge being one diagonal into the
+       * spine and merges happening out in the branches, which is most of what
+       * makes a graph look like a graph.
+       *
+       * Octopuses still go to `main` -- three branches converging is the
+       * biggest gesture the motion language has and it belongs on the line
+       * everybody is watching.
+       */
+      const others = open.filter((b) => !taking.includes(b) && b.commits >= 1);
+      const into = !octopus && others.length && r('side') < 0.28 ? pick(others, `into${step}`) : null;
+      const label = octopus
+        ? `Merge ${taking.length} branches`
+        : `Merge ${taking[0]!.name}${into ? ` into ${into.name}` : ''}`;
       const mergeId = id('m');
-      s.merge('main', target, mergeId, mainOwner, { days: 0.4 + r('md') * 0.8, message: label });
+      s.merge(into ? into.name : 'main', target, mergeId, into ? into.owner : mainOwner, { days: 0.4 + r('md') * 0.8, message: label });
       used++;
+      if (into) into.commits++;
       for (const b of taking) open.splice(open.indexOf(b), 1);
 
       // Tags land on merges, which is where releases really land.
-      if (r('tag') < 0.22) s.tag(`v0.${nextTag++}.0`, mergeId);
+      if (!into && r('tag') < 0.22) s.tag(`v0.${nextTag++}.0`, mergeId);
     }
   }
 
