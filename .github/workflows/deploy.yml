@@ -44,7 +44,18 @@ jobs:
         run: npm test
       - run: node --test scripts/catalog-release.test.mjs
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        # `--with-deps` runs `apt-get`, and a package-mirror hiccup on the
+        # runner should not be able to block a deploy. On 2026-09-09 it did:
+        # two consecutive runs failed with "Some index files failed to
+        # download" and a hash mismatch on the Ubuntu index, exiting 100
+        # before a single test ran, and the live site went stale behind it.
+        #
+        # The fallback installs the browser without touching apt. GitHub's
+        # ubuntu-latest image already carries Playwright's system libraries,
+        # so this normally changes nothing -- and if a library really is
+        # missing the browser fails to launch and the tests say so, which is a
+        # loud failure rather than a silent one.
+        run: npx playwright install --with-deps chromium || npx playwright install chromium
       - name: Smoke-test a root-path build
         # The browser tests address the site at "/", so they run against a
         # default build; the Pages build follows once they pass.

@@ -332,7 +332,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium || npx playwright install chromium
 
       - name: Free disk space
         # A full shelf is 982 MB of histories and plans, and `vite build` copies
