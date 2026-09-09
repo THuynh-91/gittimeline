@@ -581,6 +581,79 @@ export function detachCanvas() {
 
 export function resizeRenderer() {
   renderer?.resize();
+  watchPageChrome();
+  measureSafeInsets();
+}
+
+let chromeRO: ResizeObserver | null = null;
+let watchedBand: Element | null = null;
+let watchedTop: Element | null = null;
+
+/**
+ * Watch the page's chrome for size changes, and re-attach when it remounts.
+ *
+ * Observing the canvas is not enough, and the reason is the defect itself:
+ * `.stage` is inset by `var(--band)`, the stylesheet's *variable*, while
+ * `.band` is `min-height: var(--band)` and grows to hold its contents. So the
+ * band can be 239 px while the stage is inset by 150 and the canvas never
+ * resizes at all. That gap is exactly the strip of page controls history was
+ * being drawn onto.
+ *
+ * Idempotent, and called on every Stage render, because the band unmounts
+ * between the landing and the player and one observer installed on mount goes
+ * stale on the first navigation.
+ */
+export function watchPageChrome() {
+  const band = document.querySelector('.band');
+  const top = document.querySelector('.topbar, .sitebar');
+  if (band === watchedBand && top === watchedTop) return;
+  watchedBand = band;
+  watchedTop = top;
+  chromeRO?.disconnect();
+  if (!band && !top) {
+    chromeRO = null;
+    return;
+  }
+  chromeRO = new ResizeObserver(() => measureSafeInsets());
+  if (band) chromeRO.observe(band);
+  if (top) chromeRO.observe(top);
+  measureSafeInsets();
+}
+
+/**
+ * Hand the renderer the page's real chrome heights instead of a constant.
+ *
+ * `Renderer.settings.safe` is documented as "screen-space safe insets (top
+ * chrome, bottom timeline)" and nothing ever set it, so its defaults *were*
+ * the value: 56 and 199, both measured off a real page at eight window shapes
+ * and both therefore wrong somewhere else. `.band` is a column that grows to
+ * hold its contents, so it is 241 px with the transport showing, about 103 px
+ * with the controls hidden, and 124 px at the narrow breakpoint where
+ * `--band` changes. The old 199 under-reserved in the first case, which put
+ * history on the page's own pills, and over-reserved in the other two.
+ *
+ * Measured rather than read from `--band`, which is a `min-height`: the
+ * earlier attempt took 150 from the stylesheet and was 91 px short.
+ *
+ * Falls back to leaving `safe` alone if the elements are not mounted, so the
+ * poster route and the tests that construct a renderer without a page keep
+ * the documented defaults.
+ */
+function measureSafeInsets() {
+  if (!renderer) return;
+  const band = document.querySelector('.band');
+  const top = document.querySelector('.topbar, .sitebar');
+  const bandH = band ? Math.round(band.getBoundingClientRect().height) : null;
+  const topH = top ? Math.round(top.getBoundingClientRect().height) : null;
+  if (bandH == null && topH == null) return;
+  const cur = renderer.settings.safe;
+  const next = {
+    ...cur,
+    ...(topH != null && topH > 0 ? { top: topH } : {}),
+    ...(bandH != null && bandH > 0 ? { bottom: bandH } : {}),
+  };
+  if (next.top === cur.top && next.bottom === cur.bottom) return;
+  renderer.settings = { ...renderer.settings, safe: next };
 }
 
 export function getRenderer(): StageRenderer | null {
@@ -2903,6 +2976,16 @@ export function installDebugHook() {
     },
     get catalogIsRemote() {
       return externalCatalog;
+    },
+    /**
+     * The safe insets the renderer is composing inside.
+     *
+     * Exposed because these used to be constants nothing ever set, and the
+     * only way to catch that they have drifted from the page again is to
+     * compare them against `.band` and `.topbar` from a test.
+     */
+    get safeInsets() {
+      return renderer ? { ...renderer.settings.safe } : null;
     },
     /** Where the MAIN nameplate was drawn last frame. */
     get spineLabel() {

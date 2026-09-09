@@ -38,6 +38,8 @@ declare global {
       bodies(): Array<{ edge: number; kind: string; body: string; thread: number; contributor: number; progress: number; x: number; y: number }>;
       events(type?: string): Array<{ type: string; impact: number; start: number; end: number; caption: string }>;
       spineLabel: { x: number; y: number } | null;
+      /** What the renderer thinks the page's chrome occupies. */
+      safeInsets: { top: number; bottom: number; left: number; right: number } | null;
       presentMark: { nowX: number; tipX: number; tipY: number } | null;
       /** See `StageRenderer.presentAudit`. Only the fields tests read. */
       presentAudit(): {

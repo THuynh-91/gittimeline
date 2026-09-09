@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { store } from './store';
-import { attachCanvas, detachCanvas, resizeRenderer, pickAt, selectNode, hoverNode, panCamera, zoomCamera, getRenderer } from './controller';
+import { attachCanvas, detachCanvas, resizeRenderer, watchPageChrome, pickAt, selectNode, hoverNode, panCamera, zoomCamera, getRenderer } from './controller';
 import { renderPosterSvg } from '@/renderer/poster';
 
 /** The stage: a single canvas, pointer interactions, and the poster fallback. */
@@ -28,6 +28,15 @@ function CanvasStage() {
       detachCanvas();
     };
   }, []);
+
+  // No dependency list on purpose. The date band unmounts between the landing
+  // and the player, so the observer keeping the renderer's safe insets honest
+  // has to be re-attached after any render that could have swapped it.
+  // `watchPageChrome` compares the elements it already holds and returns on a
+  // pointer check when nothing moved.
+  useEffect(() => {
+    watchPageChrome();
+  });
 
   const local = (e: PointerEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
