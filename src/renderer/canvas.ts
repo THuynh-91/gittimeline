@@ -325,6 +325,26 @@ export class StageRenderer {
    */
   private mips: HTMLCanvasElement[] = [];
   private mipCtxs: CanvasRenderingContext2D[] = [];
+  /**
+   * Whether this engine implements canvas `ctx.filter`, and therefore whether
+   * it was ever paying for the blur this replaced.
+   *
+   * WebKit does not: `'filter' in ctx` is false, and it silently accepted the
+   * assignment while ignoring it. So Safari -- and every browser on iOS and
+   * iPadOS, which Apple requires to use WebKit -- has never seen a blurred
+   * bloom. It composited the glow layer hard-edged for one cheap `drawImage`.
+   *
+   * That makes the mip chain pure added cost there rather than a replacement,
+   * and it measured as one: 36.9 -> 32.7 fps over three interleaved rounds.
+   * Suppressing one of the two upscale taps put it back to 38.2 against the
+   * old build's 38.2, to the tenth. So an engine that never had the filter
+   * gets a single tap: the same frame rate it had before, and a real spread of
+   * light where before there was none.
+   *
+   * Feature-detected rather than sniffed, because the question really is "does
+   * this engine support the filter" and not "which browser is this".
+   */
+  private readonly hasCanvasFilter: boolean;
   private perf: CompiledPerformance | null = null;
   private edgeBounds: Float32Array = new Float32Array(0);
   private edgeBuckets: number[][] = [];
@@ -844,6 +864,7 @@ export class StageRenderer {
     this.ctx = ctx;
     this.glow = document.createElement('canvas');
     this.glowCtx = this.glow.getContext('2d')!;
+    this.hasCanvasFilter = 'filter' in ctx;
     // Four levels: 1/4, 1/8, 1/16 and 1/32 of the stage. The first two carry
     // the bloom every frame; the last two are only read for the landing
     // page's wide second pass. At 1600x900 the whole chain is under 40 KB.
@@ -2546,14 +2567,18 @@ export class StageRenderer {
        * wanted, and 'high' asks Chromium for a costlier resample that buys
        * nothing here.
        *
-       * The pair read back is 1/8 and 1/16, not 1/4 and 1/8, and that was
-       * measured rather than guessed. An N-times bilinear upscale is a tent of
-       * half-width N, near enough a Gaussian of sigma N/sqrt(6); against the
-       * 6 device px this replaces, 1/4 and 1/8 are sigma 1.6 and 3.3, both far
-       * too tight. Shipping them raised the brightest horizontal band 46% and
-       * the lit share 43% while the stage mean moved only 8%, which is the
-       * signature of light concentrated rather than added. 1/8 and 1/16 are
-       * sigma 3.3 and 6.5, which brackets it.
+       * The pair read back is 1/4 and 1/8, which is the shallowest pair that
+       * still needs only two halvings. The deeper 1/8 and 1/16 pair was tried
+       * first, on the theory that an N-times bilinear upscale is a tent of
+       * half-width N and so 1/4 was far tighter than the 6 device px being
+       * replaced. Measured against paused frames at fixed clocks the two pairs
+       * are within a percent of each other on every pixel statistic, so the
+       * theory did not show up in the picture and the cheaper pair wins.
+       *
+       * (The 46% brightening once attributed to the shallow pair was a
+       * measurement fault, not the taps: pixels were being read after a
+       * 240-frame pacing run, so the two builds were photographed at different
+       * moments of the history. See `docs/proposal-frame-budget.md`.)
        *
        * Two levels rather than one because a lone bilinear upscale is a tent
        * filter, which shows as a visible square on an isolated bright stroke.
@@ -2563,8 +2588,15 @@ export class StageRenderer {
         const src: HTMLCanvasElement = i === 0 ? this.glow : this.mips[i - 1]!;
         m.globalCompositeOperation = 'copy';
         m.drawImage(src, 0, 0, src.width, src.height, 0, 0, this.mips[i]!.width, this.mips[i]!.height);
-        // Only the landing page's wide pass reads below 1/16, so stop there.
-        if (i === 2 && !this.shopWindow) break;
+        // Only the landing page's wide pass reads below 1/8, so stop there.
+        //
+        // Every level is a `drawImage`, and on an engine that was never paying
+        // for the filter at all those draws are pure added cost -- WebKit does
+        // not implement canvas `ctx.filter` (`'filter' in ctx` is false), so it
+        // used to composite this layer hard-edged for one cheap draw. Three
+        // halvings plus two upscales measured 36.5 -> 32.0 fps there over three
+        // interleaved rounds. Two halvings is four draws rather than five.
+        if (i === 1 && !this.shopWindow) break;
       }
       // Not `* this.energy`. The strokes that fill this buffer are already
       // scaled by it, so scaling the composite too made the blurred light go
@@ -2587,10 +2619,19 @@ export class StageRenderer {
        */
       const tight = this.settings.noFlash ? 0.34 : 0.52;
       const wide = this.settings.noFlash ? 0.21 : 0.33;
-      ctx.globalAlpha = tight;
-      ctx.drawImage(this.mips[1]!, 0, 0, this.mips[1]!.width, this.mips[1]!.height, 0, 0, this.canvas.width, this.canvas.height);
-      ctx.globalAlpha = wide;
-      ctx.drawImage(this.mips[2]!, 0, 0, this.mips[2]!.width, this.mips[2]!.height, 0, 0, this.canvas.width, this.canvas.height);
+      if (this.hasCanvasFilter) {
+        ctx.globalAlpha = tight;
+        ctx.drawImage(this.mips[0]!, 0, 0, this.mips[0]!.width, this.mips[0]!.height, 0, 0, this.canvas.width, this.canvas.height);
+        ctx.globalAlpha = wide;
+        ctx.drawImage(this.mips[1]!, 0, 0, this.mips[1]!.width, this.mips[1]!.height, 0, 0, this.canvas.width, this.canvas.height);
+      } else {
+        // One tap, carrying the light of both, from the wider level so the
+        // single tent spreads rather than sitting tight on the stroke. See
+        // `hasCanvasFilter`: two taps cost this engine 11% for a softer
+        // falloff it has never had, and one costs it nothing.
+        ctx.globalAlpha = tight + wide;
+        ctx.drawImage(this.mips[1]!, 0, 0, this.mips[1]!.width, this.mips[1]!.height, 0, 0, this.canvas.width, this.canvas.height);
+      }
       if (this.shopWindow) {
         // A second, wider pass of the same light, so the picture reads as one
         // scene rather than a scatter of bright strokes. It was twice this
