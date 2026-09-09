@@ -1,6 +1,8 @@
 # Travelling a finished performance changes zoom on WebKit
 
-**Status:** open, pre-existing, WebKit only. Dated 2026-09-09.
+**Status:** CLOSED 2026-09-09, incidentally, by moving the head band to the
+middle of the frame. Was pre-existing and WebKit only. Kept because the cause
+was never actually identified and it could return.
 **Test:** `tests/e2e/explore.spec.ts:12` — "a slider appears when the
 performance ends and pans without changing zoom".
 
@@ -70,3 +72,41 @@ on real elapsed time), and `zoomLocked` not being honoured on the WebKit path.
 Until then `main` is red on this one test, deliberately and with this note
 rather than by being quarantined, because a skipped test on the engine every
 iPhone uses is worse than a red tick that says what is wrong.
+
+
+---
+
+# Closed, by accident, and the cause is still unknown
+
+CI went green on `029d7cd`. The only application change between the last run
+that actually executed tests with this red (`f0dc69d`) and the green one is the
+head band:
+
+```diff
+-      const lo = Math.min(this.width * 0.62, ...);
+-      const hi = Math.max(lo + 40, Math.min(this.width * 0.72, ...));
++      const lo = Math.min(this.width * 0.5,  ...);
++      const hi = Math.max(lo + 40, Math.min(this.width * 0.6,  ...));
+```
+
+That change was made for an unrelated reason -- the owner reported that holding
+the eye at 60-70% across a whole performance is tiring -- and it happens to
+have fixed this. Everything else in between was workflow YAML.
+
+**So the defect is gone and the mechanism was never found.** That is worth
+saying plainly rather than closing this quietly, because a bug fixed by a
+number moving is a bug that can come back when the number moves again, and
+this particular number has now been set four times: 0.6-0.7, 0.82-0.9,
+0.62-0.72, 0.5-0.6.
+
+The shape of it is at least consistent with what was seen. The failure was
+`view.scale` reading 0.743 where it should have held 0.286, a factor of 2.6, on
+a pan at the end of a performance. Both the old band edges (0.62, 0.72) sit
+right of centre and the correction only ever pushes the head to the *near*
+edge, so at 0.62 the camera was working harder against the frame than at 0.5.
+A re-fit that had headroom at 0.5 and none at 0.62 would produce exactly this:
+deterministic, engine-specific, and invisible on the engines with faster
+frames.
+
+Unverified. If the band ever moves right again, run `explore.spec.ts` on
+WebKit in CI before assuming it is still fine.
