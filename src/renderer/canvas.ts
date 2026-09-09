@@ -2168,9 +2168,36 @@ export class StageRenderer {
        * window, where 62% of 700px would put the head 266px from the edge and
        * a 150px caption would be deleted rather than drawn.
        */
+      /**
+       * Towards the middle, on the third and best-argued report about this.
+       *
+       * The band has been 0.6-0.7, then 0.82-0.9, then 0.62-0.72. The reason
+       * to move again is not another preference: **people look at the middle
+       * of a screen, and holding the eye at 62-72% for the length of a
+       * performance is work.** A stage somebody watches for four minutes is
+       * different from one they glance at.
+       *
+       * What made this affordable is a measurement. The band was pushed right
+       * in the first place because the right of the frame was empty -- the
+       * last four twelfths carried 0.00% ink in six of six samples -- and an
+       * empty right edge with the head at the middle would be half a wasted
+       * frame. That is no longer true. On `torvalds/linux` at 1:37, main's
+       * newest commit sits 2,264 world units behind the playhead, because main
+       * went 2.4 s without landing anything while side branches kept
+       * committing. Their commits are genuinely later in time and therefore
+       * genuinely further right, so the space right of main's head carries
+       * real history, not blank stage.
+       *
+       * Which also answers the complaint that arrives with it: "many branches
+       * passing MASTER". They are passing main's newest *commit*, not the
+       * playhead -- `presentAudit` reports 0 edges and 0 nodes past the NOW
+       * rule at that moment. Anchoring the camera at 62% put main's head there
+       * and left the actual frontier at 86%, hard against the right edge,
+       * which is what made it read as things escaping.
+       */
       const RIGHT_ROOM = 200;
-      const lo = Math.min(this.width * 0.62, Math.max(this.width * 0.5, this.width - RIGHT_ROOM));
-      const hi = Math.max(lo + 40, Math.min(this.width * 0.72, this.width - RIGHT_ROOM * 0.55));
+      const lo = Math.min(this.width * 0.5, Math.max(this.width * 0.42, this.width - RIGHT_ROOM));
+      const hi = Math.max(lo + 40, Math.min(this.width * 0.6, this.width - RIGHT_ROOM * 0.55));
       const sx = this.worldToScreen(head.x, head.y).x;
       const want = sx < lo ? (sx - lo) / this.view.scale : sx > hi ? (sx - hi) / this.view.scale : 0;
       /**

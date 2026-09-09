@@ -240,16 +240,42 @@ test.describe('the last frame shows the history it just played', () => {
  * head sits at the band's left edge, so the space to its right is where
  * arriving work is seen coming.
  *
- * So the ink no longer reaches three quarters, by design. Measured on the demo
- * at 1600x900 after the revert: 62.3%, 67.8% and 62.7% at 35%, 60% and 85%.
- * The floor is 0.58, which the head clears at every sample and which still
- * fails if the camera drifts back towards the middle of the frame -- the
- * original complaint this file exists for. The twelfth checked is the eighth
- * (0.583 to 0.667), where the head actually lands.
+ * So the ink no longer reaches three quarters, by design.
  *
- * This is written down rather than deleted because the next person to measure
- * ink per twelfth will find the right of the frame empty and be tempted to
- * "fix" it again. It has been fixed, and then unfixed on purpose.
+ * ---
+ *
+ * **And then it moved again, towards the middle, for a better reason than
+ * either of the first two.**
+ *
+ * The band has been 0.6-0.7, then 0.82-0.9, then 0.62-0.72, and is now
+ * 0.5-0.6. The argument for the middle is not a preference: people look at the
+ * centre of a screen, and holding the eye at 62-72% for the length of a
+ * performance is work. A stage watched for four minutes is a different object
+ * from one glanced at.
+ *
+ * What made it affordable is that the measurement this section is built on has
+ * stopped being true. The right of the frame is no longer empty. On
+ * `torvalds/linux` at 1:37 main's newest commit sits 2,264 world units behind
+ * the playhead, because main went 2.4 s without landing anything while side
+ * branches kept committing -- their commits are later in time and so further
+ * right, and that space carries real history. `presentAudit` confirms 0 edges
+ * and 0 nodes past the NOW rule there, so this is honest topology and not a
+ * leak.
+ *
+ * It also fixed a complaint that arrived with it. Anchoring main at 62% put
+ * the actual frontier at 86% of the width, hard against the right edge, which
+ * read as branches escaping past MASTER. At 0.5-0.6 the same moment puts the
+ * frontier at 74%, and two later samples at 52% and 53%.
+ *
+ * Measured on the demo at 1600x900 after this move: 50.3%, 55.8% and 60%+ at
+ * 35%, 60% and 85%. The floor is 0.46, which every sample clears and which
+ * still fails if the camera drifts back to the left of the frame -- the
+ * original complaint this file exists for. The twelfth checked is the sixth
+ * (0.417 to 0.5), which the head clears at every sample.
+ *
+ * All of this is written down rather than replaced because the next person to
+ * measure ink per twelfth will find the right of the frame underused and be
+ * tempted to push the band right again. That has been done, and undone, twice.
  *
  * Not asserted: `presentAudit().mainHeadScreenX`. That is main's newest
  * *landed commit*, and the camera composes around the drawn end of the stroke,
@@ -296,8 +322,8 @@ test.describe('the frontier reaches the right of the frame', () => {
       });
 
       test.skip(r.inkFrac == null, 'nothing is drawn at this point');
-      expect(r.inkFrac!, `the rightmost lit column is at ${(r.inkFrac! * 100).toFixed(1)}% of the width`).toBeGreaterThan(0.58);
-      expect(r.twelfths[7], `ink in the eighth twelfth of the frame (all twelve: ${r.twelfths.join(',')})`).toBeGreaterThan(0);
+      expect(r.inkFrac!, `the rightmost lit column is at ${(r.inkFrac! * 100).toFixed(1)}% of the width`).toBeGreaterThan(0.46);
+      expect(r.twelfths[5], `ink in the sixth twelfth of the frame (all twelve: ${r.twelfths.join(',')})`).toBeGreaterThan(0);
     });
   }
 });
@@ -433,7 +459,14 @@ test.describe('the page keeps its controls', () => {
     }
 
     const all = JSON.stringify(seen);
-    for (const s of seen) expect(s.anyInk, `the stage is drawing something to keep off the controls at ${s.at} (${all})`).toBeGreaterThan(8000);
+    // 5,000 rather than 8,000, and the drop is the cost of a decision rather
+    // than a fault. The head band moved from 0.62-0.72 to 0.5-0.6 so the eye
+    // is not held at two thirds across for a whole performance -- and history
+    // is drawn to the *left* of the head, so anchoring it at the middle shows
+    // about a fifth less of it. Measured 6,874 lit pixels at 0.4 where the old
+    // framing gave over 8,000. The three assertions below are the ones with
+    // teeth; this only exists so they cannot pass on a blank stage.
+    for (const s of seen) expect(s.anyInk, `the stage is drawing something to keep off the controls at ${s.at} (${all})`).toBeGreaterThan(5000);
     expect(seen.map((s) => s.commits), `lit canvas pixels inside the COMMITS pill (${all})`).toEqual([0, 0, 0]);
     expect(seen.map((s) => s.controls), `lit canvas pixels inside the CONTROLS pill (${all})`).toEqual([0, 0, 0]);
     expect(seen.map((s) => s.belowStage), `lit canvas pixels below the stage, nameplate rows aside (${all})`).toEqual([0, 0, 0]);
