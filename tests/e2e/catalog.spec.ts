@@ -391,8 +391,20 @@ test.describe('pre-fetched catalog', () => {
     // a 200 on it — so this failed as a JSON parse error rather than as a
     // missing file, which is a long way from the cause.
     const index = await page.evaluate(async () => {
-      const r = await fetch(window.__gittimeline.catalogUrl('index.json'));
-      return r.ok ? await r.json() : null;
+      try {
+        const r = await fetch(window.__gittimeline.catalogUrl('index.json'));
+        if (!r.ok) return null;
+        // `r.ok` is not enough, and the comment above says why: static hosting
+        // answers a missing path with the SPA's own `index.html` and a 200, so
+        // `r.json()` *rejects* rather than returning null and the rejection
+        // escapes `page.evaluate` before the skip below can be reached. That is
+        // how this failed the first time CI ever ran it -- CI builds without
+        // collecting the catalog, so the file genuinely is not there, and a
+        // test that means to skip reported a syntax error instead.
+        return await r.json();
+      } catch {
+        return null;
+      }
     });
     if (!index) test.skip(true, 'no catalog built into this bundle');
 

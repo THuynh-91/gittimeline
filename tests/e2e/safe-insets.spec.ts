@@ -49,4 +49,53 @@ test.describe('the stage composes inside the page', () => {
       expect(r.safe!.bottom, 'not the old hard-coded 199').not.toBe(199);
     });
   }
+
+  /**
+   * And the page's furniture cannot re-frame the stage once it has settled.
+   *
+   * The first version of this measurement observed `.band` with a
+   * `ResizeObserver` and followed it forever. The band is a column that grows
+   * to hold its contents and the travel slider is *added to it* when a
+   * performance ends -- so the slider appeared, the insets changed, the camera
+   * re-fitted, and a pan changed zoom. `explore.spec.ts` caught it on WebKit
+   * in CI, scale going 0.286 to 0.743, and only there: the same spec passes on
+   * Chromium and Firefox, so this could not be reproduced locally.
+   *
+   * That test checks the symptom a viewer would notice. This one checks the
+   * mechanism, so the fix cannot be undone quietly by something that happens
+   * to keep the zoom stable.
+   */
+  test('the band growing at the end of a show does not move the insets', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/#demo=1');
+    await waitForReady(page);
+    // Past the settle window, so the insets are locked.
+    await page.waitForTimeout(1600);
+    const before = await page.evaluate(() => ({
+      band: Math.round(document.querySelector('.band')!.getBoundingClientRect().height),
+      safe: window.__gittimeline.safeInsets!.bottom,
+      scale: window.__gittimeline.view?.scale ?? null,
+    }));
+    expect(before.safe, 'insets match the band before the end').toBe(before.band);
+
+    // To the end, where the travel slider is added to the band.
+    await page.evaluate(() => {
+      const g = window.__gittimeline;
+      g.pause();
+      g.seek(g.duration);
+    });
+    await page.waitForTimeout(1200);
+
+    const after = await page.evaluate(() => ({
+      band: Math.round(document.querySelector('.band')!.getBoundingClientRect().height),
+      safe: window.__gittimeline.safeInsets!.bottom,
+      scale: window.__gittimeline.view?.scale ?? null,
+    }));
+
+    // The premise: the band really does grow. If this ever stops being true
+    // the test below is vacuous and should be deleted rather than trusted.
+    expect(after.band, `the band grows when the show ends (${JSON.stringify({ before, after })})`).toBeGreaterThan(before.band);
+    // The invariant: the insets do not follow it.
+    expect(after.safe, `insets stay put (${JSON.stringify({ before, after })})`).toBe(before.safe);
+  });
 });

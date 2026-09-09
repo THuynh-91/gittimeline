@@ -1368,6 +1368,18 @@ export class StageRenderer {
     return this.lastCue;
   }
 
+  /**
+   * The stage's size in CSS pixels.
+   *
+   * Exposed so a caller can key work to the viewport rather than to whatever
+   * the page has just re-laid-out. `measureSafeInsets` needs exactly that: the
+   * insets it reads have to follow the window, and must *not* follow the date
+   * band growing to hold a travel slider while a performance is being watched.
+   */
+  get canvasSize(): { w: number; h: number } {
+    return { w: this.width, h: this.height };
+  }
+
   worldToScreen(x: number, y: number): { x: number; y: number } {
     const v = this.view;
     const dx = x - v.cx;

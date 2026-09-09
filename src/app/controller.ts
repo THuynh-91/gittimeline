@@ -585,38 +585,53 @@ export function resizeRenderer() {
   measureSafeInsets();
 }
 
-let chromeRO: ResizeObserver | null = null;
-let watchedBand: Element | null = null;
-let watchedTop: Element | null = null;
+/**
+ * The canvas size the safe insets were last measured at.
+ *
+ * **The insets are tied to the viewport, not to the band's contents, and that
+ * is the whole correction here.** The first version of this observed `.band`
+ * directly with a `ResizeObserver`, on the reasoning that the band grows past
+ * its own `min-height` while `.stage` is inset by the `--band` variable, so
+ * the canvas never resizes when the band does. All true, and it produced a
+ * regression: the band is a column that grows to hold what is in it, and the
+ * travel slider is *added to it* when a performance ends. So the slider
+ * appeared, the band grew, the insets changed, and the camera re-fitted in the
+ * middle of a pan. `explore.spec.ts` says "pans without changing zoom" and on
+ * WebKit it caught the scale going 0.286 to 0.743.
+ *
+ * Re-measuring only when the backing store changes size keeps the fix -- the
+ * frozen 199 was 40 px short of the band on a desktop and 72 px on a phone --
+ * without letting the page's own controls move the camera while somebody is
+ * using it. The remaining error is over-reserving when a viewer hides the
+ * controls, which is the trade the original comment on `safe` already named as
+ * the better of the two.
+ */
+let insetsMeasuredAt: string | null = null;
+/**
+ * How long after a viewport change the insets may still move.
+ *
+ * One reading is not enough: at the first render that has a `.band` it
+ * measured 205 px and the band settled at 239 once its contents had laid out,
+ * so the stage kept 34 px of the page's controls. Re-reading forever is the
+ * other failure, and worse -- the travel slider is added to the band when a
+ * performance ends, and following that moved the camera mid-pan.
+ *
+ * A second and a bit covers font loading and the key's row wrapping, and
+ * closes long before a performance can finish, so the slider arrives to a
+ * locked value.
+ */
+const INSET_SETTLE_MS = 1200;
+let insetsSettleUntil = 0;
+let insetsTimer: number | null = null;
 
 /**
- * Watch the page's chrome for size changes, and re-attach when it remounts.
+ * Take the page's chrome heights once per viewport size.
  *
- * Observing the canvas is not enough, and the reason is the defect itself:
- * `.stage` is inset by `var(--band)`, the stylesheet's *variable*, while
- * `.band` is `min-height: var(--band)` and grows to hold its contents. So the
- * band can be 239 px while the stage is inset by 150 and the canvas never
- * resizes at all. That gap is exactly the strip of page controls history was
- * being drawn onto.
- *
- * Idempotent, and called on every Stage render, because the band unmounts
- * between the landing and the player and one observer installed on mount goes
- * stale on the first navigation.
+ * Called on every Stage render because the band unmounts between the landing
+ * and the player, so the first render that has one has to be able to measure
+ * it. The size guard makes that a string compare in the common case.
  */
 export function watchPageChrome() {
-  const band = document.querySelector('.band');
-  const top = document.querySelector('.topbar, .sitebar');
-  if (band === watchedBand && top === watchedTop) return;
-  watchedBand = band;
-  watchedTop = top;
-  chromeRO?.disconnect();
-  if (!band && !top) {
-    chromeRO = null;
-    return;
-  }
-  chromeRO = new ResizeObserver(() => measureSafeInsets());
-  if (band) chromeRO.observe(band);
-  if (top) chromeRO.observe(top);
   measureSafeInsets();
 }
 
@@ -641,6 +656,23 @@ export function watchPageChrome() {
  */
 function measureSafeInsets() {
   if (!renderer) return;
+  const size = `${renderer.canvasSize.w}x${renderer.canvasSize.h}`;
+  if (size !== insetsMeasuredAt) {
+    insetsMeasuredAt = size;
+    insetsSettleUntil = Date.now() + INSET_SETTLE_MS;
+  }
+  // Locked. Anything that changes the band's height from here -- the travel
+  // slider appearing at the end of a performance, the key wrapping differently
+  // -- is page furniture and is not allowed to re-frame the stage.
+  if (Date.now() >= insetsSettleUntil) return;
+  // Drive the settle from a timer rather than from renders, since a still
+  // stage does not re-render and would never take a second reading.
+  if (insetsTimer == null) {
+    insetsTimer = window.setTimeout(() => {
+      insetsTimer = null;
+      measureSafeInsets();
+    }, 120);
+  }
   const band = document.querySelector('.band');
   const top = document.querySelector('.topbar, .sitebar');
   const bandH = band ? Math.round(band.getBoundingClientRect().height) : null;
