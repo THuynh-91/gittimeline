@@ -44,17 +44,17 @@ jobs:
         run: npm test
       - run: node --test scripts/catalog-release.test.mjs
       - name: Install Playwright Chromium
-        # `--with-deps` runs `apt-get`, and a package-mirror hiccup on the
-        # runner should not be able to block a deploy. On 2026-09-09 it did:
-        # two consecutive runs failed with "Some index files failed to
-        # download" and a hash mismatch on the Ubuntu index, exiting 100
-        # before a single test ran, and the live site went stale behind it.
+        # Chromium only here, which is why the fallback is safe.
         #
-        # The fallback installs the browser without touching apt. GitHub's
-        # ubuntu-latest image already carries Playwright's system libraries,
-        # so this normally changes nothing -- and if a library really is
-        # missing the browser fails to launch and the tests say so, which is a
-        # loud failure rather than a silent one.
+        # `--with-deps` runs apt-get, and a package-mirror hiccup on the runner
+        # must not be able to block a deploy. On 2026-09-09 it did: two runs
+        # failed with a hash mismatch on the Ubuntu index, exiting 100 before a
+        # single test ran, and the live site sat stale behind it.
+        #
+        # Chromium launches on the bare ubuntu-latest image -- proven, because
+        # the deploy that unblocked this went through the fallback and its
+        # Chromium smoke test passed. WebKit does not, which is why `ci.yml`
+        # retries instead of falling back; see the note there.
         run: npx playwright install --with-deps chromium || npx playwright install chromium
       - name: Smoke-test a root-path build
         # The browser tests address the site at "/", so they run against a

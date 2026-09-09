@@ -74,18 +74,32 @@ jobs:
       # engines' worth of coverage, and WebKit is Safari and every browser on
       # iOS, which is not a rounding error in an audience.
       - name: Install Playwright browsers
-        # `--with-deps` runs `apt-get`, and a package-mirror hiccup on the
-        # runner should not be able to block a deploy. On 2026-09-09 it did:
-        # two consecutive runs failed with "Some index files failed to
-        # download" and a hash mismatch on the Ubuntu index, exiting 100
-        # before a single test ran, and the live site went stale behind it.
+        # Retried, and deliberately NOT falling back to a depless install.
         #
-        # The fallback installs the browser without touching apt. GitHub's
-        # ubuntu-latest image already carries Playwright's system libraries,
-        # so this normally changes nothing -- and if a library really is
-        # missing the browser fails to launch and the tests say so, which is a
-        # loud failure rather than a silent one.
-        run: npx playwright install --with-deps || npx playwright install
+        # `--with-deps` runs apt-get, and on 2026-09-09 the Ubuntu index on
+        # GitHub's runners began answering with a hash mismatch -- "Some index
+        # files failed to download" -- which exited 100 before a single test
+        # ran, twice, ten minutes apart.
+        #
+        # The first attempt at a fix fell back to `playwright install` without
+        # deps. That is fine for Chromium, which runs on the bare runner image,
+        # and useless here: WebKit needs system libraries the image does not
+        # carry, so it could not launch and all thirty-one WebKit tests failed
+        # at once. Thirty-one red tests that say nothing is worse than one red
+        # step that says the installer could not reach a mirror.
+        #
+        # So: three attempts with backoff, and if apt is genuinely down the
+        # step fails and says so.
+        run: |
+          for attempt in 1 2 3; do
+            if npx playwright install --with-deps; then exit 0; fi
+            echo "playwright install failed (attempt $attempt); apt mirrors may be flaky, retrying"
+            sleep $((attempt * 30))
+          done
+          echo "Could not install browsers with system dependencies after three attempts."
+          echo "Not falling back to a dependency-free install: WebKit would fail to launch"
+          echo "and every WebKit test would fail for a reason unrelated to the code."
+          exit 1
       - name: Browser tests against the built output
         run: npm run test:e2e
         env:
