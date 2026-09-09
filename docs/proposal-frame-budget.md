@@ -258,3 +258,59 @@ was re-run at the time:
 
 55 of 55 chromium specs pass across `demo stage present clock fallback muted
 explore narrow`, plus lint and 193 unit tests.
+
+---
+
+# The ladder's dead space does not prevent oscillation
+
+Written down on review of my own change, before any test reported, because the
+argument in `6151584`'s message is wrong and the commit is not pushed yet.
+
+That message claims the gap between the descent threshold (`frameEma >= 0.06`)
+and the climb threshold (`frameEma <= 0.02`) is "dead space, so a device at the
+boundary settles rather than flickering". The two conditions are indeed
+mutually exclusive **at any one instant** — that part is fine, and it does stop
+a single frame from satisfying both.
+
+It does not stop oscillation, because a rung change moves the frame time
+*discontinuously across the dead space*. Stepping `dpr` from 2 to 1 quarters
+the pixel count, and the cost here is per-pixel — that is the whole finding of
+this document. So a device sitting at 65 ms with two device pixels can land at
+18 ms with one. 65 ms satisfies the descent test; 18 ms satisfies the climb
+test. Nothing in the dead space was ever visited.
+
+The sequence, concretely:
+
+1. Sustained 65 ms frames, `slowShare` climbs past 0.7, EMA over 0.06. Step
+   down. `dpr` 2 to 1.
+2. Frames are now 18 ms. `fastShare` climbs past 0.9, EMA under 0.02.
+3. 120 frames later the climb fires. `dpr` back to 2.
+4. Frames are 65 ms again. 30 frames later, back to step 1.
+
+Period is at least 150 frames, so about two and a half seconds at 60 fps and
+longer when the slow half is genuinely slow. That is not a subtle wobble; it is
+the picture visibly changing resolution every few seconds, forever, on exactly
+the mid-range device the ladder exists to help.
+
+The dead space is the right idea applied to the wrong quantity. It guards
+against noise in the *measurement*; it cannot guard against a real
+discontinuity in the *thing measured*.
+
+## What actually closes it
+
+Make each climb cost more evidence than the last, and stop climbing after a
+few. A device that genuinely improved — plugged in, other tabs closed — climbs
+on its first or second attempt and stays. A device whose two rungs straddle the
+thresholds spends its budget in the first minute and then holds the lower rung,
+which is the old one-way behaviour and therefore no worse than before this
+change.
+
+Concretely: `sinceStep >= 120 << climbsSpent` (120, 240, 480 frames) with a cap
+of three climbs per page load. Persistence still means a returning visitor
+starts at the rung the device earned, and a fresh load grants a fresh budget,
+so nothing is permanently stuck on the strength of one bad minute.
+
+Untested as written. A subagent is attacking the current version for exactly
+this, and its answer should be read before this is treated as settled — the
+sequence above is reasoning, not a measurement, and this project has a
+documented habit of reasoning that survived until someone measured it.
