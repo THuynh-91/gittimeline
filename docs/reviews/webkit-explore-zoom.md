@@ -1,8 +1,8 @@
 # Travelling a finished performance changes zoom on WebKit
 
-**Status:** CLOSED 2026-09-09, incidentally, by moving the head band to the
-middle of the frame. Was pre-existing and WebKit only. Kept because the cause
-was never actually identified and it could return.
+**Status:** OPEN and INTERMITTENT on WebKit. Predates 2026-09-09. Was briefly
+recorded as closed by the head-band move; that was wrong, see the correction at
+the end.
 **Test:** `tests/e2e/explore.spec.ts:12` — "a slider appears when the
 performance ends and pans without changing zoom".
 
@@ -110,3 +110,50 @@ frames.
 
 Unverified. If the band ever moves right again, run `explore.spec.ts` on
 WebKit in CI before assuming it is still fine.
+
+
+---
+
+# Correction: it is flaky, and "closed by the band move" was a bad inference
+
+The section above concluded that moving the head band from 0.62-0.72 to 0.5-0.6
+fixed this, on the grounds that CI went green immediately afterwards and the
+band was the only application change in between. That reasoning was wrong, and
+wrong in a way this document already warns about twice.
+
+It failed again on `9baef5a`, a **documentation-only commit**. `git diff --stat
+029d7cd 9baef5a -- src tests` is empty: the application code and the tests are
+byte-identical between the run that passed and the run that failed.
+
+And the run list settles it outright. `64e200b` appears twice, **once
+`success` and once `failure`, on the same SHA**:
+
+```
+9baef5a  failure
+e986780  success
+64e200b  failure     <-- same commit
+64e200b  success     <-- same commit
+605cd3c  failure
+81c34e5  success
+```
+
+So the test is intermittent on Linux WebKit and always was. One green run after
+a change is not evidence that the change fixed anything; it is one sample of a
+coin that lands green sometimes. Attributing it to the band was the same error
+as the three confounded bloom measurements recorded in
+`docs/proposal-frame-budget.md` -- a single observation read as a cause.
+
+**What this does and does not mean.** The failure is real when it happens:
+`view.scale` reads 0.743 where it should hold 0.286 on a pan at the end of a
+performance. It is not a test that is merely slow or racing on a selector. So
+there is a genuine intermittent camera fault on WebKit, and the intermittency
+is a clue rather than an excuse -- something time-dependent decides whether the
+scale is recomputed, which points at `tableauEase`, whose ease runs on real
+elapsed time and would therefore land differently depending on how fast the
+frames were.
+
+That is the thread to pull, and it is now the strongest lead this document has.
+
+**Not quarantined.** A skipped test on the engine every iPhone and iPad uses
+would hide a real fault. Main will show red on some runs until this is fixed,
+and the reason is written here.
