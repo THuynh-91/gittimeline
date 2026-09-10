@@ -1,8 +1,8 @@
 # Travelling a finished performance changes zoom on WebKit
 
-**Status:** OPEN and INTERMITTENT on WebKit. Predates 2026-09-09. Was briefly
-recorded as closed by the head-band move; that was wrong, see the correction at
-the end.
+**Status:** CLOSED 2026-09-10. It was never a WebKit camera fault. It was a
+`waitForTimeout(120)` in the test racing the zoom it had just requested. Two
+earlier conclusions in this document are wrong; the last section is the answer.
 **Test:** `tests/e2e/explore.spec.ts:12` — "a slider appears when the
 performance ends and pans without changing zoom".
 
@@ -157,3 +157,64 @@ That is the thread to pull, and it is now the strongest lead this document has.
 **Not quarantined.** A skipped test on the engine every iPhone and iPad uses
 would hide a real fault. Main will show red on some runs until this is fixed,
 and the reason is written here.
+
+
+---
+
+# It was a sleep in the test, and the ratio said so all along
+
+Closed. The application was never at fault, and the number that identified it
+had been sitting at the top of this document since it was written:
+
+```
+expected  0.2858685046399136
+received  0.7432581120637753
+```
+
+0.2858685046399136 x 2.6 = 0.7432581120637753, to thirteen significant
+figures. **2.6 is the zoom factor the test itself applies**, three lines above
+the assertion that failed:
+
+```ts
+await page.evaluate(() => window.__gittimeline.zoom(2.6));
+await page.waitForTimeout(120);
+const zoomed = await page.evaluate(() => window.__gittimeline.viewport!.scale);
+```
+
+`zoom` sets the manual camera; `view.scale` picks it up on a subsequent
+rendered frame. 120 ms is several frames on a quiet machine and sometimes
+fewer than one on a loaded CI runner. When it was fewer, `zoomed` captured the
+scale from *before* the zoom, the pans read the scale from after it, and the
+assertion failed by exactly one zoom factor.
+
+Which explains all three things this document could not:
+
+| observation | explanation |
+|---|---|
+| intermittent | it is a race |
+| WebKit only | slowest engine in this suite, so the frame the read needed was likeliest to be late |
+| never reproduced locally | a quiet Windows machine renders several frames in 120 ms |
+
+Fixed by polling for a scale that has stopped moving instead of sleeping, and
+the same treatment applied to the two pans below it, which shared the pattern.
+Correct whatever the frame rate, so it cannot return on a slower machine.
+
+## Three wrong conclusions, in order
+
+Worth listing, because the errors were more instructive than the bug:
+
+1. **"A regression from the CI change."** It appeared on the first run that
+   could execute WebKit tests at all, so the change that installed WebKit
+   looked responsible. Disproved by a branch carrying pre-change source, which
+   failed identically.
+2. **"Closed by the head-band move."** CI went green right after it and the
+   band was the only application change in between. One sample read as a
+   cause. Disproved when it failed again on a documentation-only commit.
+3. **"A genuine intermittent camera fault, and the intermittency is the clue."**
+   Right that it was intermittent, wrong about where; the reasoning went looking
+   for time-dependence in `tableauEase` when the time-dependence was in the
+   test harness.
+
+Each conclusion was drawn from real evidence and each was wrong, and what
+finally settled it was arithmetic on two numbers that had been printed in every
+single failure report. The ratio was the whole answer and nobody divided.

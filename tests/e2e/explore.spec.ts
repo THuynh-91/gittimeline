@@ -18,19 +18,65 @@ test.describe('travelling the finished picture', () => {
     await page.evaluate((t) => window.__gittimeline.seek(t), dur);
     await expect(page.getByTestId('explore-bar')).toBeVisible();
 
-    // Zoom in so there is something left to travel through.
+    /**
+     * Zoom in so there is something left to travel through, and **wait for it
+     * to land** rather than sleeping and hoping.
+     *
+     * This was `zoom(2.6)` then `waitForTimeout(120)` then a read, and it was
+     * the cause of the only intermittent failure this suite has had. `zoom`
+     * sets the manual camera, which `view.scale` picks up on a subsequent
+     * rendered frame; 120 ms is several frames on a quiet machine and
+     * sometimes fewer than one on a loaded CI runner. When it was fewer,
+     * `zoomed` captured the scale from *before* the zoom, the pans below read
+     * the scale from after it, and the assertion failed by exactly the zoom
+     * factor:
+     *
+     *     expected  0.2858685046399136
+     *     received  0.7432581120637753   <- expected x 2.6, to 13 figures
+     *
+     * That ratio is what identified it. It looked for a while like a WebKit
+     * camera fault, was documented as one, and was briefly believed fixed by
+     * an unrelated change to the head band -- see
+     * `docs/reviews/webkit-explore-zoom.md`. It was a sleep.
+     *
+     * Polling for a value that has stopped moving is correct whatever the
+     * frame rate, so this cannot come back on a slower machine.
+     */
     await page.evaluate(() => window.__gittimeline.zoom(2.6));
-    await page.waitForTimeout(120);
-    const zoomed = await page.evaluate(() => window.__gittimeline.viewport!.scale);
+    const zoomed = await page.evaluate(async () => {
+      const g = window.__gittimeline;
+      let last = g.viewport!.scale;
+      // Two consecutive agreeing reads, a frame apart, up to a generous cap.
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+        const now = g.viewport!.scale;
+        if (i > 2 && Math.abs(now - last) < 1e-9) return now;
+        last = now;
+      }
+      return last;
+    });
+
+    // The same settle for each pan, for the same reason: a fixed sleep is a
+    // guess about the machine, and this suite runs on three engines.
+    const settled = () =>
+      page.evaluate(async () => {
+        const g = window.__gittimeline;
+        let last = g.viewport!.cx;
+        for (let i = 0; i < 120; i++) {
+          await new Promise((r) => requestAnimationFrame(() => r(null)));
+          const now = g.viewport!.cx;
+          if (i > 2 && Math.abs(now - last) < 1e-6) break;
+          last = now;
+        }
+        return g.viewport!;
+      });
 
     const range = page.getByTestId('explore-range');
     await expect(range).toBeEnabled();
     await range.fill('40');
-    await page.waitForTimeout(120);
-    const left = await page.evaluate(() => window.__gittimeline.viewport!);
+    const left = await settled();
     await range.fill('930');
-    await page.waitForTimeout(120);
-    const right = await page.evaluate(() => window.__gittimeline.viewport!);
+    const right = await settled();
 
     expect(right.cx).toBeGreaterThan(left.cx);
     // The whole point: the magnification is untouched by travelling.
