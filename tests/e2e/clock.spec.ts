@@ -98,7 +98,7 @@ test.describe('the performance clock', () => {
     // deliberate main-thread blocking inside `page.evaluate`, reproduced four
     // times across two different tests that use it. The ladder itself is
     // arithmetic on a number every engine honours, and Chromium and Firefox
-    // both exercise it here. Recorded in `docs/status.md`.
+    // both exercise it here. Recorded in `docs/notes/status.md`.
     test.skip(browserName === 'webkit', 'long main-thread blocking crashes headless WebKit');
     /**
      * Stepping the resolution down is the biggest single win available, so it

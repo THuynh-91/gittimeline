@@ -12,7 +12,7 @@ Everything below is measured unless it says otherwise. Scripts and raw JSON are 
    collapses 87%); the commit's stated invariant "**ninety frames of a performance** … so a
    step costs a canvas reallocation only once the show is actually running" is **false** —
    it steps down with the clock parked at 0 and nothing playing; the clock holds real time
-   to **0.92–1.00x**, not the 0.96–1.00x `docs/status.md` claims; and the prescribed
+   to **0.92–1.00x**, not the 0.96–1.00x `docs/notes/status.md` claims; and the prescribed
    instrument reports a phantom scale for one frame after every resize.
 2. **Two new readouts (`3ecd8f5`) — PARTIALLY.** Neither overflows nor overlaps anywhere,
    on any engine. But "N branches open" **contradicts the app's own peak stat inside its
@@ -29,11 +29,11 @@ Everything below is measured unless it says otherwise. Scripts and raw JSON are 
 
 Outside the numbered list:
 
-5. **`docs/pacing.md` — REFUTED in three numbers, and its central reassurance is
-   contradicted by a figure already in `docs/status.md` at this commit.** The measurement it
+5. **`docs/notes/pacing.md` — REFUTED in three numbers, and its central reassurance is
+   contradicted by a figure already in `docs/notes/status.md` at this commit.** The measurement it
    names as missing has been taken (§6c) and it strengthens the diagnosis while relocating
    the cause to a single constant.
-6. **`docs/status.md` — six stale or wrong items**, one of them introduced by HEAD itself.
+6. **`docs/notes/status.md` — six stale or wrong items**, one of them introduced by HEAD itself.
 
 ---
 
@@ -284,7 +284,7 @@ branch is open. Also absent at t = 160.88 with 8,160 nodes drawn, and at the fin
 11,820 drawn. That answers "does it go to 0 where work is plainly on screen?" — **yes, for
 the last 3.2 s of every entry.**
 
-## 6. CONFIRMED — `docs/pacing.md`: the headline figure is 97.8% closing tableau, and is wrong by 45×
+## 6. CONFIRMED — `docs/notes/pacing.md`: the headline figure is 97.8% closing tableau, and is wrong by 45×
 
 Recomputed from `.catalog-release/*/manifest.json` in plain Node (`x/rev1/pacing.mjs`).
 
@@ -330,10 +330,10 @@ whole 2018-onward decade is 9.71 s = 0.305%. React gives 2015 alone 36.7% and it
 years 3.42 s = 0.62%; its 2016-onward share (29.4%) is **worse than Chromium's or LLVM's**,
 the two entries the document holds up as healthy.
 
-**And this was already recorded in this repository at this commit.** `docs/status.md` §5, in
+**And this was already recorded in this repository at this commit.** `docs/notes/status.md` §5, in
 the rejected-time-ticks writeup: "Per-year width across one history varies by up to
 **213,610 : 1** (CPython), and 22 of its 36 years occupy under 0.05 s of runtime." My harness
-computed the same figure independently. `docs/pacing.md` §3C **cites that very document**
+computed the same figure independently. `docs/notes/pacing.md` §3C **cites that very document**
 (`x/ticks-review/VERDICT.md`) — so the CPython number was read, and "This is not a general
 pacing fault" was then written from a four-entry sample that excluded CPython. The reassuring
 half of the diagnosis is the half that is wrong, and it is the half the recommendation
@@ -341,7 +341,7 @@ half of the diagnosis is the half that is wrong, and it is the half the recommen
 
 ### 6c. The missing measurement, taken: per-year distribution of *visible* nodes
 
-`docs/pacing.md` §2 calls this "the one measurement this document is missing and the first
+`docs/notes/pacing.md` §2 calls this "the one measurement this document is missing and the first
 thing to take before rebuilding anything". `node_modules` has no esbuild (Vite 8 ships
 rolldown), so the entry was bundled with `node_modules/rolldown` (`x/rev1/build.mjs`, alias
 `@`→`src`); `readCompiledPerformance` + `gunzipIfNeeded` then ran **unmodified** under Node
@@ -407,9 +407,9 @@ rewritten around that constant — and "it changes every entry's pacing" becomes
 testable by re-running the compiler with the clamp raised, far cheaper than the document
 assumes.
 
-## 7. CONFIRMED — `docs/status.md`: six stale or wrong items
+## 7. CONFIRMED — `docs/notes/status.md`: six stale or wrong items
 
-Line numbers are `docs/status.md` at HEAD; source citations from `git show HEAD:…`.
+Line numbers are `docs/notes/status.md` at HEAD; source citations from `git show HEAD:…`.
 
 1. **Item 4 is stale, and the fix landed one commit before this file was last edited.**
    `status.md:115` — "The only lever left is drawing at a fraction of the CSS resolution and
@@ -420,7 +420,7 @@ Line numbers are `docs/status.md` at HEAD; source citations from `git show HEAD:
    this one from 3 to 4, without updating it. Same item: "a configuration that needs **both
    rungs** of the quality ladder" — the ladder has five steps now.
 2. **Item 3 transposes two numbers.** `status.md:101` — "Chromium, LLVM and Kubernetes give
-   **67%, 71%** and 85%". Chromium is 71.2%, LLVM 67.0%. `docs/pacing.md:20-21` has them the
+   **67%, 71%** and 85%". Chromium is 71.2%, LLVM 67.0%. `docs/notes/pacing.md:20-21` has them the
    right way round, so `status.md` contradicts its own cited source. It also inherits
    pacing.md's 2.4% and "2017 to 2026" errors (finding 6).
 3. **A broken cross-reference introduced by HEAD itself.** `status.md:147` — "which is **item

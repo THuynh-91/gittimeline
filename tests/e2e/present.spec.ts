@@ -14,7 +14,7 @@ import { shelfPresent, waitForReady } from './helpers';
  *                     the playhead. This is the one that was broken, and the
  *                     one nothing was watching: the node guard says nothing
  *                     about a path, and §1a of
- *                     `docs/proposal-present-and-parallel.md` inferred the
+ *                     `docs/notes/proposal-present-and-parallel.md` inferred the
  *                     second from the first and was wrong.
  *
  * Measured before the fix, on streamed Kubernetes at 40%: twenty-nine strokes

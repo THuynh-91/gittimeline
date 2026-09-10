@@ -2,7 +2,7 @@
 
 Updated 2026-09-05. Every number was measured, not estimated.
 
-Implementation direction: [Fast static playback and a new viewing experience](docs/static-playback-plan.md).
+Implementation direction: [Fast static playback and a new viewing experience](docs/notes/static-playback-plan.md).
 That plan preserves the existing architecture and sequences progressive catalog
 loading, playback optimisation, UI/demo redesign, and Pages release validation.
 Its proposed acceptance budgets are targets, not completed measurements; no runtime

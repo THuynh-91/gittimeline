@@ -8,7 +8,7 @@ import { waitForReady } from './helpers';
  * "how much was happening at once" has no *now* to be asked about, and the gap
  * between two commits is not a quantity it holds. Here x is the clock, so both
  * are readings rather than calculations — and both were already drawn on the
- * stage and never once stated. See `PROPOSAL-mainline.md`.
+ * stage and never once stated. See `docs/notes/proposal-main-line.md`.
  */
 test.describe('what the time axis knows', () => {
   test('says how many branches are open, and it changes as the show runs', async ({ page }) => {

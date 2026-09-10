@@ -28,7 +28,7 @@ import { store } from './store';
  * token. GitHub's token endpoints send no CORS headers, on the request or the
  * preflight, and GitHub offers no PKCE for public clients, so that single call
  * has to happen somewhere other than the page. It does not need a server for
- * it, which is what `task-additional.md` said and what Render was not.
+ * it, which is what `docs/notes/task-additional.md` said and what Render was not.
  *
  * `worker/README.md` has the deployment steps. Until they are done the sign-in
  * page says so plainly rather than offering a door with nothing behind it.

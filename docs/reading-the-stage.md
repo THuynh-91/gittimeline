@@ -57,7 +57,7 @@ when you had not, and the date then reported wherever the camera had come to
 rest — the middle of the history. Measured: 14.00 years out on Node.js, 12.67
 on CPython, 0.00 on the built-in demo, which is the only plan held whole and
 therefore the only one exempt. Fixed in `27ee1a8`; the date now follows the
-playhead until somebody actually goes travelling. See `docs/status.md` §2.1.
+playhead until somebody actually goes travelling. See `docs/notes/status.md` §2.1.
 
 ---
 
@@ -93,7 +93,7 @@ on ten of the twelve entries. The earlier claim — "nearly always zero or one",
 from three sample points on two entries — was sound method on a sample far too
 small, and it killed a proposed "N commits ahead of main" readout on the
 grounds that it would show `0` almost always. It would not. That readout is
-back under consideration; see `docs/status.md`.
+back under consideration; see `docs/notes/status.md`.
 
 These projects do merge constantly, and every merge *is* a commit on main, so
 main is never far behind in a way that matters for ancestry. It is frequently
@@ -158,4 +158,4 @@ it and conclude something is broken when nothing is. A background calendar axis
 was proposed to close it and rejected on measurement — it would have been a
 third disagreeing time scale, and on the most warped history the ladder found
 no interval to draw at all. See `x/ticks-review/VERDICT.md`, and
-`docs/pacing.md` §3C for what is left to try.
+`docs/notes/pacing.md` §3C for what is left to try.

@@ -71,7 +71,7 @@ test.describe('following a contributor', () => {
    * What would settle it is knowing which contributor to pick — one whose
    * commits appear in some aggregate's `contributorIds` and on no node's own
    * `contributorIdx` — and that is not on the test surface. Noted in
-   * `docs/status.md` as the way to close it rather than left as a passing test
+   * `docs/notes/status.md` as the way to close it rather than left as a passing test
    * that looks load-bearing.
    */
   test('and nothing is brightened when nobody is focused', async ({ page }) => {

@@ -391,7 +391,7 @@ export class StageRenderer {
    * assignment. Canvas2D `filter` is not the GPU blur it resembles: it is a
    * Skia image filter over a bitmap the size of the draw, on the raster
    * thread, every frame, charged per pixel regardless of how few strokes went
-   * in. See `docs/proposal-frame-budget.md` for the four-arm attribution.
+   * in. See `docs/notes/proposal-frame-budget.md` for the four-arm attribution.
    *
    * A bilinear upscale *is* a blur, performed by the sampler for free, so the
    * bloom is built by halving down and drawing back up. Halving steps matter:
@@ -969,7 +969,7 @@ export class StageRenderer {
     //
     // Held at what is actually drawn today rather than what the comment below
     // wanted, because the two are not the same picture and which one to ship
-    // is not a performance question. See the note in TASKS.md.
+    // is not a performance question. See the note in docs/notes/TASKS.md.
     this.dust = new Float32Array(DUST_COUNT * 3);
     for (let i = 0; i < DUST_COUNT; i++) {
       this.dust[i * 3] = hash01(`dust:x:${i}`);

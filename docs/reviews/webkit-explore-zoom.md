@@ -141,7 +141,7 @@ So the test is intermittent on Linux WebKit and always was. One green run after
 a change is not evidence that the change fixed anything; it is one sample of a
 coin that lands green sometimes. Attributing it to the band was the same error
 as the three confounded bloom measurements recorded in
-`docs/proposal-frame-budget.md` -- a single observation read as a cause.
+`docs/notes/proposal-frame-budget.md` -- a single observation read as a cause.
 
 **What this does and does not mean.** The failure is real when it happens:
 `view.scale` reads 0.743 where it should hold 0.286 on a pan at the end of a

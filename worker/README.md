@@ -5,7 +5,7 @@ site is a static bundle on GitHub Pages and works without it, at the anonymous
 rate limit, with a personal access token as the manual alternative.
 
 This replaces `server/`, the Node service on Render. Same flow, same security
-properties, no container: `task-additional.md` asks for "a tiny serverless
+properties, no container: `docs/notes/task-additional.md` asks for "a tiny serverless
 function only for GitHub authentication", not "a full Render server", and this
 is that. It bundles to **5.26 KiB (2.02 KiB gzipped)** and has nothing to sleep.
 

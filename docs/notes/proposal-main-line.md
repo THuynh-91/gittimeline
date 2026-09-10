@@ -130,7 +130,7 @@ Twelve years in the last tenth of the show, most of it in one frame. Cause:
 worth at most 3.2 beats because `compile.ts:263` clamps
 `log2(memberCount) × 0.55` there. The eleven "years" in between hold *zero*
 visible nodes; the runtime they appear to get is `mapMonotone` subdividing one
-0.077-second gap. Full account in `docs/pacing.md`.
+0.077-second gap. Full account in `docs/notes/pacing.md`.
 
 The app has always had the sentence that explains this — `QUIET_GAP`, "Quiet
 span of 11.4 years passes" — and it was never seen: 0.077 s of dwell, and the
@@ -168,7 +168,7 @@ a floor for the tableau too, at some cost to how much of the history it can
 show; or widening the *visual* separation without widening the layout — the
 glow radius and the line weight are both scale-dependent already.
 
-Worth pairing with the note in `docs/status.md` that the render-scale floor of
+Worth pairing with the note in `docs/notes/status.md` that the render-scale floor of
 0.6 collapses lane modulation 87% at five-pixel spacing; these are the same
 problem at two zooms.
 

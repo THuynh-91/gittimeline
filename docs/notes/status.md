@@ -307,7 +307,7 @@ over unverified.
    and was losing the line to a `REPO_BIRTH` crossed in the same frame.
 
    The other half is not fixed: nothing on screen says the axis is runtime
-   rather than calendar. `docs/pacing.md` §3C, and it is the only item there
+   rather than calendar. `docs/notes/pacing.md` §3C, and it is the only item there
    that costs no republish. The rejected time-ticks proposal was an attempt at
    it — see `x/ticks-review/VERDICT.md` for why that particular answer was
    wrong. `docs/reading-the-stage.md` is the written explanation in the
@@ -339,7 +339,7 @@ five more that a review found while checking them.
    11.35 years, worth at most 3.2 beats because `compile.ts:263` clamps
    `log2(memberCount) * 0.55` there. Its eleven "thin years" hold *zero*
    visible nodes and are `mapMonotone` subdividing a single 0.077-second gap
-   between two consecutive commits. Full account in `docs/pacing.md`, including
+   between two consecutive commits. Full account in `docs/notes/pacing.md`, including
    how the first version of that document got three figures wrong. Needs a
    republish — but raising the clamp is testable locally without publishing.
 5. **A weak device is choppy, though no longer slow, and the bottom rung may

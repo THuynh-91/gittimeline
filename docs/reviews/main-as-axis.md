@@ -326,7 +326,7 @@ main", but it is the one candidate that is both cheap and never wrong.
 
 ### C — say x is runtime, not calendar: **already the documented open item, and it needs the pacing decision first**
 
-`docs/status.md` §2.2 already carries this, half fixed: `751b7de` gave captions
+`docs/notes/status.md` §2.2 already carries this, half fixed: `751b7de` gave captions
 a 900 ms floor so `QUIET_GAP` is actually seen. I saw the unstated half live:
 on CPython at 1600×900 the hero reads **October 2016 at 93% of the show and
 September 2026 at 100%** — ten calendar years in the last 7%. That is real and
@@ -371,7 +371,7 @@ whereas A would put the disagreement in the ambient furniture of every frame.
 
 Against that, the shape of the defect this project has already had: a date
 readout fourteen years out on Node.js *because it silently answered a different
-question* (`docs/status.md` §2.1 — it described the camera, not the clock). A
+question* (`docs/notes/status.md` §2.1 — it described the camera, not the clock). A
 second date, in a different typeface, at the other end of the stage, disagreeing
 by up to 2,678 days, produced by the same `historicalAt` inversion, is that
 defect's silhouette. And on Kubernetes it agrees 99.65% of the time, which is
@@ -388,7 +388,7 @@ second absolute date the viewer has to subtract.
 
 ### 6a. "Main runs 0–2 commits behind" — **REFUTED**, and this changes the shape of the first fix
 
-The figure comes from `PROPOSAL-mainline.md` and `docs/reading-the-stage.md`:
+The figure comes from `docs/notes/proposal-main-line.md` and `docs/reading-the-stage.md`:
 three sample points on two entries (kubernetes and cpython @25/50/75%). I
 reproduced it *at its own points* with its own definition — landed nodes whose
 impact is later than the newest landed spine node — and got **1/0/0** on
@@ -435,7 +435,7 @@ is larger. Consequences:
   (1) by definition" is now removing something that happens for most of every
   show and reaches 441 seconds of runtime — that is not "small but real", it is
   a defining feature of the picture, and removing it removes the product.
-- **A killed feature should be revived.** `PROPOSAL-mainline.md` killed the
+- **A killed feature should be revived.** `docs/notes/proposal-main-line.md` killed the
   "N commits ahead of main" readout because "it would show 0 almost always".
   Measured properly it is non-zero for 60% of the show on the two entries the
   claim came from, and its median is 5 on Linux and on Rust.
@@ -465,7 +465,7 @@ than 16.4, and it is the frame every show ends on.
 Recomputed from `.catalog-release/*/manifest.json` `years`, dropping the
 sentinel and charging the last real year against `duration − CLOCK_TAIL`:
 CPython **213,610 : 1** (2016 = 556.12 s; 1990 = 0.002603 s), **22** years
-under 0.05 s, 37 years. Every other figure in `docs/pacing.md` §1 reproduces
+under 0.05 s, 37 years. Every other figure in `docs/notes/pacing.md` §1 reproduces
 too: node 8,231:1 with 11 thin years, react 6,086:1, public-apis 5,887:1,
 chromium 1,124:1, llvm 107:1, and 0 thin years on rust / tensorflow / vscode /
 mdBook / kubernetes / linux. The claim stands as written.
@@ -488,7 +488,7 @@ mdBook / kubernetes / linux. The claim stands as written.
 
 ---
 
-## Settling `docs/status.md` §6 vs `tests/e2e/stage.spec.ts` — **both are wrong, and nobody needs to choose**
+## Settling `docs/notes/status.md` §6 vs `tests/e2e/stage.spec.ts` — **both are wrong, and nobody needs to choose**
 
 Neither method hangs at HEAD. Read from a paused, settled frame (`pause()`,
 `buffering === false`, ~1.2 s, three `requestAnimationFrame`s), on the canvas
@@ -533,7 +533,7 @@ and delete the node-count threshold from both files.
   and every point of every spine edge on the four entries I decoded, and its
   screen y varies by ≤ 1 px across a whole performance on five browser runs.
 - **The 34.6 and 27.4 px lane figures**, reproduced to within 0.3 px.
-- **The 213,610 : 1 spread and the whole of `docs/pacing.md` §1**, reproduced
+- **The 213,610 : 1 spread and the whole of `docs/notes/pacing.md` §1**, reproduced
   independently including the sentinel handling.
 - **The travel bug is fixed.** At `t = duration`, held 6 s, `manualCamera` is
   false and the hero reads September 2026 — the last commit's date — on

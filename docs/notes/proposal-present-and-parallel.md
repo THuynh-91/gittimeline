@@ -139,7 +139,7 @@ must be drawn at or left of main's head. Two costs:
 **It would place commits before commits that preceded them.** Not a general
 objection — x is already presentation time, with author dates rewritten to
 respect ancestry, and 49.5% of Linux's commits have their stamp moved more than
-a day (`docs/proposal-main-line.md` §2c). The objection is specific: this would
+a day (`docs/notes/proposal-main-line.md` §2c). The objection is specific: this would
 move a commit backwards *past unrelated work on another line*, which is a claim
 about concurrency, not about ancestry.
 
@@ -261,6 +261,6 @@ of.
 5. **What this costs per frame.** A is one line and a text draw. B is a stroke
    whose length varies. Neither is measured.
 6. **Whether marking the present makes the pacing defect worse.** On Node the
-   playhead crosses eleven years in 0.077 s (`docs/pacing.md`). A labelled
+   playhead crosses eleven years in 0.077 s (`docs/notes/pacing.md`). A labelled
    present that jumps twelve years in one frame may be more alarming than an
    unlabelled one, not less.

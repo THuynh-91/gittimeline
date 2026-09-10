@@ -165,7 +165,7 @@ Kept deliberately, because three of these are patterns rather than slips.
    all.
 3. **It concluded "this is not a general pacing fault" from a four-entry sample
    that excluded the worst entry** — and the number that refutes it was already
-   written down in this repository, in `docs/status.md` §5: "per-year width
+   written down in this repository, in `docs/notes/status.md` §5: "per-year width
    across one history varies by up to 213,610 : 1 (CPython), and 22 of its 36
    years occupy under 0.05 s". §3C of the first version *cited the document
    that figure came from*. The reassuring half of the diagnosis was the wrong

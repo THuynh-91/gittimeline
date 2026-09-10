@@ -4,7 +4,7 @@ Planning note (2026-09-05): [Fast static playback and a new viewing experience](
 records the next implementation against these module boundaries. The current player
 still consumes a complete `CompiledPerformance`; bounded playback windows are proposed,
 not implemented. Historical timings and some behavior descriptions below predate the
-current code; use TASKS.md and the plan's code-checked baseline for current status.
+current code; use docs/notes/TASKS.md and the plan's code-checked baseline for current status.
 
 GitTimeline is a static site. Everything a visitor sees runs in their browser; GitHub Actions builds, tests and publishes the bundle — and, for the histories that ship with it, does the fetching and the compiling too.
 
