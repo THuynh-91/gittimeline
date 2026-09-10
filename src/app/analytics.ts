@@ -428,6 +428,33 @@ function install(id: string): void {
       // remarketing audiences are not that.
       allow_google_signals: false,
       allow_ad_personalization_signals: false,
+      /**
+       * The exact hostname, not the registrable domain.
+       *
+       * gtag defaults to `'auto'`, which walks up from the current host and
+       * sets the cookie on the highest domain it can, so that a cookie set on
+       * `www.example.com` is readable from `shop.example.com`. That is the
+       * right default and it is wrong here: this site is served from
+       * `thuynh-91.github.io`, and `github.io` is on the Public Suffix List,
+       * so `.github.io` is not a domain anyone may set a cookie on -- if it
+       * were, any GitHub Pages site could read every other one's cookies.
+       *
+       * Chromium and WebKit refuse it quietly. **Firefox logs it**, once per
+       * cookie per navigation, and a visitor who opens the console on a page
+       * they were just sent sees:
+       *
+       *     Cookie "_ga_P95G05P1BJ" has been rejected for invalid domain.
+       *
+       * Found by `x/launch-check.mjs`, which drives the deployed site in all
+       * three engines and treats a console error as a failure. Five on the
+       * landing page, nine after pressing Play demo. Measurement worked
+       * throughout -- gtag falls back to the exact host -- so this was never a
+       * data problem, only a page that talked about itself in red.
+       *
+       * `'none'` asks for the exact hostname and no walking up, which is what
+       * a single-host static site wants anyway.
+       */
+      cookie_domain: 'none',
     },
   );
 
