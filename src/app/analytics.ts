@@ -455,6 +455,23 @@ function install(id: string): void {
        * a single-host static site wants anyway.
        */
       cookie_domain: 'none',
+      /**
+       * One console line is left, deliberately.
+       *
+       * WebKit occasionally reports the Content Security Policy refusing
+       * `googletagmanager.com/td`, which is Google's own sampled tag
+       * diagnostics and carries none of this site's measurement. It appeared
+       * once in twelve deployed-site journeys and then not at all in three
+       * further attempts with a `securitypolicyviolation` listener attached,
+       * so it is sampled rather than constant.
+       *
+       * Not fixed, on purpose. The fix would be widening `img-src` in
+       * `index.html` to a host it does not currently need -- and the directive
+       * could not even be confirmed, because the violation would not reproduce.
+       * Broadening a security policy to silence a rare log line, without being
+       * able to verify the change works, is the wrong trade twice over. The CSP
+       * refusing a beacon this site never asked for is the policy working.
+       */
     },
   );
 
