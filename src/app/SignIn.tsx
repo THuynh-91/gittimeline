@@ -6,7 +6,7 @@ import { AUTH_BASE, signInWithGitHub } from './auth';
 import { showLanding, clearStoredHistories } from './controller';
 import { Icons } from './icons';
 import { useCatalogEntries } from './Catalog';
-import { isMeasurementId } from './analytics';
+import { isMeasurementId, trackSignIn } from './analytics';
 
 /**
  * Connecting a GitHub account.
@@ -124,6 +124,7 @@ function PrivateTokenGrant() {
     const token = value.trim();
     if (!token) return;
     store.token.value = token;
+    trackSignIn();
     // Out of the field as soon as it is in the signal. One copy is
     // unavoidable; two is a choice. `appliedTo` holds it only to compare
     // against, which is the same value the signal already has.

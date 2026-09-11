@@ -208,3 +208,35 @@ describe('analytics: shapes and consent', () => {
     expect(analyticsEnabled()).toBe(false);
   });
 });
+
+describe('analytics: a sign-in is a count and nothing else', () => {
+  /**
+   * The instruction was "only capture how many people signed in, NOT ANYTHING
+   * ELSE", and this is that instruction as a test rather than as a comment.
+   *
+   * The risk is not that someone adds the account name on purpose. It is that
+   * `sign_in` looks like every other event here, all of which carry at least
+   * `page_location`, so the natural edit is to make it consistent. Consistency
+   * is the wrong goal: the question is how many, and a bare event answers it.
+   */
+  it('carries no parameters at all', () => {
+    const plan = planEvent({ kind: 'sign_in' }, CATALOG, 'https://example.test/some/path?q=1#frag');
+    expect(plan.name).toBe('sign_in');
+    expect(Object.keys(plan.params), 'a sign-in sends no parameters').toEqual([]);
+  });
+
+  it('cannot leak the page it happened on', () => {
+    // `page_location` is on every other event in this module, and a sign-in
+    // URL is the one most likely to carry a token or a code in its fragment.
+    const wired = wire({ kind: 'sign_in' }, CATALOG, 'https://example.test/#gh_token=ghp_secret&state=xyz');
+    expect(wired).not.toContain('gh_token');
+    expect(wired).not.toContain('ghp_secret');
+    expect(wired).not.toContain('example.test');
+  });
+
+  it('says nothing about which route was used', () => {
+    // Both the OAuth return and a pasted token call the same function, so the
+    // wire form is identical and cannot distinguish them.
+    expect(wire({ kind: 'sign_in' })).toBe(wire({ kind: 'sign_in' }));
+  });
+});

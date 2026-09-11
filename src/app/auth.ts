@@ -1,4 +1,5 @@
 import { store } from './store';
+import { trackSignIn } from './analytics';
 
 /**
  * Optional GitHub sign-in.
@@ -67,6 +68,7 @@ export function claimTokenFromUrl(): SignInReturn {
   history.replaceState(null, '', `${location.pathname}${location.search}${rest ? `#${rest}` : ''}`);
   if (token) {
     store.token.value = token;
+    trackSignIn();
     return 'token';
   }
   // A failed sign-in used to vanish silently: the fragment was stripped, no

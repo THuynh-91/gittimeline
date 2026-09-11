@@ -74,7 +74,8 @@ export type PerformanceSource = 'repository' | 'artifact' | 'demo' | 'fixture' |
 export type AnalyticsEvent =
   | { kind: 'page_view'; view: PageView }
   | { kind: 'catalog_open'; slug: string; commits: number | null }
-  | { kind: 'performance_start'; source: PerformanceSource; slug: string | null; commits: number | null };
+  | { kind: 'performance_start'; source: PerformanceSource; slug: string | null; commits: number | null }
+  | { kind: 'sign_in' };
 
 export interface PlannedEvent {
   name: string;
@@ -213,6 +214,21 @@ export function planEvent(event: AnalyticsEvent, allow: Allowlist, href: string)
       return { name: 'catalog_open', params: { page_location, ...repositoryParams('repository', event.slug, event.commits, allow) } };
     case 'performance_start':
       return { name: 'performance_start', params: { page_location, source: event.source, ...repositoryParams(event.source, event.slug, event.commits, allow) } };
+    case 'sign_in':
+      /**
+       * How many, and nothing else.
+       *
+       * No parameters at all -- not `page_location`, which every other event
+       * here carries. The question this answers is "did anyone sign in", and
+       * the count of a bare event answers it completely. Anything more would
+       * be describing the account that signed in, which is not the question
+       * and is not this application's to send.
+       *
+       * That includes which route they used. The OAuth round trip and a
+       * hand-pasted token are both somebody signing in, and separating them
+       * would say something about how a particular person chose to do it.
+       */
+      return { name: 'sign_in', params: {} };
   }
 }
 
@@ -324,6 +340,19 @@ export function trackCatalogOpen(slug: string, commits: number | null): void {
 /** A performance was loaded into the player and began. */
 export function trackPerformanceStart(source: PerformanceSource, slug: string | null, commits: number | null): void {
   emit({ kind: 'performance_start', source, slug, commits });
+}
+
+/**
+ * Somebody signed in. A count, and nothing else; see `planEvent`.
+ *
+ * Called from both routes a token can arrive by -- the OAuth return in
+ * `auth.ts` and a pasted token in `SignIn.tsx` -- because both are a person
+ * signing in. It cannot double-count a returning visitor: the token is never
+ * written to storage, so there is no session to restore and every sign-in is
+ * a fresh act.
+ */
+export function trackSignIn(): void {
+  emit({ kind: 'sign_in' });
 }
 
 function emit(event: AnalyticsEvent): void {
