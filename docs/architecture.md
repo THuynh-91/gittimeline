@@ -56,11 +56,13 @@ a history arrives one of two ways
 **The catalog path is a clone, because for a large history the API is not a slow option but an impossible one.** Linux is 1,481,850 commits. At a hundred per request that is 14,819 requests: hours of waiting, and three times what an authenticated user is allowed in an hour. `scripts/build-clone-dataset.mjs` asks git instead:
 
 ```
-git clone --bare --filter=tree:0    # commit objects only; no source code is transferred
+git clone --bare --filter=tree:0    # commit objects; no trees, no blobs, no file contents
 git log  --format=…                 # the whole graph, in one pass
 ```
 
-The script times both stages and prints them: the clone takes about four minutes and `git log` reads all 1.48 million records out of it in fourteen seconds. The git protocol has no REST rate limit to spend, and `--filter=tree:0` is what keeps it honest as well as cheap — it asks the server for commit objects and nothing else, so none of the repository's source code is ever downloaded. The shape of the history is all this project ever needed.
+The script times both stages and prints them: the clone takes about four minutes and `git log` reads all 1.48 million records out of it in fourteen seconds. The git protocol has no REST rate limit to spend, and `--filter=tree:0` is what keeps it cheap — it skips trees and blobs, so none of the repository's file contents are ever downloaded.
+
+Commit objects are not nothing, and the distinction is worth stating rather than implying. A commit object carries its message, its author and committer names, their email addresses and timestamps, and its parent hashes, so commit messages and author identities do arrive — they are the data this project draws, and deleted branch names arrive with them inside merge subjects like `Merge branch 'feature/x'`. None of it is anything a plain `git clone` would withhold, and every history on the shelf is a public repository. What is *published* is narrower: `identityKey` in `analysis/contributors.ts` prefers a GitHub numeric id, falls back to a login, and only hashes `name|email` for an anonymous author, and `ContributorIdentity` has no email field for one to survive in.
 
 Tags arrive in a second fetch, which is easy to get wrong. `--no-tags` on the clone is deliberate (pulling every tag's history alongside the branch is much of what makes a naive clone slow), but without a follow-up fetch every pre-fetched repository had no releases at all. The filter has to be repeated on that fetch too, or git tries to repack local links against objects a partial clone does not have and dies.
 

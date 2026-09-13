@@ -83,7 +83,7 @@ Opening one costs no token and no GitHub requests, which
 It is not done through the API. `scripts/build-clone-dataset.mjs` clones:
 
 ```
-git clone --bare --filter=tree:0    # commit objects only; no source code transferred
+git clone --bare --filter=tree:0    # commit objects; no trees, no blobs, no file contents
 git log  --format=...               # the whole graph, in one pass
 ```
 
@@ -91,9 +91,29 @@ The difference is not incremental. Linux is 1,481,850 commits, which is 14,819
 API requests — hours of waiting and three times an authenticated user's hourly
 allowance. The clone takes about four minutes, `git log` reads the entire graph
 out of it in fourteen seconds, and the git protocol has no REST rate limit to
-spend. `--filter=tree:0` is what keeps it cheap: commit objects and nothing
-else, so none of the repository's source is ever downloaded. The shape of the
-history is all this project needed.
+spend. `--filter=tree:0` is what keeps it cheap: it skips trees and blobs, so
+none of the repository's file contents are ever downloaded.
+
+Commit objects are not nothing, and it is worth being exact about what that
+means. A commit object carries its message, its author and committer names,
+their email addresses and timestamps, and its parent hashes — so commit
+messages and author identities do come down, because they are the data this
+project draws. Deleted branch names come with them, inside merge commit
+subjects like `Merge branch 'feature/x'`.
+
+None of that is anything a plain `git clone` would not also hand you, and all
+twelve of these are public repositories. What matters more is what gets
+published, and the answer is less than what arrives: **contributor identities
+ship without email addresses.** `identityKey` in `analysis/contributors.ts`
+prefers a GitHub numeric id, falls back to a login, and only for an anonymous
+author hashes `name|email` into an opaque key. `ContributorIdentity` has no
+email field for one to survive in.
+
+An earlier version of this paragraph said `--filter=tree:0` fetches "commit
+objects and nothing else, so none of the repository's source is ever
+downloaded". Both halves are true and the sentence still reads as though
+nothing of substance arrives, which is not the case. Corrected after a reader
+pointed it out.
 
 | | commits | | | commits |
 |---|---:|---|---|---:|

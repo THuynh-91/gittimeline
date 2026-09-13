@@ -9,11 +9,17 @@
  * same history takes about four minutes, and `git log` reads the whole graph
  * out of it in fourteen seconds:
  *
- *     git clone --bare --filter=tree:0    # commit objects, no file data
+ *     git clone --bare --filter=tree:0    # commit objects; no trees, no blobs
  *     git log --format=...                # 1.48M records
  *
  * `--filter=tree:0` is what makes this cheap: it asks the server for commit
- * objects and nothing else, so none of the source code is ever transferred.
+ * objects and skips trees and blobs, so no file contents are transferred.
+ *
+ * Commit objects still carry messages, author and committer names, their email
+ * addresses, and parent hashes -- that is the data this exists to read. Emails
+ * are used to tell anonymous authors apart and are not published: see
+ * `identityKey` in `analysis/contributors.ts`, and note `ContributorIdentity`
+ * has no email field.
  * The shape of the history is all this project ever needed.
  *
  * This runs in CI, not in anyone's browser, and the artifact it writes ships
