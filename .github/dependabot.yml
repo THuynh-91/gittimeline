@@ -7,6 +7,12 @@ updates:
     groups:
       dev-tooling:
         patterns: ['vite', 'vitest', 'eslint*', 'typescript*', '@playwright/*', '@preact/*', 'fast-check', 'jsdom', 'fake-indexeddb', 'globals']
+    ignore:
+      # typescript-eslint (8.74) supports TypeScript below 6.1 only, so a TypeScript major in the
+      # dev-tooling group fails `npm ci` with ERESOLVE and holds every other tool update back with it.
+      # Drop this once typescript-eslint's peer range includes the next major.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
