@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { collectRelease, sha256 } from './catalog-release.mjs';
+import { collectRelease, contentAddressed, sha256 } from './catalog-release.mjs';
 
 const engine={layoutVersion:5};
 function fixture(t, change=()=>{}) {
@@ -40,3 +40,24 @@ test('refuses missing time intervals',t=>{const root=fixture(t,({resources})=>{r
 test('refuses traversal',t=>{const root=fixture(t,({manifest})=>{manifest.transcript='../outside';});assert.throws(()=>collectRelease(root,root,engine),/Unsafe resource/);});
 test('refuses mixed plan identities',t=>{const root=fixture(t,({summary})=>{summary.planHash='different';});assert.throws(()=>collectRelease(root,root,engine),/Mixed performance revisions/);});
 test('smoke shelves are marked as previews and cannot masquerade as complete releases',t=>{const root=fixture(t);const r=collectRelease(root,root,engine,'test/repo');assert.equal(JSON.parse(r.listing).preview,true);assert.throws(()=>collectRelease(root,root,engine,'missing/repo'),/not in the catalog/);});
+// The publish step keeps an object forever only when its name is its own hash: a rebuild changes the
+// name along with the bytes. A fixed name (each package's manifest.json and transcript) gets new bytes
+// under the same key every week, so it must be published as replaceable, or the weekly publish refuses it.
+test('only names that begin with their own hash are content-addressed',()=>{
+  const hash=sha256('page');
+  assert.equal(contentAddressed(`test-repo.pages/${hash}.gtperf.bin`,hash),true);
+  assert.equal(contentAddressed(`test-repo.pages/${hash}.json.bin`,hash),true);
+  assert.equal(contentAddressed(`${hash}.gtperf.bin`,hash),true);
+  assert.equal(contentAddressed('test-repo.pages/manifest.json',hash),false);
+  assert.equal(contentAddressed('test-repo.pages/transcript.txt.gz',hash),false);
+  assert.equal(contentAddressed('logos/linux.svg',hash),false);
+  assert.equal(contentAddressed(`test-repo.pages/${sha256('other')}.gtperf.bin`,hash),false);
+  assert.equal(contentAddressed(`${hash}.pages/manifest.json`,hash),false);
+});
+test('a release marks its fixed-name files replaceable and its hash-named pages permanent',t=>{
+  const root=fixture(t);
+  const r=collectRelease(root,root,engine);
+  const kind=Object.fromEntries(r.files.map(f=>[f.name.split('/').pop(),contentAddressed(f.name,f.hash)]));
+  assert.equal(kind['manifest.json'],false);
+  assert.equal(kind['transcript.txt.gz'],false);
+});
