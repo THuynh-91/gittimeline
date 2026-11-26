@@ -6,6 +6,13 @@ import { gunzipSync } from 'node:zlib';
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 const equalEngine = (a, b) => Object.keys(b).every(k => a?.[k] === b[k]);
 
+/**
+ * True when a file's name begins with its own SHA-256, so new bytes always mean a new name. Only such a file
+ * can be published as immutable at one fixed address. A package's manifest.json and transcript keep their
+ * names across rebuilds while their bytes change, so they have to be published as replaceable.
+ */
+export const contentAddressed = (name, hash) => /^[a-f0-9]{64}$/.test(hash) && (name.split('/').pop() ?? '').startsWith(`${hash}.`);
+
 /** Resolve only real files inside the supplied directory, including symlink checks. */
 export function safeFile(root, name) {
   if (!name || name.split('/').some(p => !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(p) || p.includes('..'))) throw new Error(`Unsafe resource: ${name}`);

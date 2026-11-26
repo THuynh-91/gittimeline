@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'vite';
-import { collectRelease, sha256 } from './catalog-release.mjs';
+import { collectRelease, contentAddressed, sha256 } from './catalog-release.mjs';
 
 const args=process.argv.slice(2);
 const flag=(n,d)=>{const i=args.indexOf(`--${n}`);return i<0?d:args[i+1];};
@@ -40,6 +40,13 @@ const s3=new S3Client({region:'auto',endpoint:`https://${account}.r2.cloudflares
 // key, is refused as already-present below, and stays cached in every browser
 // that has it. A rebuild uploads only what actually changed. Previews keep the
 // revision in their path — they exist precisely to be one throwaway URL each.
+//
+// Not every file is named by its hash, though. Each package's manifest.json and
+// transcript keep their names while their bytes change with every rebuild, so
+// the immutable path refused them: from the first weekly run after the move to
+// one address, every publish failed on the first changed manifest. Those files
+// are published as replaceable, like the listing, after every hashed object they
+// point at is in place, and before the listing that points at them.
 const prefix=smokeRepo?`previews/${release.revision}/`:'catalog/';
 const upload=async(name,data,hash,mutable=false)=>{
   const Key=prefix+name;
@@ -72,13 +79,19 @@ const upload=async(name,data,hash,mutable=false)=>{
   }
 };
 try {
+  // A preview's path is its own, so everything in it can stay immutable.
+  const replaceable=f=>!smokeRepo&&!contentAddressed(f.name,f.hash);
   let completed=0, reported=0;
-  for(let i=0;i<release.files.length;i+=12) {
-    await Promise.all(release.files.slice(i,i+12).map(async f=>{
-      const data=readFileSync(f.path);if(sha256(data)!==f.hash)throw new Error(`File changed after validation: ${f.name}`);
-      await upload(f.name,data,f.hash);completed++;
-    }));
-    if(completed-reported>=100||completed===release.files.length){console.log(`Uploaded/verified ${completed}/${release.files.length}`);reported=completed;}
+  // Two passes, not one sorted list: a batch must never hold a manifest beside
+  // the hashed pages it names, or the manifest could land before they do.
+  for(const group of [release.files.filter(f=>!replaceable(f)),release.files.filter(replaceable)]) {
+    for(let i=0;i<group.length;i+=12) {
+      await Promise.all(group.slice(i,i+12).map(async f=>{
+        const data=readFileSync(f.path);if(sha256(data)!==f.hash)throw new Error(`File changed after validation: ${f.name}`);
+        await upload(f.name,data,f.hash,replaceable(f));completed++;
+      }));
+      if(completed-reported>=100||completed===release.files.length){console.log(`Uploaded/verified ${completed}/${release.files.length}`);reported=completed;}
+    }
   }
   // The listing is the last object, never a pointer to an incomplete upload.
   await upload('index.json',release.listing,sha256(release.listing),!smokeRepo);
