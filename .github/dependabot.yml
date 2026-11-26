@@ -1,19 +1,26 @@
 version: 2
+# Kept quiet on purpose: one check a month, every minor and patch update in one pull request per
+# ecosystem, and at most two open at a time, so updates don't arrive as a stream of pull requests
+# and emails. Major updates still come one at a time, since they are the ones that need a look.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
     groups:
-      dev-tooling:
-        patterns: ['vite', 'vitest', 'eslint*', 'typescript*', '@playwright/*', '@preact/*', 'fast-check', 'jsdom', 'fake-indexeddb', 'globals']
+      npm-minor-and-patch:
+        update-types: ['minor', 'patch']
     ignore:
-      # typescript-eslint (8.74) supports TypeScript below 6.1 only, so a TypeScript major in the
-      # dev-tooling group fails `npm ci` with ERESOLVE and holds every other tool update back with it.
-      # Drop this once typescript-eslint's peer range includes the next major.
+      # typescript-eslint (8.74) supports TypeScript below 6.1 only, so a TypeScript major fails
+      # `npm ci` with ERESOLVE. Drop this once typescript-eslint's peer range includes the next major.
       - dependency-name: typescript
         update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ['*']
