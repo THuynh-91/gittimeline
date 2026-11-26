@@ -23,7 +23,7 @@ export function Panels() {
   if (id === 'none') return null;
   const titles: Record<PanelId, string> = { none: '', inspector: 'Commit', settings: 'Settings', help: 'How it works', events: 'Events' };
   return (
-    <aside class="panel" role="dialog" aria-label={titles[id]} data-testid={`panel-${id}`}>
+    <div class="panel" role="dialog" aria-label={titles[id]} data-testid={`panel-${id}`}>
       <header>
         <h2>{titles[id]}</h2>
         <button type="button" class="icon-btn" aria-label="Close panel" onClick={() => (store.panel.value = 'none')}>
@@ -36,7 +36,7 @@ export function Panels() {
         {id === 'help' && <HelpPanel />}
         {id === 'events' && <EventsPanel />}
       </div>
-    </aside>
+    </div>
   );
 }
 
